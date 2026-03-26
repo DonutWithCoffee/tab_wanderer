@@ -1,9 +1,13 @@
+importScripts('version.js');
+
 let ordersDB = {};
 let ordersHashDB = {};
 let workerTabId = null;
 let lastBaselineDate = null;
+let isRunning = false;
 
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
+const WORKER_MARK = '#tab_wanderer_worker=1';
 
 // ---------- LOGGER ----------
 const LOG_LEVEL = 'DEBUG';
@@ -24,7 +28,10 @@ function log(level, scope, ...args) {
     console.log(`[BG][${level}][${scope}]`, ...args);
 }
 
-// ---------- STORAGE DEBUG ----------
+// ---------- INIT ----------
+log('INFO', 'VERSION', VERSION);
+
+// ---------- STATE ----------
 function logState(scope = 'STATE') {
     const ids = Object.keys(ordersDB);
     const lastIds = ids.slice(-5);
@@ -33,16 +40,17 @@ function logState(scope = 'STATE') {
         totalOrders: ids.length,
         totalHashes: Object.keys(ordersHashDB).length,
         lastOrders: lastIds,
-        lastBaselineDate
+        lastBaselineDate,
+        isRunning,
+        workerTabId
     });
 }
 
-// ---------- NORMALIZE ----------
+// ---------- HELPERS ----------
 function normalize(v) {
     return (v || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-// ---------- HASH ----------
 function getHash(o) {
     return [
         o.id,
@@ -56,34 +64,68 @@ function todayKey() {
     return new Date().toDateString();
 }
 
-// ---------- WORKER TAB ----------
+// ---------- CLEANUP ----------
+async function cleanupOldWorkers() {
+    const tabs = await chrome.tabs.query({});
+
+    for (const tab of tabs) {
+        if (!tab.url) continue;
+
+        if (tab.url.includes(WORKER_MARK) && tab.id !== workerTabId) {
+            try {
+                await chrome.tabs.remove(tab.id);
+                log('INFO', 'CLEANUP', `removed old worker ${tab.id}`);
+            } catch (e) {
+                log('WARN', 'CLEANUP', 'failed', tab.id);
+            }
+        }
+    }
+}
+
+// ---------- WORKER ----------
 async function ensureWorkerTab() {
+
+    if (!isRunning) return;
+
+    const windows = await chrome.windows.getAll();
+
+    if (!windows || windows.length === 0) {
+        log('WARN', 'WORKER', 'no window, retry later');
+        setTimeout(ensureWorkerTab, 3000);
+        return;
+    }
+
     if (workerTabId) {
         try {
             const tab = await chrome.tabs.get(workerTabId);
             if (tab) return;
         } catch {
-            log('WARN', 'WORKER', 'missing → recreating');
+            workerTabId = null;
         }
     }
 
     const tab = await chrome.tabs.create({
-        url: TARGET_URL,
-        active: false,
-        pinned: true
+        url: TARGET_URL + WORKER_MARK,
+        active: false
     });
+
+    await chrome.tabs.update(tab.id, { pinned: true });
 
     workerTabId = tab.id;
 
     log('INFO', 'WORKER', `created id=${workerTabId}`);
+
     save();
 }
 
+// если вкладку закрыли
 chrome.tabs.onRemoved.addListener((tabId) => {
     if (tabId === workerTabId) {
-        log('WARN', 'WORKER', 'closed → recreating');
         workerTabId = null;
-        ensureWorkerTab();
+
+        if (isRunning) {
+            ensureWorkerTab();
+        }
     }
 });
 
@@ -93,18 +135,27 @@ async function load() {
         'ordersDB',
         'ordersHashDB',
         'lastBaselineDate',
-        'workerTabId'
+        'workerTabId',
+        'isRunning'
     ]);
 
     ordersDB = d.ordersDB || {};
     ordersHashDB = d.ordersHashDB || {};
     lastBaselineDate = d.lastBaselineDate || null;
     workerTabId = d.workerTabId || null;
+    isRunning = d.isRunning || false;
+
+    if (!isRunning) {
+        workerTabId = null;
+    }
 
     log('INFO', 'INIT', 'state loaded');
     logState('LOAD');
 
-    ensureWorkerTab();
+    if (isRunning) {
+        await cleanupOldWorkers();
+        ensureWorkerTab();
+    }
 }
 
 async function save() {
@@ -112,7 +163,8 @@ async function save() {
         ordersDB,
         ordersHashDB,
         lastBaselineDate,
-        workerTabId
+        workerTabId,
+        isRunning
     });
 
     logState('SAVE');
@@ -120,7 +172,6 @@ async function save() {
 
 // ---------- NOTIFY ----------
 function notifyOrder(o) {
-
     const message = [
         `Статус: ${o.status}`,
         `Доставка: ${o.delivery}`,
@@ -137,7 +188,6 @@ function notifyOrder(o) {
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
-
     const db = {};
     const hash = {};
 
@@ -159,16 +209,13 @@ function runBaseline(orders, reason = 'auto') {
 
 // ---------- CORE ----------
 function processOrders(orders, options = {}) {
-
     const { testMode = false } = options;
 
     log('INFO', 'PROCESS', `orders=${orders.length} testMode=${testMode}`);
 
     for (const o of orders) {
-
         if (!o.id) continue;
 
-        // ignore пустых оплат
         if (!o.payment || o.payment === '–') {
             log('DEBUG', 'SKIP', 'empty payment', o.id);
             continue;
@@ -188,10 +235,8 @@ function processOrders(orders, options = {}) {
             next: newHash
         });
 
-        // 🔥 уведомления теперь всегда есть
         notifyOrder(o);
 
-        // ❗ но DB не трогаем в тестах
         if (!testMode) {
             ordersDB[o.id] = o;
             ordersHashDB[o.id] = newHash;
@@ -215,26 +260,61 @@ function shouldRunAutoBaseline() {
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
     const senderTabId = sender?.tab?.id;
+    const tab = sender?.tab;
 
     if (msg.type === 'CHECK_WORKER') {
-        send({ isWorker: senderTabId === workerTabId });
+
+        const isSameTab = senderTabId === workerTabId;
+
+        if (isSameTab) {
+            send({ isWorker: true, isRunning });
+            return true;
+        }
+
+        const isCorrectUrl = tab?.url?.startsWith(TARGET_URL);
+
+        if (isCorrectUrl && (!workerTabId || senderTabId === workerTabId)) {
+            workerTabId = senderTabId;
+
+            log('WARN', 'WORKER', 'rebind');
+
+            save();
+
+            send({ isWorker: true, isRunning });
+            return true;
+        }
+
+        send({ isWorker: false, isRunning });
         return true;
     }
 
-    if (msg.type === 'MANUAL_BASELINE') {
-        runBaseline(msg.data, 'manual');
+    if (msg.type === 'START') {
+        isRunning = true;
+
+        log('INFO', 'CONTROL', 'START');
+
+        if (workerTabId) {
+            try {
+                chrome.tabs.remove(workerTabId);
+            } catch {
+                log('WARN', 'WORKER', 'remove failed');
+            }
+        }
+
+        workerTabId = null;
+
+        ensureWorkerTab();
+
+        save();
+
         send({ ok: true });
         return true;
     }
 
-    if (msg.type === 'RESET_BASELINE') {
+    if (msg.type === 'STOP') {
+        isRunning = false;
 
-        ordersDB = {};
-        ordersHashDB = {};
-        lastBaselineDate = null;
-
-        log('WARN', 'BASELINE', 'manual reset');
-        logState('RESET');
+        log('INFO', 'CONTROL', 'STOP');
 
         save();
 
@@ -246,8 +326,12 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
         const isTest = msg.isTest === true;
 
+        if (!isRunning && !isTest) {
+            send({ ignored: true });
+            return true;
+        }
+
         if (!isTest && senderTabId !== workerTabId) {
-            log('DEBUG', 'FILTER', 'not worker tab');
             send({ ignored: true });
             return true;
         }
@@ -279,4 +363,3 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
 // ---------- INIT ----------
 load();
-log('INFO', 'VERSION', chrome.runtime.getManifest().version);

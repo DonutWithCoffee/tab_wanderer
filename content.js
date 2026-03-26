@@ -34,7 +34,6 @@ function getColumnMap() {
 
     log('DEBUG', 'MAP', map);
 
-    // 🔴 защита
     if (
         map.status === undefined ||
         map.delivery === undefined ||
@@ -98,7 +97,7 @@ function sendOrders() {
     });
 }
 
-// ---------- START ----------
+// ---------- CONTROL ----------
 function start() {
 
     if (reloadTimer) return;
@@ -113,11 +112,27 @@ function start() {
     }, 30000);
 }
 
+function stop() {
+    if (!reloadTimer) return;
+
+    clearInterval(reloadTimer);
+    reloadTimer = null;
+
+    log('INFO', 'STOP', 'worker stopped');
+}
+
 // ---------- INIT ----------
 chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
 
     if (!res?.isWorker) {
         log('DEBUG', 'INIT', 'not worker → stop');
+        stop();
+        return;
+    }
+
+    if (!res?.isRunning) {
+        log('DEBUG', 'INIT', 'plugin stopped');
+        stop();
         return;
     }
 
