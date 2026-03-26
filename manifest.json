@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Amperkot Notifier",
+  "version": "0.9",
+  "permissions": [
+    "tabs",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://amperkot.ru/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://amperkot.ru/admin/orders*"],
+      "js": ["content.js"]
+    }
+  ]
+}

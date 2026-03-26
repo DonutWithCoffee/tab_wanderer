@@ -1,0 +1,125 @@
+const LOG_LEVEL = 'DEBUG';
+
+const LEVELS = {
+    DEBUG: 0,
+    INFO: 1,
+    WARN: 2,
+    ERROR: 3
+};
+
+function shouldLog(level) {
+    return LEVELS[level] >= LEVELS[LOG_LEVEL];
+}
+
+function log(level, scope, ...args) {
+    if (!shouldLog(level)) return;
+    console.log(`[CONTENT][${level}][${scope}]`, ...args);
+}
+
+let reloadTimer = null;
+
+// ---------- COLUMN MAP ----------
+function getColumnMap() {
+    const headers = document.querySelectorAll('thead th');
+    const map = {};
+
+    headers.forEach((th, index) => {
+        const text = th.innerText.trim().toLowerCase();
+
+        if (text.includes('статус')) map.status = index;
+        if (text.includes('доставка')) map.delivery = index;
+        if (text.includes('оплата')) map.payment = index;
+        if (text.includes('дата')) map.date = index;
+    });
+
+    log('DEBUG', 'MAP', map);
+
+    // 🔴 защита
+    if (
+        map.status === undefined ||
+        map.delivery === undefined ||
+        map.payment === undefined
+    ) {
+        log('ERROR', 'MAP', 'columns not found', map);
+        return null;
+    }
+
+    return map;
+}
+
+// ---------- PARSE ----------
+function parseOrders() {
+
+    const map = getColumnMap();
+    if (!map) return [];
+
+    const rows = document.querySelectorAll('tr[data-order-id]');
+    const result = [];
+
+    rows.forEach(r => {
+
+        const id = r.getAttribute('data-order-id');
+        if (!id) return;
+
+        const cells = r.querySelectorAll('td');
+
+        const status = cells[map.status]?.innerText?.trim() || '';
+        const delivery = cells[map.delivery]?.innerText?.trim() || '';
+        const payment = cells[map.payment]?.innerText?.trim() || '';
+        const date = cells[map.date]?.innerText?.trim() || '';
+
+        result.push({
+            id,
+            status,
+            delivery,
+            payment,
+            date
+        });
+    });
+
+    log('INFO', 'PARSE', `orders=${result.length}`);
+
+    return result;
+}
+
+// ---------- SEND ----------
+function sendOrders() {
+    const orders = parseOrders();
+
+    if (!orders.length) return;
+
+    chrome.runtime.sendMessage({
+        type: 'ORDERS',
+        data: orders
+    }, () => {
+        if (chrome.runtime.lastError) {
+            log('ERROR', 'SEND', chrome.runtime.lastError.message);
+        }
+    });
+}
+
+// ---------- START ----------
+function start() {
+
+    if (reloadTimer) return;
+
+    log('INFO', 'START', 'worker active');
+
+    sendOrders();
+
+    reloadTimer = setInterval(() => {
+        log('DEBUG', 'RELOAD', 'refresh page');
+        location.reload();
+    }, 30000);
+}
+
+// ---------- INIT ----------
+chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
+
+    if (!res?.isWorker) {
+        log('DEBUG', 'INIT', 'not worker → stop');
+        return;
+    }
+
+    start();
+});
