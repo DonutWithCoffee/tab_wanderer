@@ -168,7 +168,7 @@ function processOrders(orders, options = {}) {
 
         if (!o.id) continue;
 
-        // 🟡 мягкий ignore
+        // ignore пустых оплат
         if (!o.payment || o.payment === '–') {
             log('DEBUG', 'SKIP', 'empty payment', o.id);
             continue;
@@ -188,8 +188,11 @@ function processOrders(orders, options = {}) {
             next: newHash
         });
 
+        // 🔥 уведомления теперь всегда есть
+        notifyOrder(o);
+
+        // ❗ но DB не трогаем в тестах
         if (!testMode) {
-            notifyOrder(o);
             ordersDB[o.id] = o;
             ordersHashDB[o.id] = newHash;
         }
@@ -276,3 +279,4 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
 // ---------- INIT ----------
 load();
+log('INFO', 'VERSION', chrome.runtime.getManifest().version);

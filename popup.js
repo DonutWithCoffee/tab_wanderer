@@ -44,3 +44,8 @@ document.getElementById('test').onclick = () => {
         isTest: true
     });
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+    const version = chrome.runtime.getManifest().version;
+    document.getElementById('version').innerText = `v${version}`;
+});

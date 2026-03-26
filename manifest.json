@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Amperkot Notifier",
+  "name": "Tab Wanderer",
   "version": "0.9",
   "permissions": [
     "tabs",
