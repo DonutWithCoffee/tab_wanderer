@@ -51,6 +51,7 @@ function getColumnMap() {
         if (text.includes('доставка')) map.delivery = index;
         if (text.includes('оплата')) map.payment = index;
         if (text.includes('дата')) map.date = index;
+        if (text.includes('контрагент')) map.contractor = index;
     });
 
     if (
@@ -92,7 +93,12 @@ function parseOrders() {
         const status = cells[map.status]?.innerText?.trim() || '';
         const delivery = cells[map.delivery]?.innerText?.trim() || '';
         const payment = cells[map.payment]?.innerText?.trim() || '';
-        const date = cells[map.date]?.innerText?.trim() || '';
+        const date = map.date !== undefined
+    ? (cells[map.date]?.innerText?.trim() || '')
+    : '';
+        const contractor = map.contractor !== undefined
+            ? (cells[map.contractor]?.innerText?.trim() || '')
+            : '';
 
         result.push({
             id: displayId,
@@ -100,6 +106,7 @@ function parseOrders() {
             delivery,
             payment,
             date,
+            contractor,
             orderUrl
         });
     });

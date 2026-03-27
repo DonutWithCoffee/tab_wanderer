@@ -63,7 +63,9 @@ function getHash(o) {
         o.id,
         normalize(o.status),
         normalize(o.delivery),
-        normalize(o.payment)
+        normalize(o.payment),
+        normalize(o.contractor),
+        normalize(o.date)
     ].join('|');
 }
 

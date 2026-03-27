@@ -10,7 +10,7 @@ Chrome extension для автоматического отслеживания 
 
 Это уже не прототип. Текущее ядро считается стабильной базой, поверх которой развиваются rules layer и feature layer.
 
-Текущая версия: **v0.9.4**
+Текущая версия: v0.9.3-dev
 
 ---
 
@@ -248,7 +248,7 @@ Core включает:
 
 ---
 
-## Что реализовано в v0.9.4
+## Что реализовано в 0.9.3-dev
 
 В рамках этапа **Notification Hardening** в текущей версии уже есть:
 
@@ -265,6 +265,6 @@ Core включает:
 
 ## Versioning
 
-- `v0.9.4` — stable core / notification hardening step 1
+- `0.9.3-dev` — stable core / notification hardening step 1
 - `v1.0.0` — release only после выполнения Definition of Done
 - релизные артефакты (`manifest.json`, `version.js`, `README`, popup version) должны быть синхронизированы
