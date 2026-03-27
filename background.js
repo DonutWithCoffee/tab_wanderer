@@ -73,10 +73,10 @@ async function cleanupOldWorkers() {
     for (const tab of tabs) {
         if (!tab.url) continue;
 
-        if (tab.url.includes(WORKER_MARK) && tab.id !== workerTabId) {
+        if (tab.url.includes(WORKER_MARK)) {
             try {
                 await chrome.tabs.remove(tab.id);
-                log('INFO', 'CLEANUP', `removed old worker ${tab.id}`);
+                log('INFO', 'CLEANUP', `removed worker ${tab.id}`);
             } catch {
                 log('WARN', 'CLEANUP', 'failed', tab.id);
             }
@@ -137,26 +137,23 @@ async function load() {
         'ordersDB',
         'ordersHashDB',
         'lastBaselineDate',
-        'workerTabId',
         'isRunning'
     ]);
 
     ordersDB = d.ordersDB || {};
     ordersHashDB = d.ordersHashDB || {};
     lastBaselineDate = d.lastBaselineDate || null;
-    workerTabId = d.workerTabId || null;
     isRunning = d.isRunning || false;
 
-    if (!isRunning) {
-        workerTabId = null;
-    }
+    // ❗ КРИТИЧЕСКИЙ FIX
+    workerTabId = null;
 
     log('INFO', 'INIT', 'state loaded');
     logState('LOAD');
 
     if (isRunning) {
         await cleanupOldWorkers();
-        ensureWorkerTab();
+        await ensureWorkerTab();
     }
 }
 
