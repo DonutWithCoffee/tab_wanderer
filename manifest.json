@@ -18,8 +18,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://amperkot.ru/admin/orders*"],
-      "js": ["content.js"]
+      "matches": [
+        "https://amperkot.ru/admin/orders*"
+      ],
+      "js": [
+        "content.js"
+      ]
     }
   ]
 }
