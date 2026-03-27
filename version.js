@@ -1,7 +1,7 @@
 const VERSION = {
-   version: "0.9.1",
-build: "0.9.1",
-stage: "stable",
+   version: "0.9.2",
+build: "0.9.2-dev",
+stage: "dev",
 date: "2026-03-27"
 };
 
