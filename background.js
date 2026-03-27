@@ -55,7 +55,12 @@ function logState(scope = 'STATE') {
 
 // ---------- HELPERS ----------
 function normalize(v) {
-    return (v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return (v || '')
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/[–-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 function getHash(o) {
@@ -390,28 +395,39 @@ function processOrders(orders, options = {}) {
             next: newHash
         });
 
-        const decision = evaluateNotification(order, {
-            prevOrder,
-            prevHash,
-            newHash,
-            isNewOrder: !prevOrder
+        const isNewOrder = !prevOrder;
+
+if (isNewOrder) {
+    log('INFO', 'NEW_ORDER', {
+        id: order.id
+    });
+
+    notifyOrder(order);
+} else {
+    
+    const decision = evaluateNotification(order, {
+        prevOrder,
+        prevHash,
+        newHash,
+        isNewOrder
+    });
+
+    if (!decision.notify) {
+        log('INFO', 'RULES', {
+            id: order.id,
+            action: decision.action,
+            ruleId: decision.ruleId,
+            reason: decision.reason
         });
+    } else {
+        notifyOrder(order);
+    }
+}
 
-        if (!decision.notify) {
-            log('INFO', 'RULES', {
-                id: order.id,
-                action: decision.action,
-                ruleId: decision.ruleId,
-                reason: decision.reason
-            });
-        } else {
-            notifyOrder(order);
-        }
-
-        if (!testMode) {
-            ordersDB[order.id] = order;
-            ordersHashDB[order.id] = newHash;
-        }
+if (!testMode) {
+    ordersDB[order.id] = order;
+    ordersHashDB[order.id] = newHash;
+}
     }
 
     if (!testMode && hasChanges) {

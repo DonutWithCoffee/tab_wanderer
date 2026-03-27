@@ -94,8 +94,8 @@ function parseOrders() {
         const delivery = cells[map.delivery]?.innerText?.trim() || '';
         const payment = cells[map.payment]?.innerText?.trim() || '';
         const date = map.date !== undefined
-    ? (cells[map.date]?.innerText?.trim() || '')
-    : '';
+            ? (cells[map.date]?.innerText?.trim() || '')
+            : '';
         const contractor = map.contractor !== undefined
             ? (cells[map.contractor]?.innerText?.trim() || '')
             : '';
