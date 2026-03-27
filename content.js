@@ -18,6 +18,21 @@ function log(level, scope, ...args) {
 
 let reloadTimer = null;
 
+// ---------- RETRY SEND ----------
+function sendWithRetry(payload, retries = 3) {
+    chrome.runtime.sendMessage(payload, () => {
+        if (chrome.runtime.lastError) {
+            log('WARN', 'SEND', 'retry...', chrome.runtime.lastError.message);
+
+            if (retries > 0) {
+                setTimeout(() => sendWithRetry(payload, retries - 1), 1000);
+            } else {
+                log('ERROR', 'SEND', 'failed after retries');
+            }
+        }
+    });
+}
+
 // ---------- COLUMN MAP ----------
 function getColumnMap() {
     const headers = document.querySelectorAll('thead th');
@@ -31,8 +46,6 @@ function getColumnMap() {
         if (text.includes('оплата')) map.payment = index;
         if (text.includes('дата')) map.date = index;
     });
-
-    log('DEBUG', 'MAP', map);
 
     if (
         map.status === undefined ||
@@ -87,13 +100,9 @@ function sendOrders() {
 
     if (!orders.length) return;
 
-    chrome.runtime.sendMessage({
+    sendWithRetry({
         type: 'ORDERS',
         data: orders
-    }, () => {
-        if (chrome.runtime.lastError) {
-            log('ERROR', 'SEND', chrome.runtime.lastError.message);
-        }
     });
 }
 
@@ -125,13 +134,11 @@ function stop() {
 chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
 
     if (!res?.isWorker) {
-        log('DEBUG', 'INIT', 'not worker → stop');
         stop();
         return;
     }
 
     if (!res?.isRunning) {
-        log('DEBUG', 'INIT', 'plugin stopped');
         stop();
         return;
     }

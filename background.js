@@ -6,6 +6,8 @@ let workerTabId = null;
 let lastBaselineDate = null;
 let isRunning = false;
 
+let lastPing = Date.now();
+
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
 
@@ -75,7 +77,7 @@ async function cleanupOldWorkers() {
             try {
                 await chrome.tabs.remove(tab.id);
                 log('INFO', 'CLEANUP', `removed old worker ${tab.id}`);
-            } catch (e) {
+            } catch {
                 log('WARN', 'CLEANUP', 'failed', tab.id);
             }
         }
@@ -225,7 +227,6 @@ function processOrders(orders, options = {}) {
         const prevHash = ordersHashDB[o.id];
 
         if (newHash === prevHash) {
-            log('DEBUG', 'HASH', `skip id=${o.id}`);
             continue;
         }
 
@@ -256,109 +257,146 @@ function shouldRunAutoBaseline() {
     return now.getHours() >= 9;
 }
 
-// ---------- MESSAGES ----------
-chrome.runtime.onMessage.addListener((msg, sender, send) => {
+// ---------- WATCHDOG ----------
+setInterval(() => {
+    if (!isRunning || !workerTabId) return;
 
-    const senderTabId = sender?.tab?.id;
-    const tab = sender?.tab;
+    const diff = Date.now() - lastPing;
 
-    if (msg.type === 'CHECK_WORKER') {
+    if (diff > 60000) {
+        log('WARN', 'WATCHDOG', 'worker dead, restarting');
 
-        const isSameTab = senderTabId === workerTabId;
-
-        if (isSameTab) {
-            send({ isWorker: true, isRunning });
-            return true;
-        }
-
-        const isCorrectUrl = tab?.url?.startsWith(TARGET_URL);
-
-        if (isCorrectUrl && (!workerTabId || senderTabId === workerTabId)) {
-            workerTabId = senderTabId;
-
-            log('WARN', 'WORKER', 'rebind');
-
-            save();
-
-            send({ isWorker: true, isRunning });
-            return true;
-        }
-
-        send({ isWorker: false, isRunning });
-        return true;
-    }
-
-    if (msg.type === 'START') {
-        isRunning = true;
-
-        log('INFO', 'CONTROL', 'START');
-
-        if (workerTabId) {
-            try {
-                chrome.tabs.remove(workerTabId);
-            } catch {
-                log('WARN', 'WORKER', 'remove failed');
-            }
-        }
-
+        chrome.tabs.remove(workerTabId).catch(() => {});
         workerTabId = null;
 
         ensureWorkerTab();
-
-        save();
-
-        send({ ok: true });
-        return true;
     }
 
-    if (msg.type === 'STOP') {
-        isRunning = false;
+}, 30000);
 
-        log('INFO', 'CONTROL', 'STOP');
+// ---------- MESSAGES ----------
+chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
-        save();
+    (async () => {
 
-        send({ ok: true });
-        return true;
-    }
+        const senderTabId = sender?.tab?.id;
+        const tab = sender?.tab;
 
-    if (msg.type === 'ORDERS') {
+        if (msg.type === 'CHECK_WORKER') {
 
-        const isTest = msg.isTest === true;
+            const isSameTab = senderTabId === workerTabId;
 
-        if (!isRunning && !isTest) {
-            send({ ignored: true });
-            return true;
+            if (isSameTab) {
+                send({ isWorker: true, isRunning });
+                return;
+            }
+
+            const isCorrectUrl = tab?.url?.startsWith(TARGET_URL);
+
+            if (isCorrectUrl && (!workerTabId || senderTabId === workerTabId)) {
+                workerTabId = senderTabId;
+
+                log('WARN', 'WORKER', 'rebind');
+
+                save();
+
+                send({ isWorker: true, isRunning });
+                return;
+            }
+
+            send({ isWorker: false, isRunning });
+            return;
         }
 
-        if (!isTest && senderTabId !== workerTabId) {
-            send({ ignored: true });
-            return true;
-        }
+        if (msg.type === 'START') {
+            isRunning = true;
 
-        if (isTest) {
-            processOrders(msg.data, { testMode: true });
+            log('INFO', 'CONTROL', 'START');
+
+            const oldTabId = workerTabId;
+            workerTabId = null;
+
+            if (oldTabId) {
+                try {
+                    await chrome.tabs.remove(oldTabId);
+                } catch {
+                    log('WARN', 'WORKER', 'remove failed');
+                }
+            }
+
+            await cleanupOldWorkers();
+            await ensureWorkerTab();
+
+            save();
+
             send({ ok: true });
-            return true;
+            return;
         }
 
-        const isEmptyDB = Object.keys(ordersDB).length === 0;
+        if (msg.type === 'STOP') {
+            isRunning = false;
 
-        if (isEmptyDB) {
-            runBaseline(msg.data, 'init');
-        } else if (!lastBaselineDate && shouldRunAutoBaseline()) {
-            runBaseline(msg.data, 'auto');
-        } else if (!lastBaselineDate) {
-            runBaseline(msg.data, 'first');
-        } else {
-            processOrders(msg.data);
+            log('INFO', 'CONTROL', 'STOP');
+
+            if (workerTabId) {
+                try {
+                    await chrome.tabs.remove(workerTabId);
+                } catch {
+                    log('WARN', 'WORKER', 'failed to remove on stop');
+                }
+            }
+
+            workerTabId = null;
+
+            save();
+
+            send({ ok: true });
+            return;
         }
 
-        send({ ok: true });
-        return true;
-    }
+        if (msg.type === 'ORDERS') {
 
-    return false;
+            const isTest = msg.isTest === true;
+
+            if (!isTest) {
+                lastPing = Date.now();
+            }
+
+            if (!isRunning && !isTest) {
+                send({ ignored: true });
+                return;
+            }
+
+            if (!isTest && senderTabId !== workerTabId) {
+                send({ ignored: true });
+                return;
+            }
+
+            if (isTest) {
+                processOrders(msg.data, { testMode: true });
+                send({ ok: true });
+                return;
+            }
+
+            const isEmptyDB = Object.keys(ordersDB).length === 0;
+
+            if (isEmptyDB) {
+                runBaseline(msg.data, 'init');
+            } else if (!lastBaselineDate && shouldRunAutoBaseline()) {
+                runBaseline(msg.data, 'auto');
+            } else if (!lastBaselineDate) {
+                runBaseline(msg.data, 'first');
+            } else {
+                processOrders(msg.data);
+            }
+
+            send({ ok: true });
+            return;
+        }
+
+    })();
+
+    return true;
 });
 
 // ---------- INIT ----------
