@@ -1,12 +1,14 @@
-importScripts('version.js');
+importScripts('version.js', 'notification-rules.js');
 
 let ordersDB = {};
 let ordersHashDB = {};
+let notificationTargets = {};
 let workerTabId = null;
 let lastBaselineDate = null;
 let isRunning = false;
 
 let lastPing = Date.now();
+let workerActivatedAt = Date.now();
 let isCreatingWorker = false;
 let isCleaningUp = false;
 let isStarting = false;
@@ -69,11 +71,20 @@ function todayKey() {
     return new Date().toDateString();
 }
 
+async function getMarkedWorkerTabs() {
+    const tabs = await chrome.tabs.query({});
+
+    return tabs.filter(tab => {
+        return !!tab.url && tab.url.includes(WORKER_MARK);
+    });
+}
+
 // ---------- STORAGE ----------
 async function save() {
     await chrome.storage.local.set({
         ordersDB,
         ordersHashDB,
+        notificationTargets,
         lastBaselineDate,
         workerTabId,
         isRunning
@@ -86,12 +97,14 @@ async function load() {
     const d = await chrome.storage.local.get([
         'ordersDB',
         'ordersHashDB',
+        'notificationTargets',
         'lastBaselineDate',
         'isRunning'
     ]);
 
     ordersDB = d.ordersDB || {};
     ordersHashDB = d.ordersHashDB || {};
+    notificationTargets = d.notificationTargets || {};
     lastBaselineDate = d.lastBaselineDate || null;
     isRunning = d.isRunning || false;
 
@@ -113,25 +126,74 @@ async function load() {
 async function cleanupOldWorkers() {
     isCleaningUp = true;
 
-    const tabs = await chrome.tabs.query({});
+    try {
+        const tabs = await chrome.tabs.query({});
 
-    for (const tab of tabs) {
-        if (!tab.url) continue;
+        for (const tab of tabs) {
+            if (!tab.url) continue;
 
-        if (tab.url.includes(WORKER_MARK)) {
-            try {
-                await chrome.tabs.remove(tab.id);
-                log('INFO', 'CLEANUP', `removed worker ${tab.id}`);
-            } catch {
-                log('WARN', 'CLEANUP', 'failed', tab.id);
+            if (tab.url.includes(WORKER_MARK)) {
+                try {
+                    await chrome.tabs.remove(tab.id);
+                    log('INFO', 'CLEANUP', `removed worker ${tab.id}`);
+                } catch {
+                    log('WARN', 'CLEANUP', 'failed', tab.id);
+                }
             }
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 300));
+    } finally {
+        isCleaningUp = false;
+    }
+}
+
+async function adoptExistingWorkerTab() {
+    const workerTabs = await getMarkedWorkerTabs();
+
+    if (!workerTabs.length) {
+        return false;
+    }
+
+    workerTabs.sort((a, b) => a.id - b.id);
+
+    const primaryTab = workerTabs[0];
+    const duplicateTabs = workerTabs.slice(1);
+
+    for (const tab of duplicateTabs) {
+        try {
+            await chrome.tabs.remove(tab.id);
+            log('INFO', 'CLEANUP', `removed duplicate worker ${tab.id}`);
+        } catch {
+            log('WARN', 'CLEANUP', 'failed', tab.id);
         }
     }
 
-    // ❗ даём Chrome применить изменения
-    await new Promise(res => setTimeout(res, 300));
+    if (workerRetryTimer) {
+        clearTimeout(workerRetryTimer);
+        workerRetryTimer = null;
+    }
 
-    isCleaningUp = false;
+    try {
+        await chrome.tabs.update(primaryTab.id, { pinned: true });
+    } catch {}
+
+    workerTabId = primaryTab.id;
+    workerActivatedAt = Date.now();
+    lastPing = workerActivatedAt;
+
+    log('INFO', 'WORKER', 'adopted existing', `id=${primaryTab.id}`);
+
+    try {
+        await chrome.tabs.reload(primaryTab.id);
+        log('INFO', 'WORKER', 'reloaded adopted worker', `id=${primaryTab.id}`);
+    } catch (err) {
+        log('WARN', 'WORKER', 'failed to reload adopted worker', err?.message || err);
+    }
+
+    await save();
+
+    return true;
 }
 
 // ---------- WORKER ----------
@@ -156,13 +218,17 @@ async function ensureWorkerTab() {
             return;
         }
 
-        // ❗ КРИТИЧНЫЙ ФИКС — УБИВАЕМ RETRY ПЕРЕД ВСЕМ
         if (workerRetryTimer) {
             clearTimeout(workerRetryTimer);
             workerRetryTimer = null;
         }
 
-        // ❗ ЧИСТИМ СТАРЫЕ ВКЛАДКИ
+        const adopted = await adoptExistingWorkerTab();
+
+        if (adopted) {
+            return;
+        }
+
         await cleanupOldWorkers();
 
         const newTab = await chrome.tabs.create({
@@ -172,11 +238,12 @@ async function ensureWorkerTab() {
         });
 
         workerTabId = newTab.id;
+        workerActivatedAt = Date.now();
+        lastPing = workerActivatedAt;
 
         log('INFO', 'WORKER', 'created', `id=${newTab.id}`);
 
-        save();
-
+        await save();
     } finally {
         isCreatingWorker = false;
     }
@@ -201,23 +268,86 @@ function notifyOrder(o) {
         `Оплата: ${o.payment}`
     ].join('\n');
 
+    log('INFO', 'NOTIFY', 'creating notification', {
+        orderId: o.id,
+        orderUrl: o.orderUrl || '',
+        message
+    });
+
     chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icon.png',
         title: `Заказ №${o.id}`,
         message
+    }, async (notificationId) => {
+        if (chrome.runtime.lastError) {
+            log('ERROR', 'NOTIFY', chrome.runtime.lastError.message);
+            return;
+        }
+
+        if (o.orderUrl) {
+            notificationTargets[notificationId] = {
+                orderId: o.id,
+                orderUrl: o.orderUrl
+            };
+
+            await save();
+        }
+
+        log('INFO', 'NOTIFY', 'created', notificationId);
     });
 }
+
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+    const target = notificationTargets[notificationId];
+
+    if (!target?.orderUrl) {
+        log('WARN', 'NOTIFY_CLICK', 'target not found', notificationId);
+        return;
+    }
+
+    try {
+        await chrome.tabs.create({
+            url: target.orderUrl,
+            active: true
+        });
+
+        log('INFO', 'NOTIFY_CLICK', {
+            notificationId,
+            orderId: target.orderId,
+            orderUrl: target.orderUrl
+        });
+    } catch (err) {
+        log('ERROR', 'NOTIFY_CLICK', err?.message || err);
+        return;
+    }
+
+    delete notificationTargets[notificationId];
+    await save();
+
+    chrome.notifications.clear(notificationId);
+});
+
+chrome.notifications.onClosed.addListener(async (notificationId) => {
+    if (!notificationTargets[notificationId]) {
+        return;
+    }
+
+    delete notificationTargets[notificationId];
+    await save();
+
+    log('DEBUG', 'NOTIFY', 'cleared target on close', notificationId);
+});
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
     const db = {};
     const hash = {};
 
-    orders.forEach(o => {
-        if (!o.id) return;
-        db[o.id] = o;
-        hash[o.id] = getHash(o);
+    orders.forEach(order => {
+        if (!order.id) return;
+        db[order.id] = order;
+        hash[order.id] = getHash(order);
     });
 
     ordersDB = db;
@@ -234,36 +364,55 @@ function runBaseline(orders, reason = 'auto') {
 function processOrders(orders, options = {}) {
     const { testMode = false } = options;
 
+    let hasChanges = false;
+
     log('INFO', 'PROCESS', `orders=${orders.length} testMode=${testMode}`);
 
-    for (const o of orders) {
-        if (!o.id) continue;
+    for (const order of orders) {
+        if (!order.id) continue;
 
-        if (!o.payment || o.payment === '–') {
-            log('DEBUG', 'SKIP', 'empty payment', o.id);
+        const newHash = getHash(order);
+        const prevHash = ordersHashDB[order.id];
+
+        if (newHash === prevHash) {
             continue;
         }
 
-        const newHash = getHash(o);
-        const prevHash = ordersHashDB[o.id];
+        hasChanges = true;
 
-        if (newHash === prevHash) continue;
+        const prevOrder = ordersDB[order.id] || null;
 
         log('INFO', 'CHANGE', {
-            id: o.id,
+            id: order.id,
             prev: prevHash,
             next: newHash
         });
 
-        notifyOrder(o);
+        const decision = evaluateNotification(order, {
+            prevOrder,
+            prevHash,
+            newHash,
+            isNewOrder: !prevOrder
+        });
+
+        if (!decision.notify) {
+            log('INFO', 'RULES', {
+                id: order.id,
+                action: decision.action,
+                ruleId: decision.ruleId,
+                reason: decision.reason
+            });
+        } else {
+            notifyOrder(order);
+        }
 
         if (!testMode) {
-            ordersDB[o.id] = o;
-            ordersHashDB[o.id] = newHash;
+            ordersDB[order.id] = order;
+            ordersHashDB[order.id] = newHash;
         }
     }
 
-    if (!testMode) {
+    if (!testMode && hasChanges) {
         logState('PROCESS');
         save();
     }
@@ -273,7 +422,8 @@ function processOrders(orders, options = {}) {
 setInterval(() => {
     if (!isRunning || !workerTabId) return;
 
-    const diff = Date.now() - lastPing;
+    const referenceTime = Math.max(lastPing, workerActivatedAt);
+    const diff = Date.now() - referenceTime;
 
     if (diff > 60000) {
         log('WARN', 'WATCHDOG', 'worker dead, restarting');
@@ -283,20 +433,16 @@ setInterval(() => {
 
         ensureWorkerTab();
     }
-
 }, 30000);
 
 // ---------- MESSAGES ----------
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
     (async () => {
-
         try {
-
             const senderTabId = sender?.tab?.id;
             const senderTab = sender?.tab;
 
             if (msg.type === 'CHECK_WORKER') {
-
                 const isCorrectUrl = senderTab?.url?.includes(WORKER_MARK);
 
                 if (senderTabId === workerTabId) {
@@ -304,8 +450,10 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
-                if (!workerTabId && isCorrectUrl) {
+                if (!workerTabId && isCorrectUrl && !isCreatingWorker) {
                     workerTabId = senderTabId;
+                    workerActivatedAt = Date.now();
+                    lastPing = workerActivatedAt;
 
                     log('INFO', 'WORKER', 'bind on init');
                     await save();
@@ -325,7 +473,6 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'START') {
-
                 if (isRunning && workerTabId) {
                     log('WARN', 'CONTROL', 'START ignored (already running)');
                     send({ ok: true });
@@ -377,7 +524,6 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'ORDERS') {
-
                 const isTest = msg.isTest === true;
 
                 if (!isTest) {
@@ -412,19 +558,14 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
-            // ❗ fallback (очень важно)
             send({ ok: false });
-
         } catch (err) {
-
             console.error('[BG][ERROR]', err);
 
             try {
                 send({ ok: false, error: err.message });
             } catch {}
-
         }
-
     })();
 
     return true;

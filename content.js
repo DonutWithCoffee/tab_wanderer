@@ -20,7 +20,7 @@ let reloadTimer = null;
 
 // ---------- RETRY SEND ----------
 function sendWithRetry(payload, retries = 3) {
-    chrome.runtime.sendMessage(payload, () => {
+    chrome.runtime.sendMessage(payload, (response) => {
         if (chrome.runtime.lastError) {
             log('WARN', 'SEND', 'retry...', chrome.runtime.lastError.message);
 
@@ -29,6 +29,12 @@ function sendWithRetry(payload, retries = 3) {
             } else {
                 log('ERROR', 'SEND', 'failed after retries');
             }
+
+            return;
+        }
+
+        if (response?.ignored) {
+            log('DEBUG', 'SEND', 'message ignored by background', payload.type);
         }
     });
 }
@@ -61,32 +67,27 @@ function getColumnMap() {
 
 // ---------- PARSE ----------
 function parseOrders() {
-
     const map = getColumnMap();
     if (!map) return [];
 
     const rows = document.querySelectorAll('tr[data-order-id]');
     const result = [];
 
-    rows.forEach(r => {
-
+    rows.forEach((r) => {
         const internalId = r.getAttribute('data-order-id');
         if (!internalId) return;
 
         const cells = r.querySelectorAll('td');
-
-        // ссылка заказа
         const link = r.querySelector('a[href*="/admin/orders/"]');
 
         let displayId = link?.innerText?.trim();
-
-        // fallback
-        if (!displayId) {
-            displayId = internalId;
-        }
-
-        // защита
+        if (!displayId) displayId = internalId;
         if (!displayId) return;
+
+        const rawHref = link?.getAttribute('href') || '';
+        const orderUrl = rawHref
+            ? new URL(rawHref, window.location.origin).toString()
+            : '';
 
         const status = cells[map.status]?.innerText?.trim() || '';
         const delivery = cells[map.delivery]?.innerText?.trim() || '';
@@ -98,19 +99,18 @@ function parseOrders() {
             status,
             delivery,
             payment,
-            date
+            date,
+            orderUrl
         });
     });
 
     log('INFO', 'PARSE', `orders=${result.length}`);
-
     return result;
 }
 
 // ---------- SEND ----------
 function sendOrders() {
     const orders = parseOrders();
-
     if (!orders.length) return;
 
     sendWithRetry({
@@ -120,9 +120,11 @@ function sendOrders() {
 }
 
 // ---------- CONTROL ----------
-function start() {
-
-    if (reloadTimer) return;
+function startWorkerLoop() {
+    if (reloadTimer) {
+        log('DEBUG', 'START', 'worker loop already active');
+        return;
+    }
 
     log('INFO', 'START', 'worker active');
 
@@ -134,7 +136,7 @@ function start() {
     }, 15000);
 }
 
-function stop() {
+function stopWorkerLoop() {
     if (!reloadTimer) return;
 
     clearInterval(reloadTimer);
@@ -144,29 +146,27 @@ function stop() {
 }
 
 // ---------- INIT ----------
-let initRetries = 0;
-const MAX_INIT_RETRIES = 5;
-
-chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
-
-    if (!res?.isWorker) {
-
-        if (initRetries >= MAX_INIT_RETRIES) {
-            log('ERROR', 'INIT', 'failed to become worker, stopping');
+function init() {
+    chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
+        if (chrome.runtime.lastError) {
+            log('ERROR', 'INIT', chrome.runtime.lastError.message);
             return;
         }
 
-        initRetries++;
+        if (!res?.isWorker) {
+            log('DEBUG', 'INIT', 'not worker, idle mode');
+            stopWorkerLoop();
+            return;
+        }
 
-        log('DEBUG', 'INIT', `not worker, retry ${initRetries}`);
+        if (!res?.isRunning) {
+            log('DEBUG', 'INIT', 'worker assigned but stopped');
+            stopWorkerLoop();
+            return;
+        }
 
-        setTimeout(() => {
-            location.reload();
-        }, 2000);
+        startWorkerLoop();
+    });
+}
 
-        return;
-    }
-
-    // ✅ если worker — запускаемся
-    start();
-});
+init();

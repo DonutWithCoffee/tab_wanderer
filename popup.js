@@ -25,46 +25,12 @@ function init() {
 }
 
 // ---------- CONTROLS ----------
-
-// start
 document.getElementById('start').onclick = () => {
     send({ type: 'START' }, () => init());
 };
 
-// stop
 document.getElementById('stop').onclick = () => {
     send({ type: 'STOP' }, () => init());
-};
-
-// test
-document.getElementById('test').onclick = () => {
-
-    const testOrders = [
-        {
-            id: 'TEST-1',
-            status: 'Новый',
-            delivery: 'Курьер',
-            payment: 'Наличные'
-        },
-        {
-            id: 'TEST-2',
-            status: 'В обработке',
-            delivery: 'Самовывоз',
-            payment: 'Онлайн'
-        },
-        {
-            id: 'TEST-3',
-            status: 'Новый',
-            delivery: 'Курьер',
-            payment: '–'
-        }
-    ];
-
-    send({
-        type: 'ORDERS',
-        data: testOrders,
-        isTest: true
-    });
 };
 
 // ---------- DOM READY ----------
