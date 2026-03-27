@@ -70,10 +70,23 @@ function parseOrders() {
 
     rows.forEach(r => {
 
-        const id = r.getAttribute('data-order-id');
-        if (!id) return;
+        const internalId = r.getAttribute('data-order-id');
+        if (!internalId) return;
 
         const cells = r.querySelectorAll('td');
+
+        // ссылка заказа
+        const link = r.querySelector('a[href*="/admin/orders/"]');
+
+        let displayId = link?.innerText?.trim();
+
+        // fallback
+        if (!displayId) {
+            displayId = internalId;
+        }
+
+        // защита
+        if (!displayId) return;
 
         const status = cells[map.status]?.innerText?.trim() || '';
         const delivery = cells[map.delivery]?.innerText?.trim() || '';
@@ -81,7 +94,7 @@ function parseOrders() {
         const date = cells[map.date]?.innerText?.trim() || '';
 
         result.push({
-            id,
+            id: displayId,
             status,
             delivery,
             payment,
@@ -118,7 +131,7 @@ function start() {
     reloadTimer = setInterval(() => {
         log('DEBUG', 'RELOAD', 'refresh page');
         location.reload();
-    }, 30000);
+    }, 15000);
 }
 
 function stop() {
@@ -131,17 +144,29 @@ function stop() {
 }
 
 // ---------- INIT ----------
+let initRetries = 0;
+const MAX_INIT_RETRIES = 5;
+
 chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
 
     if (!res?.isWorker) {
-        stop();
+
+        if (initRetries >= MAX_INIT_RETRIES) {
+            log('ERROR', 'INIT', 'failed to become worker, stopping');
+            return;
+        }
+
+        initRetries++;
+
+        log('DEBUG', 'INIT', `not worker, retry ${initRetries}`);
+
+        setTimeout(() => {
+            location.reload();
+        }, 2000);
+
         return;
     }
 
-    if (!res?.isRunning) {
-        stop();
-        return;
-    }
-
+    // ✅ если worker — запускаемся
     start();
 });

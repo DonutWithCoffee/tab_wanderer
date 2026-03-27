@@ -7,6 +7,10 @@ let lastBaselineDate = null;
 let isRunning = false;
 
 let lastPing = Date.now();
+let isCreatingWorker = false;
+let isCleaningUp = false;
+let isStarting = false;
+let workerRetryTimer = null;
 
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
@@ -30,7 +34,6 @@ function log(level, scope, ...args) {
     console.log(`[BG][${level}][${scope}]`, ...args);
 }
 
-// ---------- INIT ----------
 log('INFO', 'VERSION', VERSION);
 
 // ---------- STATE ----------
@@ -66,8 +69,50 @@ function todayKey() {
     return new Date().toDateString();
 }
 
+// ---------- STORAGE ----------
+async function save() {
+    await chrome.storage.local.set({
+        ordersDB,
+        ordersHashDB,
+        lastBaselineDate,
+        workerTabId,
+        isRunning
+    });
+
+    logState('SAVE');
+}
+
+async function load() {
+    const d = await chrome.storage.local.get([
+        'ordersDB',
+        'ordersHashDB',
+        'lastBaselineDate',
+        'isRunning'
+    ]);
+
+    ordersDB = d.ordersDB || {};
+    ordersHashDB = d.ordersHashDB || {};
+    lastBaselineDate = d.lastBaselineDate || null;
+    isRunning = d.isRunning || false;
+
+    workerTabId = null;
+
+    log('INFO', 'INIT', 'state loaded');
+    logState('LOAD');
+
+    if (isRunning) {
+        log('INFO', 'INIT', 'delayed worker init');
+
+        setTimeout(() => {
+            ensureWorkerTab();
+        }, 1000);
+    }
+}
+
 // ---------- CLEANUP ----------
 async function cleanupOldWorkers() {
+    isCleaningUp = true;
+
     const tabs = await chrome.tabs.query({});
 
     for (const tab of tabs) {
@@ -82,92 +127,71 @@ async function cleanupOldWorkers() {
             }
         }
     }
+
+    // ❗ даём Chrome применить изменения
+    await new Promise(res => setTimeout(res, 300));
+
+    isCleaningUp = false;
 }
 
 // ---------- WORKER ----------
 async function ensureWorkerTab() {
+    if (workerTabId || isCreatingWorker) return;
 
-    if (!isRunning) return;
+    isCreatingWorker = true;
 
-    const windows = await chrome.windows.getAll();
+    try {
+        const windows = await chrome.windows.getAll({ populate: false });
 
-    if (!windows || windows.length === 0) {
-        log('WARN', 'WORKER', 'no window, retry later');
-        setTimeout(ensureWorkerTab, 3000);
-        return;
-    }
+        if (!windows.length) {
+            log('DEBUG', 'WORKER', 'no windows yet, retrying...');
 
-    if (workerTabId) {
-        try {
-            const tab = await chrome.tabs.get(workerTabId);
-            if (tab) return;
-        } catch {
-            workerTabId = null;
+            if (!workerRetryTimer) {
+                workerRetryTimer = setTimeout(() => {
+                    workerRetryTimer = null;
+                    ensureWorkerTab();
+                }, 1000);
+            }
+
+            return;
         }
+
+        // ❗ КРИТИЧНЫЙ ФИКС — УБИВАЕМ RETRY ПЕРЕД ВСЕМ
+        if (workerRetryTimer) {
+            clearTimeout(workerRetryTimer);
+            workerRetryTimer = null;
+        }
+
+        // ❗ ЧИСТИМ СТАРЫЕ ВКЛАДКИ
+        await cleanupOldWorkers();
+
+        const newTab = await chrome.tabs.create({
+            url: TARGET_URL + WORKER_MARK,
+            active: false,
+            pinned: true
+        });
+
+        workerTabId = newTab.id;
+
+        log('INFO', 'WORKER', 'created', `id=${newTab.id}`);
+
+        save();
+
+    } finally {
+        isCreatingWorker = false;
     }
-
-    const tab = await chrome.tabs.create({
-        url: TARGET_URL + WORKER_MARK,
-        active: false
-    });
-
-    await chrome.tabs.update(tab.id, { pinned: true });
-
-    workerTabId = tab.id;
-
-    log('INFO', 'WORKER', `created id=${workerTabId}`);
-
-    save();
 }
 
-// если вкладку закрыли
+// ---------- TAB EVENTS ----------
 chrome.tabs.onRemoved.addListener((tabId) => {
     if (tabId === workerTabId) {
         workerTabId = null;
 
-        if (isRunning) {
+        if (isRunning && !isCleaningUp && !isStarting) {
             ensureWorkerTab();
         }
     }
 });
-
-// ---------- STORAGE ----------
-async function load() {
-    const d = await chrome.storage.local.get([
-        'ordersDB',
-        'ordersHashDB',
-        'lastBaselineDate',
-        'isRunning'
-    ]);
-
-    ordersDB = d.ordersDB || {};
-    ordersHashDB = d.ordersHashDB || {};
-    lastBaselineDate = d.lastBaselineDate || null;
-    isRunning = d.isRunning || false;
-
-    // ❗ КРИТИЧЕСКИЙ FIX
-    workerTabId = null;
-
-    log('INFO', 'INIT', 'state loaded');
-    logState('LOAD');
-
-    if (isRunning) {
-        await cleanupOldWorkers();
-        await ensureWorkerTab();
-    }
-}
-
-async function save() {
-    await chrome.storage.local.set({
-        ordersDB,
-        ordersHashDB,
-        lastBaselineDate,
-        workerTabId,
-        isRunning
-    });
-
-    logState('SAVE');
-}
 
 // ---------- NOTIFY ----------
 function notifyOrder(o) {
@@ -223,9 +247,7 @@ function processOrders(orders, options = {}) {
         const newHash = getHash(o);
         const prevHash = ordersHashDB[o.id];
 
-        if (newHash === prevHash) {
-            continue;
-        }
+        if (newHash === prevHash) continue;
 
         log('INFO', 'CHANGE', {
             id: o.id,
@@ -247,13 +269,6 @@ function processOrders(orders, options = {}) {
     }
 }
 
-// ---------- AUTO BASELINE ----------
-function shouldRunAutoBaseline() {
-    const now = new Date();
-    if (lastBaselineDate === todayKey()) return false;
-    return now.getHours() >= 9;
-}
-
 // ---------- WATCHDOG ----------
 setInterval(() => {
     if (!isRunning || !workerTabId) return;
@@ -273,122 +288,141 @@ setInterval(() => {
 
 // ---------- MESSAGES ----------
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
-
     (async () => {
 
-        const senderTabId = sender?.tab?.id;
-        const tab = sender?.tab;
+        try {
 
-        if (msg.type === 'CHECK_WORKER') {
+            const senderTabId = sender?.tab?.id;
+            const senderTab = sender?.tab;
 
-            const isSameTab = senderTabId === workerTabId;
+            if (msg.type === 'CHECK_WORKER') {
 
-            if (isSameTab) {
-                send({ isWorker: true, isRunning });
-                return;
-            }
+                const isCorrectUrl = senderTab?.url?.includes(WORKER_MARK);
 
-            const isCorrectUrl = tab?.url?.startsWith(TARGET_URL);
-
-            if (isCorrectUrl && (!workerTabId || senderTabId === workerTabId)) {
-                workerTabId = senderTabId;
-
-                log('WARN', 'WORKER', 'rebind');
-
-                save();
-
-                send({ isWorker: true, isRunning });
-                return;
-            }
-
-            send({ isWorker: false, isRunning });
-            return;
-        }
-
-        if (msg.type === 'START') {
-            isRunning = true;
-
-            log('INFO', 'CONTROL', 'START');
-
-            const oldTabId = workerTabId;
-            workerTabId = null;
-
-            if (oldTabId) {
-                try {
-                    await chrome.tabs.remove(oldTabId);
-                } catch {
-                    log('WARN', 'WORKER', 'remove failed');
+                if (senderTabId === workerTabId) {
+                    send({ isWorker: true, isRunning });
+                    return;
                 }
-            }
 
-            await cleanupOldWorkers();
-            await ensureWorkerTab();
+                if (!workerTabId && isCorrectUrl) {
+                    workerTabId = senderTabId;
 
-            save();
+                    log('INFO', 'WORKER', 'bind on init');
+                    await save();
 
-            send({ ok: true });
-            return;
-        }
-
-        if (msg.type === 'STOP') {
-            isRunning = false;
-
-            log('INFO', 'CONTROL', 'STOP');
-
-            if (workerTabId) {
-                try {
-                    await chrome.tabs.remove(workerTabId);
-                } catch {
-                    log('WARN', 'WORKER', 'failed to remove on stop');
+                    send({ isWorker: true, isRunning });
+                    return;
                 }
-            }
 
-            workerTabId = null;
-
-            save();
-
-            send({ ok: true });
-            return;
-        }
-
-        if (msg.type === 'ORDERS') {
-
-            const isTest = msg.isTest === true;
-
-            if (!isTest) {
-                lastPing = Date.now();
-            }
-
-            if (!isRunning && !isTest) {
-                send({ ignored: true });
+                send({ isWorker: false, isRunning });
                 return;
             }
 
-            if (!isTest && senderTabId !== workerTabId) {
-                send({ ignored: true });
+            if (senderTab?.url?.startsWith(TARGET_URL) && senderTabId !== workerTabId) {
+                log('WARN', 'SECURITY', 'foreign tab tried to act as worker');
+                send({ isWorker: false, isRunning });
                 return;
             }
 
-            if (isTest) {
-                processOrders(msg.data, { testMode: true });
+            if (msg.type === 'START') {
+
+                if (isRunning && workerTabId) {
+                    log('WARN', 'CONTROL', 'START ignored (already running)');
+                    send({ ok: true });
+                    return;
+                }
+
+                isRunning = true;
+                isStarting = true;
+
+                log('INFO', 'CONTROL', 'START');
+
+                const oldTabId = workerTabId;
+                workerTabId = null;
+
+                if (oldTabId) {
+                    try {
+                        await chrome.tabs.remove(oldTabId);
+                    } catch {}
+                }
+
+                await cleanupOldWorkers();
+                await ensureWorkerTab();
+
+                isStarting = false;
+
+                await save();
+
                 send({ ok: true });
                 return;
             }
 
-            const isEmptyDB = Object.keys(ordersDB).length === 0;
+            if (msg.type === 'STOP') {
+                isRunning = false;
 
-            if (isEmptyDB) {
-                runBaseline(msg.data, 'init');
-            } else if (!lastBaselineDate && shouldRunAutoBaseline()) {
-                runBaseline(msg.data, 'auto');
-            } else if (!lastBaselineDate) {
-                runBaseline(msg.data, 'first');
-            } else {
-                processOrders(msg.data);
+                log('INFO', 'CONTROL', 'STOP');
+
+                if (workerTabId) {
+                    try {
+                        await chrome.tabs.remove(workerTabId);
+                    } catch {}
+                }
+
+                workerTabId = null;
+
+                await save();
+
+                send({ ok: true });
+                return;
             }
 
-            send({ ok: true });
-            return;
+            if (msg.type === 'ORDERS') {
+
+                const isTest = msg.isTest === true;
+
+                if (!isTest) {
+                    lastPing = Date.now();
+                }
+
+                if (!isRunning && !isTest) {
+                    send({ ignored: true });
+                    return;
+                }
+
+                if (!isTest && senderTabId !== workerTabId) {
+                    send({ ignored: true });
+                    return;
+                }
+
+                if (isTest) {
+                    processOrders(msg.data, { testMode: true });
+                    send({ ok: true });
+                    return;
+                }
+
+                const isEmptyDB = Object.keys(ordersDB).length === 0;
+
+                if (isEmptyDB) {
+                    runBaseline(msg.data, 'init');
+                } else {
+                    processOrders(msg.data);
+                }
+
+                send({ ok: true });
+                return;
+            }
+
+            // ❗ fallback (очень важно)
+            send({ ok: false });
+
+        } catch (err) {
+
+            console.error('[BG][ERROR]', err);
+
+            try {
+                send({ ok: false, error: err.message });
+            } catch {}
+
         }
 
     })();
