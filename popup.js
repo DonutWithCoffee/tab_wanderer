@@ -1,17 +1,39 @@
-function send(msg) {
+function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
         console.log('[POPUP]', msg.type, res);
+        if (cb) cb(res);
     });
 }
 
-// baseline
-document.getElementById('baseline').onclick = () => {
-    send({ type: 'MANUAL_BASELINE', data: [] });
+// ---------- STATUS ----------
+function updateStatus(isRunning) {
+    const el = document.getElementById('status');
+
+    if (!el) return;
+
+    el.innerText = isRunning ? 'Status: RUNNING' : 'Status: STOPPED';
+
+    el.classList.remove('running', 'stopped');
+    el.classList.add(isRunning ? 'running' : 'stopped');
+}
+
+// ---------- INIT ----------
+function init() {
+    chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
+        updateStatus(res?.isRunning);
+    });
+}
+
+// ---------- CONTROLS ----------
+
+// start
+document.getElementById('start').onclick = () => {
+    send({ type: 'START' }, () => init());
 };
 
-// reset
-document.getElementById('reset').onclick = () => {
-    send({ type: 'RESET_BASELINE' });
+// stop
+document.getElementById('stop').onclick = () => {
+    send({ type: 'STOP' }, () => init());
 };
 
 // test
@@ -45,7 +67,10 @@ document.getElementById('test').onclick = () => {
     });
 };
 
+// ---------- DOM READY ----------
 document.addEventListener('DOMContentLoaded', () => {
     const version = chrome.runtime.getManifest().version;
     document.getElementById('version').innerText = `v${version}`;
+
+    init();
 });

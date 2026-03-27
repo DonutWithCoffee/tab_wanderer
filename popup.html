@@ -1,15 +1,33 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <div id="version"></div>
     <meta charset="UTF-8">
+    <style>
+        #status {
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .running {
+            color: green;
+        }
+
+        .stopped {
+            color: red;
+        }
+    </style>
 </head>
 <body>
 
 <h3>Amperkot Notifier</h3>
 
-<button id="baseline">Новый baseline</button>
-<button id="reset">Сброс baseline</button>
+<div id="version"></div>
+<div id="status">Status: ...</div>
+
+<hr>
+
+<button id="start">START</button>
+<button id="stop">STOP</button>
 
 <hr>
 
