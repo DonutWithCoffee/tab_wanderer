@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "tab_wanderer",
-  "version": "0.9.4dev",
+  "version": "0.9.4",
   "permissions": [
     "tabs",
     "storage",
@@ -27,3 +27,4 @@
     }
   ]
 }
+

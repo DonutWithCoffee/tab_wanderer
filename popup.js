@@ -33,13 +33,15 @@ function updateConfigUI(userConfig) {
 }
 
 function collectConfigFromUI(currentConfig = {}) {
+    const safeConfig = currentConfig || {};
+
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
 
     return {
-        ...currentConfig,
+        ...safeConfig,
         rules: {
-            ...(currentConfig.rules || {}),
+            ...(safeConfig.rules || {}),
             ignoreOzon: Boolean(ignoreOzon?.checked),
             ignoreLegalEntityBankTransfer: Boolean(ignoreJurics?.checked)
         }
@@ -49,7 +51,7 @@ function collectConfigFromUI(currentConfig = {}) {
 function loadConfig() {
     send({ type: 'GET_CONFIG' }, (res) => {
         if (!res?.ok) return;
-        updateConfigUI(res.userConfig);
+        updateConfigUI(res.userConfig || {});
     });
 }
 
@@ -61,7 +63,7 @@ function bindConfigControls() {
         send({ type: 'GET_CONFIG' }, (res) => {
             if (!res?.ok) return;
 
-            const nextConfig = collectConfigFromUI(res.userConfig);
+            const nextConfig = collectConfigFromUI(res.userConfig || {});
 
             send({
                 type: 'UPDATE_CONFIG',
