@@ -39,6 +39,14 @@ function sendWithRetry(payload, retries = 3) {
     });
 }
 
+// ---------- HELPERS ----------
+function extractPrimaryDate(text) {
+    const raw = String(text || '');
+    const firstLine = raw.split('\n')[0] || '';
+
+    return firstLine.trim();
+}
+
 // ---------- COLUMN MAP ----------
 function getColumnMap() {
     const headers = document.querySelectorAll('thead th');
@@ -94,7 +102,7 @@ function parseOrders() {
         const delivery = cells[map.delivery]?.innerText?.trim() || '';
         const payment = cells[map.payment]?.innerText?.trim() || '';
         const date = map.date !== undefined
-            ? (cells[map.date]?.innerText?.trim() || '')
+            ? extractPrimaryDate(cells[map.date]?.innerText || '')
             : '';
         const contractor = map.contractor !== undefined
             ? (cells[map.contractor]?.innerText?.trim() || '')
