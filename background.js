@@ -65,6 +65,15 @@ function normalize(v) {
         .trim();
 }
 
+function normalizeDateForHash(v) {
+    const normalized = normalize(v);
+
+    // берём только первую строку (до \n)
+    const firstLine = normalized.split('\n')[0];
+
+    return firstLine.trim();
+}
+
 function getHash(o) {
     return [
         o.id,
@@ -72,7 +81,7 @@ function getHash(o) {
         normalize(o.delivery),
         normalize(o.payment),
         normalize(o.contractor),
-        normalize(o.date)
+        normalizeDateForHash(o.date)
     ].join('|');
 }
 
