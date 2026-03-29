@@ -17,11 +17,27 @@ function updateStatus(isRunning) {
     el.classList.add(isRunning ? 'running' : 'stopped');
 }
 
+function parseScopeList(value) {
+    return String(value || '')
+        .split(',')
+        .map(item => item.trim())
+        .filter(v => /^\d+$/.test(v));
+}
+
+function formatScopeList(values) {
+    return Array.isArray(values) ? values.join(',') : '';
+}
+
 function updateConfigUI(userConfig) {
     const rules = userConfig?.rules || {};
+    const monitorScope = userConfig?.monitorScope || {};
 
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
+
+    const scopeStatus = document.getElementById('scopeStatus');
+    const scopeDelivery = document.getElementById('scopeDelivery');
+    const scopePayment = document.getElementById('scopePayment');
 
     if (ignoreOzon) {
         ignoreOzon.checked = Boolean(rules.ignoreOzon);
@@ -29,6 +45,18 @@ function updateConfigUI(userConfig) {
 
     if (ignoreJurics) {
         ignoreJurics.checked = Boolean(rules.ignoreLegalEntityBankTransfer);
+    }
+
+    if (scopeStatus) {
+        scopeStatus.value = formatScopeList(monitorScope.status);
+    }
+
+    if (scopeDelivery) {
+        scopeDelivery.value = formatScopeList(monitorScope.delivery);
+    }
+
+    if (scopePayment) {
+        scopePayment.value = formatScopeList(monitorScope.payment);
     }
 }
 
@@ -38,12 +66,28 @@ function collectConfigFromUI(currentConfig = {}) {
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
 
+    const scopeStatus = document.getElementById('scopeStatus');
+    const scopeDelivery = document.getElementById('scopeDelivery');
+    const scopePayment = document.getElementById('scopePayment');
+
+    const currentMonitorScope = safeConfig.monitorScope || {};
+    const currentFlags = currentMonitorScope.flags || {};
+
     return {
         ...safeConfig,
         rules: {
             ...(safeConfig.rules || {}),
             ignoreOzon: Boolean(ignoreOzon?.checked),
             ignoreLegalEntityBankTransfer: Boolean(ignoreJurics?.checked)
+        },
+        monitorScope: {
+            ...currentMonitorScope,
+            status: parseScopeList(scopeStatus?.value),
+            delivery: parseScopeList(scopeDelivery?.value),
+            payment: parseScopeList(scopePayment?.value),
+            flags: {
+                ...currentFlags
+            }
         }
     };
 }
@@ -58,6 +102,10 @@ function loadConfig() {
 function bindConfigControls() {
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
+
+    const scopeStatus = document.getElementById('scopeStatus');
+    const scopeDelivery = document.getElementById('scopeDelivery');
+    const scopePayment = document.getElementById('scopePayment');
 
     const onChange = () => {
         send({ type: 'GET_CONFIG' }, (res) => {
@@ -78,6 +126,18 @@ function bindConfigControls() {
 
     if (ignoreJurics) {
         ignoreJurics.addEventListener('change', onChange);
+    }
+
+    if (scopeStatus) {
+        scopeStatus.addEventListener('change', onChange);
+    }
+
+    if (scopeDelivery) {
+        scopeDelivery.addEventListener('change', onChange);
+    }
+
+    if (scopePayment) {
+        scopePayment.addEventListener('change', onChange);
     }
 }
 

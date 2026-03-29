@@ -24,6 +24,15 @@ const DEFAULT_CONFIG = {
         ignoreLegalEntityBankTransfer: false,
         ignoreCashlessBankTransfer: false,
         ignoreCancelledCourierCashless: false
+    },
+    monitorScope: {
+        status: [],
+        delivery: [],
+        payment: [],
+        flags: {
+            ozonOnly: false,
+            juridicalOnly: false
+        }
     }
 };
 
@@ -152,6 +161,21 @@ function normalizeRuleValues(values) {
     return values.map(value => normalizeRuleValue(value));
 }
 
+function normalizeMonitorScope(scope = {}) {
+    const safeScope = scope || {};
+    const safeFlags = safeScope.flags || {};
+
+    return {
+        status: Array.isArray(safeScope.status) ? safeScope.status : [],
+        delivery: Array.isArray(safeScope.delivery) ? safeScope.delivery : [],
+        payment: Array.isArray(safeScope.payment) ? safeScope.payment : [],
+        flags: {
+            ozonOnly: Boolean(safeFlags.ozonOnly),
+            juridicalOnly: Boolean(safeFlags.juridicalOnly)
+        }
+    };
+}
+
 function getEffectiveConfig(config = {}) {
     const baseRules = DEFAULT_CONFIG.rules || {};
     const incomingRules = config?.rules || {};
@@ -162,7 +186,8 @@ function getEffectiveConfig(config = {}) {
         rules: {
             ...baseRules,
             ...incomingRules
-        }
+        },
+        monitorScope: normalizeMonitorScope(config?.monitorScope)
     };
 }
 

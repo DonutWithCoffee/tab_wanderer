@@ -19,6 +19,34 @@ let workerRetryTimer = null;
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
 
+function buildOrdersUrl(monitorScope = {}, page = 1) {
+    const url = new URL(TARGET_URL);
+
+    const statusList = Array.isArray(monitorScope.status) ? monitorScope.status : [];
+    const deliveryList = Array.isArray(monitorScope.delivery) ? monitorScope.delivery : [];
+    const paymentList = Array.isArray(monitorScope.payment) ? monitorScope.payment : [];
+
+    statusList.forEach(value => {
+        url.searchParams.append('status[]', String(value));
+    });
+
+    deliveryList.forEach(value => {
+        url.searchParams.append('delivery[]', String(value));
+    });
+
+    paymentList.forEach(value => {
+        url.searchParams.append('payment[]', String(value));
+    });
+
+    if (page > 1) {
+        url.searchParams.set('page', String(page));
+    }
+
+    url.hash = WORKER_MARK;
+
+    return url.toString();
+}
+
 // ---------- LOGGER ----------
 const LOG_LEVEL = 'DEBUG';
 
@@ -90,13 +118,16 @@ function todayKey() {
 }
 
 function getEffectiveUserConfig(storedConfig) {
+    const safe = storedConfig || {};
+
     return {
         ...DEFAULT_CONFIG,
-        ...(storedConfig || {}),
+        ...safe,
         rules: {
             ...(DEFAULT_CONFIG.rules || {}),
-            ...((storedConfig && storedConfig.rules) || {})
-        }
+            ...(safe.rules || {})
+        },
+        monitorScope: normalizeMonitorScope(safe.monitorScope)
     };
 }
 
@@ -220,7 +251,9 @@ async function adoptExistingWorkerTab() {
     log('INFO', 'WORKER', 'adopted existing', `id=${primaryTab.id}`);
 
     try {
-        await chrome.tabs.reload(primaryTab.id);
+        await chrome.tabs.update(primaryTab.id, {
+    url: buildOrdersUrl(userConfig?.monitorScope, 1)
+});
         log('INFO', 'WORKER', 'reloaded adopted worker', `id=${primaryTab.id}`);
     } catch (err) {
         log('WARN', 'WORKER', 'failed to reload adopted worker', err?.message || err);
@@ -267,7 +300,7 @@ async function ensureWorkerTab() {
         await cleanupOldWorkers();
 
         const newTab = await chrome.tabs.create({
-            url: TARGET_URL + WORKER_MARK,
+            url: buildOrdersUrl(userConfig?.monitorScope, 1),
             active: false,
             pinned: true
         });
@@ -543,19 +576,19 @@ if (msg.type === 'UPDATE_CONFIG') {
 
     userConfig = getEffectiveUserConfig(msg.userConfig || {});
 
-    const changes = [];
+    const ruleChanges = [];
 
     const prevRules = prevConfig?.rules || {};
     const nextRules = userConfig?.rules || {};
 
-    const keys = new Set([
+    const ruleKeys = new Set([
         ...Object.keys(prevRules),
         ...Object.keys(nextRules)
     ]);
 
-    for (const key of keys) {
+    for (const key of ruleKeys) {
         if (prevRules[key] !== nextRules[key]) {
-            changes.push({
+            ruleChanges.push({
                 rule: key,
                 from: prevRules[key],
                 to: nextRules[key]
@@ -563,9 +596,21 @@ if (msg.type === 'UPDATE_CONFIG') {
         }
     }
 
-    if (changes.length > 0) {
+    const prevScope = JSON.stringify(prevConfig?.monitorScope || {});
+    const nextScope = JSON.stringify(userConfig?.monitorScope || {});
+    const scopeChanged = prevScope !== nextScope;
+
+    if (ruleChanges.length > 0 || scopeChanged) {
         pendingRebaseline = true;
-        log('INFO', 'CONFIG', 'rules changed', changes);
+
+        if (ruleChanges.length > 0) {
+            log('INFO', 'CONFIG', 'rules changed', ruleChanges);
+        }
+
+        if (scopeChanged) {
+            log('INFO', 'CONFIG', 'monitor scope changed', userConfig?.monitorScope || {});
+        }
+
         log('INFO', 'CONFIG', 'effective config', userConfig);
         log('INFO', 'CONFIG', 'rebaseline scheduled');
     } else {
@@ -600,6 +645,7 @@ if (msg.type === 'START') {
 
     log('INFO', 'CONTROL', 'START');
     log('INFO', 'CONTROL', 'rebaseline scheduled on start');
+    log('INFO', 'CONTROL', 'monitor scope on start', userConfig?.monitorScope || {});
 
     const oldTabId = workerTabId;
     workerTabId = null;
