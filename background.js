@@ -6,6 +6,8 @@ let notificationTargets = {};
 let workerTabId = null;
 let lastBaselineDate = null;
 let isRunning = false;
+let userConfig = null;
+let pendingRebaseline = false;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -78,6 +80,17 @@ function todayKey() {
     return new Date().toDateString();
 }
 
+function getEffectiveUserConfig(storedConfig) {
+    return {
+        ...DEFAULT_CONFIG,
+        ...(storedConfig || {}),
+        rules: {
+            ...(DEFAULT_CONFIG.rules || {}),
+            ...((storedConfig && storedConfig.rules) || {})
+        }
+    };
+}
+
 async function getMarkedWorkerTabs() {
     const tabs = await chrome.tabs.query({});
 
@@ -94,7 +107,9 @@ async function save() {
         notificationTargets,
         lastBaselineDate,
         workerTabId,
-        isRunning
+        isRunning,
+        userConfig,
+        pendingRebaseline
     });
 
     logState('SAVE');
@@ -106,7 +121,9 @@ async function load() {
         'ordersHashDB',
         'notificationTargets',
         'lastBaselineDate',
-        'isRunning'
+        'isRunning',
+        'userConfig',
+        'pendingRebaseline'
     ]);
 
     ordersDB = d.ordersDB || {};
@@ -114,6 +131,8 @@ async function load() {
     notificationTargets = d.notificationTargets || {};
     lastBaselineDate = d.lastBaselineDate || null;
     isRunning = d.isRunning || false;
+    userConfig = getEffectiveUserConfig(d.userConfig);
+    pendingRebaseline = d.pendingRebaseline === true;
 
     workerTabId = null;
 
@@ -269,22 +288,37 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 // ---------- NOTIFY ----------
 function notifyOrder(o) {
+    const contractor = normalize(o.contractor);
+    const payment = normalize(o.payment);
+
+    let tag = '';
+
+    if (contractor === 'ozon (озон)') {
+        tag = 'ОЗОН';
+    } else if (payment === 'безналичный расчет для юридических лиц') {
+        tag = 'Юрик';
+    }
+
+    const tagSuffix = tag ? ` (${tag})` : '';
+
     const message = [
         `Статус: ${o.status}`,
         `Доставка: ${o.delivery}`,
         `Оплата: ${o.payment}`
     ].join('\n');
 
-    log('INFO', 'NOTIFY', 'creating notification', {
-        orderId: o.id,
-        orderUrl: o.orderUrl || '',
-        message
-    });
+log('INFO', 'NOTIFY', 'creating notification', {
+    orderId: o.id,
+    orderUrl: o.orderUrl || '',
+    tag,
+    decision: 'notify',
+    message
+});
 
     chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icon.png',
-        title: `Заказ №${o.id}`,
+        title: `Заказ №${o.id}${tagSuffix}`,
         message
     }, async (notificationId) => {
         if (chrome.runtime.lastError) {
@@ -360,6 +394,7 @@ function runBaseline(orders, reason = 'auto') {
     ordersDB = db;
     ordersHashDB = hash;
     lastBaselineDate = todayKey();
+    pendingRebaseline = false;
 
     log('INFO', 'BASELINE', `${reason} count=${orders.length}`);
     logState('BASELINE');
@@ -397,37 +432,39 @@ function processOrders(orders, options = {}) {
 
         const isNewOrder = !prevOrder;
 
-if (isNewOrder) {
-    log('INFO', 'NEW_ORDER', {
-        id: order.id
-    });
+        const decision = evaluateNotification(
+            order,
+            {
+                prevOrder,
+                prevHash,
+                newHash,
+                isNewOrder
+            },
+            userConfig
+        );
 
-    notifyOrder(order);
-} else {
-    
-    const decision = evaluateNotification(order, {
-        prevOrder,
-        prevHash,
-        newHash,
-        isNewOrder
-    });
+        if (isNewOrder) {
+            log('INFO', 'NEW_ORDER', {
+                id: order.id
+            });
+        }
 
-    if (!decision.notify) {
-        log('INFO', 'RULES', {
-            id: order.id,
-            action: decision.action,
-            ruleId: decision.ruleId,
-            reason: decision.reason
-        });
-    } else {
-        notifyOrder(order);
-    }
-}
+        if (!decision.notify) {
+            log('INFO', 'RULES', {
+                id: order.id,
+                action: decision.action,
+                ruleId: decision.ruleId,
+                reason: decision.reason,
+                isNewOrder
+            });
+        } else {
+            notifyOrder(order);
+        }
 
-if (!testMode) {
-    ordersDB[order.id] = order;
-    ordersHashDB[order.id] = newHash;
-}
+        if (!testMode) {
+            ordersDB[order.id] = order;
+            ordersHashDB[order.id] = newHash;
+        }
     }
 
     if (!testMode && hasChanges) {
@@ -484,43 +521,96 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+            if (msg.type === 'GET_CONFIG') {
+                send({
+                    ok: true,
+                    userConfig
+                });
+                return;
+            }
+
+if (msg.type === 'UPDATE_CONFIG') {
+    const prevConfig = userConfig;
+
+    userConfig = getEffectiveUserConfig(msg.userConfig || {});
+
+    const changes = [];
+
+    const prevRules = prevConfig?.rules || {};
+    const nextRules = userConfig?.rules || {};
+
+    const keys = new Set([
+        ...Object.keys(prevRules),
+        ...Object.keys(nextRules)
+    ]);
+
+    for (const key of keys) {
+        if (prevRules[key] !== nextRules[key]) {
+            changes.push({
+                rule: key,
+                from: prevRules[key],
+                to: nextRules[key]
+            });
+        }
+    }
+
+    if (changes.length > 0) {
+        pendingRebaseline = true;
+        log('INFO', 'CONFIG', 'rules changed', changes);
+        log('INFO', 'CONFIG', 'effective config', userConfig);
+        log('INFO', 'CONFIG', 'rebaseline scheduled');
+    } else {
+        log('DEBUG', 'CONFIG', 'no changes');
+    }
+
+    await save();
+
+    send({
+        ok: true,
+        userConfig
+    });
+    return;
+}
+
             if (senderTab?.url?.startsWith(TARGET_URL) && senderTabId !== workerTabId) {
                 log('WARN', 'SECURITY', 'foreign tab tried to act as worker');
                 send({ isWorker: false, isRunning });
                 return;
             }
 
-            if (msg.type === 'START') {
-                if (isRunning && workerTabId) {
-                    log('WARN', 'CONTROL', 'START ignored (already running)');
-                    send({ ok: true });
-                    return;
-                }
+if (msg.type === 'START') {
+    if (isRunning && workerTabId) {
+        log('WARN', 'CONTROL', 'START ignored (already running)');
+        send({ ok: true });
+        return;
+    }
 
-                isRunning = true;
-                isStarting = true;
+    isRunning = true;
+    isStarting = true;
+    pendingRebaseline = true;
 
-                log('INFO', 'CONTROL', 'START');
+    log('INFO', 'CONTROL', 'START');
+    log('INFO', 'CONTROL', 'rebaseline scheduled on start');
 
-                const oldTabId = workerTabId;
-                workerTabId = null;
+    const oldTabId = workerTabId;
+    workerTabId = null;
 
-                if (oldTabId) {
-                    try {
-                        await chrome.tabs.remove(oldTabId);
-                    } catch {}
-                }
+    if (oldTabId) {
+        try {
+            await chrome.tabs.remove(oldTabId);
+        } catch {}
+    }
 
-                await cleanupOldWorkers();
-                await ensureWorkerTab();
+    await cleanupOldWorkers();
+    await ensureWorkerTab();
 
-                isStarting = false;
+    isStarting = false;
 
-                await save();
+    await save();
 
-                send({ ok: true });
-                return;
-            }
+    send({ ok: true });
+    return;
+}
 
             if (msg.type === 'STOP') {
                 isRunning = false;
@@ -541,40 +631,42 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
-            if (msg.type === 'ORDERS') {
-                const isTest = msg.isTest === true;
+if (msg.type === 'ORDERS') {
+    const isTest = msg.isTest === true;
 
-                if (!isTest) {
-                    lastPing = Date.now();
-                }
+    if (!isTest) {
+        lastPing = Date.now();
+    }
 
-                if (!isRunning && !isTest) {
-                    send({ ignored: true });
-                    return;
-                }
+    if (!isRunning && !isTest) {
+        send({ ignored: true });
+        return;
+    }
 
-                if (!isTest && senderTabId !== workerTabId) {
-                    send({ ignored: true });
-                    return;
-                }
+    if (!isTest && senderTabId !== workerTabId) {
+        send({ ignored: true });
+        return;
+    }
 
-                if (isTest) {
-                    processOrders(msg.data, { testMode: true });
-                    send({ ok: true });
-                    return;
-                }
+    if (isTest) {
+        processOrders(msg.data, { testMode: true });
+        send({ ok: true });
+        return;
+    }
 
-                const isEmptyDB = Object.keys(ordersDB).length === 0;
+    const isEmptyDB = Object.keys(ordersDB).length === 0;
 
-                if (isEmptyDB) {
-                    runBaseline(msg.data, 'init');
-                } else {
-                    processOrders(msg.data);
-                }
+    if (pendingRebaseline) {
+        runBaseline(msg.data, 'rebaseline');
+    } else if (isEmptyDB) {
+        runBaseline(msg.data, 'init');
+    } else {
+        processOrders(msg.data);
+    }
 
-                send({ ok: true });
-                return;
-            }
+    send({ ok: true });
+    return;
+}
 
             send({ ok: false });
         } catch (err) {

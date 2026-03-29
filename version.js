@@ -1,8 +1,8 @@
 const VERSION = {
-    version: '0.9.3-dev',
-    build: '0.9.3-dev',
-    stage: 'stable-core / notification-hardening (in progress)',
-    date: '2026-03-27'
+    version: '0.9.4-dev',
+    build: '0.9.4-dev',
+    stage: 'stable-core + config layer + notification hardening',
+    date: '2026-03-29'
 };
 
 const CHANGELOG = {

@@ -12,9 +12,27 @@ const RULE_GROUP_OPERATOR = {
     ANY: 'any'
 };
 
+const DEFAULT_CONFIG = {
+    rules: {
+        ignoreEmptyStatus: false,
+        ignoreEmptyDelivery: false,
+        ignoreEmptyPayment: false,
+        ignoreCancelled: false,
+        ignoreCompleted: false,
+        ignorePickup: false,
+        ignoreOzon: false,
+        ignoreLegalEntityBankTransfer: false,
+        ignoreCashlessBankTransfer: false,
+        ignoreCancelledCourierCashless: false
+    }
+};
+
+self.DEFAULT_CONFIG = DEFAULT_CONFIG;
+
 const NOTIFICATION_IGNORE_RULES = [
     {
         id: 'ignore-empty-status',
+        configKey: 'ignoreEmptyStatus',
         description: 'Ignore orders without a valid status',
         when: {
             status: { in: ['', '–', '-'] }
@@ -22,6 +40,7 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-empty-delivery',
+        configKey: 'ignoreEmptyDelivery',
         description: 'Ignore orders without a valid delivery type',
         when: {
             delivery: { in: ['', '–', '-'] }
@@ -29,6 +48,7 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-empty-payment',
+        configKey: 'ignoreEmptyPayment',
         description: 'Ignore orders without a valid payment type',
         when: {
             payment: { in: ['', '–', '-'] }
@@ -36,6 +56,7 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-cancelled-orders',
+        configKey: 'ignoreCancelled',
         description: 'Ignore cancelled orders',
         when: {
             status: { contains: 'отмен' }
@@ -43,6 +64,7 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-completed-orders',
+        configKey: 'ignoreCompleted',
         description: 'Ignore completed orders',
         when: {
             status: { in: ['выполнен', 'выполнено', 'завершен', 'завершён'] }
@@ -50,6 +72,7 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-pickup-orders',
+        configKey: 'ignorePickup',
         description: 'Ignore pickup delivery orders',
         when: {
             delivery: {
@@ -62,7 +85,16 @@ const NOTIFICATION_IGNORE_RULES = [
         }
     },
     {
+        id: 'ignore-ozon-contractor',
+        configKey: 'ignoreOzon',
+        description: 'Ignore orders from OZON contractor',
+        when: {
+            contractor: { equals: 'OZON (ОЗОН)' }
+        }
+    },
+    {
         id: 'ignore-legal-entity-bank-transfer',
+        configKey: 'ignoreLegalEntityBankTransfer',
         description: 'Ignore legal entity bank transfer orders',
         when: {
             payment: { contains: 'безналичный расчет для юридических лиц' }
@@ -70,6 +102,7 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-cashless-bank-transfer',
+        configKey: 'ignoreCashlessBankTransfer',
         description: 'Ignore standard bank transfer orders',
         when: {
             payment: {
@@ -83,8 +116,9 @@ const NOTIFICATION_IGNORE_RULES = [
     },
     {
         id: 'ignore-cancelled-courier-cashless',
+        configKey: 'ignoreCancelledCourierCashless',
         description: 'Ignore cancelled courier orders with cashless payment',
-        group: 'all',
+        group: RULE_GROUP_OPERATOR.ALL,
         conditions: [
             {
                 status: { contains: 'отмен' }
@@ -116,6 +150,28 @@ function normalizeRuleValue(value) {
 
 function normalizeRuleValues(values) {
     return values.map(value => normalizeRuleValue(value));
+}
+
+function getEffectiveConfig(config = {}) {
+    const baseRules = DEFAULT_CONFIG.rules || {};
+    const incomingRules = config?.rules || {};
+
+    return {
+        ...DEFAULT_CONFIG,
+        ...config,
+        rules: {
+            ...baseRules,
+            ...incomingRules
+        }
+    };
+}
+
+function isRuleEnabled(rule, config) {
+    if (!rule.configKey) {
+        return true;
+    }
+
+    return Boolean(config.rules?.[rule.configKey]);
 }
 
 function matchesRuleCondition(actualValue, condition) {
@@ -274,8 +330,14 @@ function buildDecisionReason(rule, matchedFields) {
     return `${rule.description}; matched ${details}`;
 }
 
-function evaluateNotification(order, context = {}) {
+function evaluateNotification(order, context = {}, config = DEFAULT_CONFIG) {
+    const effectiveConfig = getEffectiveConfig(config);
+
     for (const rule of NOTIFICATION_IGNORE_RULES) {
+        if (!isRuleEnabled(rule, effectiveConfig)) {
+            continue;
+        }
+
         const result = matchesRule(order, rule);
 
         if (!result.matched) {
@@ -288,7 +350,8 @@ function evaluateNotification(order, context = {}) {
             ruleId: rule.id,
             reason: buildDecisionReason(rule, result.matchedFields),
             matchedFields: result.matchedFields,
-            context
+            context,
+            config: effectiveConfig
         };
     }
 
@@ -296,8 +359,9 @@ function evaluateNotification(order, context = {}) {
         notify: true,
         action: 'notify',
         ruleId: null,
-        reason: 'no ignore rules matched',
+        reason: 'no enabled ignore rules matched',
         matchedFields: [],
-        context
+        context,
+        config: effectiveConfig
     };
 }

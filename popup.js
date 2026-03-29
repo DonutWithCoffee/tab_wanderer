@@ -17,11 +17,75 @@ function updateStatus(isRunning) {
     el.classList.add(isRunning ? 'running' : 'stopped');
 }
 
+function updateConfigUI(userConfig) {
+    const rules = userConfig?.rules || {};
+
+    const ignoreOzon = document.getElementById('ignoreOzon');
+    const ignoreJurics = document.getElementById('ignoreJurics');
+
+    if (ignoreOzon) {
+        ignoreOzon.checked = Boolean(rules.ignoreOzon);
+    }
+
+    if (ignoreJurics) {
+        ignoreJurics.checked = Boolean(rules.ignoreLegalEntityBankTransfer);
+    }
+}
+
+function collectConfigFromUI(currentConfig = {}) {
+    const ignoreOzon = document.getElementById('ignoreOzon');
+    const ignoreJurics = document.getElementById('ignoreJurics');
+
+    return {
+        ...currentConfig,
+        rules: {
+            ...(currentConfig.rules || {}),
+            ignoreOzon: Boolean(ignoreOzon?.checked),
+            ignoreLegalEntityBankTransfer: Boolean(ignoreJurics?.checked)
+        }
+    };
+}
+
+function loadConfig() {
+    send({ type: 'GET_CONFIG' }, (res) => {
+        if (!res?.ok) return;
+        updateConfigUI(res.userConfig);
+    });
+}
+
+function bindConfigControls() {
+    const ignoreOzon = document.getElementById('ignoreOzon');
+    const ignoreJurics = document.getElementById('ignoreJurics');
+
+    const onChange = () => {
+        send({ type: 'GET_CONFIG' }, (res) => {
+            if (!res?.ok) return;
+
+            const nextConfig = collectConfigFromUI(res.userConfig);
+
+            send({
+                type: 'UPDATE_CONFIG',
+                userConfig: nextConfig
+            });
+        });
+    };
+
+    if (ignoreOzon) {
+        ignoreOzon.addEventListener('change', onChange);
+    }
+
+    if (ignoreJurics) {
+        ignoreJurics.addEventListener('change', onChange);
+    }
+}
+
 // ---------- INIT ----------
 function init() {
     chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
         updateStatus(res?.isRunning);
     });
+
+    loadConfig();
 }
 
 // ---------- CONTROLS ----------
@@ -38,5 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const version = chrome.runtime.getManifest().version;
     document.getElementById('version').innerText = `v${version}`;
 
+    bindConfigControls();
     init();
 });
