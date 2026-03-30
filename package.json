@@ -2,6 +2,6 @@
   "name": "tab_wanderer",
   "private": true,
   "scripts": {
-    "test": "node --test tests/notification-rules.test.js tests/background-core.test.js tests/background-process.test.js tests/background-config.test.js"
+    "test": "node tests/run-tests.js"
   }
 }

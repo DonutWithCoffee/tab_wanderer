@@ -22,6 +22,10 @@ function createOrder(overrides = {}) {
     };
 }
 
+after(() => {
+    setImmediate(() => process.exit(0));
+});
+
 test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
@@ -248,4 +252,6 @@ test('START creates worker tab with URL from current monitorScope', async () => 
         context.__test.createdTabs[0].url,
         'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791#tab_wanderer_worker=1'
     );
+
+    setImmediate(() => process.exit(0));
 });

@@ -91,6 +91,9 @@ function createBaseContext(overrides = {}) {
         notificationCloseListener: null
     };
 
+    const activeTimeouts = [];
+    const activeIntervals = [];
+
     const context = {
         URL,
         console: {
@@ -99,14 +102,39 @@ function createBaseContext(overrides = {}) {
             error: () => {}
         },
         importScripts: () => {},
-        setTimeout: () => 0,
-        clearTimeout: () => {},
-        setInterval: () => 0,
-        clearInterval: () => {},
+        setTimeout: (_fn, _ms) => {
+            const id = activeTimeouts.length + 1;
+            activeTimeouts.push(id);
+            return id;
+        },
+        clearTimeout: (id) => {
+            const index = activeTimeouts.indexOf(id);
+
+            if (index !== -1) {
+                activeTimeouts.splice(index, 1);
+            }
+        },
+        setInterval: (_fn, _ms) => {
+            const id = activeIntervals.length + 1;
+            activeIntervals.push(id);
+            return id;
+        },
+        clearInterval: (id) => {
+            const index = activeIntervals.indexOf(id);
+
+            if (index !== -1) {
+                activeIntervals.splice(index, 1);
+            }
+        },
         chrome: createChromeStub(testState),
         self: {},
         __test: testState,
         ...overrides
+    };
+
+    context.__cleanup = () => {
+        activeTimeouts.length = 0;
+        activeIntervals.length = 0;
     };
 
     context.globalThis = context;

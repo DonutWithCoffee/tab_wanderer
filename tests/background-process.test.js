@@ -65,7 +65,7 @@ test('processOrders adds new order, sends notification and updates state', () =>
 
     const state = getBackgroundState(context);
 
-    assert.equal(context.__testNotifications.length, 1);
+    assert.equal(context.__test.notifications.length, 1);
     assert.equal(state.ordersDB['1001-300326'].id, '1001-300326');
     assert.equal(
         state.ordersHashDB['1001-300326'],
@@ -111,7 +111,7 @@ test('processOrders sends notification on status change and updates hash', () =>
 
     const state = getBackgroundState(context);
 
-    assert.equal(context.__testNotifications.length, 1);
+    assert.equal(context.__test.notifications.length, 1);
     assert.equal(state.ordersDB[prevOrder.id].status, 'Оплачен');
     assert.equal(
         state.ordersHashDB[prevOrder.id],
@@ -159,7 +159,7 @@ test('processOrders applies ignore rule without notification but still updates s
 
     const state = getBackgroundState(context);
 
-    assert.equal(context.__testNotifications.length, 0);
+    assert.equal(context.__test.notifications.length, 0);
     assert.equal(
         state.ordersDB[prevOrder.id].payment,
         'Безналичный расчет для юридических лиц'
@@ -210,7 +210,7 @@ test('processOrders in testMode does not mutate state', () => {
 
     const after = getBackgroundState(context);
 
-    assert.equal(context.__testNotifications.length, 1);
+    assert.equal(context.__test.notifications.length, 1);
     assert.deepEqual(after.ordersDB, before.ordersDB);
     assert.deepEqual(after.ordersHashDB, before.ordersHashDB);
 });
@@ -250,7 +250,7 @@ test('runBaseline initializes state without sending notifications', () => {
 
     const state = getBackgroundState(context);
 
-    assert.equal(context.__testNotifications.length, 0);
+    assert.equal(context.__test.notifications.length, 0);
     assert.equal(Object.keys(state.ordersDB).length, 2);
     assert.equal(Object.keys(state.ordersHashDB).length, 2);
     assert.equal(state.pendingRebaseline, false);
