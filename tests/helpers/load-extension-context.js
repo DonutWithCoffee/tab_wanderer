@@ -102,9 +102,22 @@ function createBaseContext(overrides = {}) {
             error: () => {}
         },
         importScripts: () => {},
-        setTimeout: (_fn, _ms) => {
+        setTimeout: (fn, _ms) => {
             const id = activeTimeouts.length + 1;
             activeTimeouts.push(id);
+
+            queueMicrotask(() => {
+                const index = activeTimeouts.indexOf(id);
+
+                if (index !== -1) {
+                    activeTimeouts.splice(index, 1);
+
+                    if (typeof fn === 'function') {
+                        fn();
+                    }
+                }
+            });
+
             return id;
         },
         clearTimeout: (id) => {
