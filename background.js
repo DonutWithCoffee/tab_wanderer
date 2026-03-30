@@ -94,12 +94,10 @@ function normalize(v) {
 }
 
 function normalizeDateForHash(v) {
-    const normalized = normalize(v);
+    const raw = String(v || '');
+    const firstLine = raw.split('\n')[0] || '';
 
-    // берём только первую строку (до \n)
-    const firstLine = normalized.split('\n')[0];
-
-    return firstLine.trim();
+    return normalize(firstLine);
 }
 
 function getHash(o) {
