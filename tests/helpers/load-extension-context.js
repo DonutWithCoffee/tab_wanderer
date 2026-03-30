@@ -2,46 +2,64 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-function createChromeStub(notificationStore = []) {
+function createChromeStub(testState) {
     return {
         tabs: {
-            query: async () => [],
-            remove: async () => {},
-            update: async () => {},
-            create: async () => ({ id: 1 }),
+            query: async () => testState.tabsQueryResult || [],
+            remove: async (tabId) => {
+                testState.removedTabs.push(tabId);
+            },
+            update: async (tabId, updateInfo) => {
+                testState.tabUpdates.push({ tabId, updateInfo });
+                return { id: tabId, ...updateInfo };
+            },
+            create: async (createInfo) => {
+                testState.createdTabs.push(createInfo);
+                return { id: testState.nextTabId++, ...createInfo };
+            },
             onRemoved: {
-                addListener: () => {}
+                addListener: (listener) => {
+                    testState.tabsOnRemovedListener = listener;
+                }
             }
         },
         windows: {
-            getAll: async () => [{ id: 1 }]
+            getAll: async () => testState.windowsResult || [{ id: 1 }]
         },
         storage: {
             local: {
-                set: async () => {},
+                set: async (payload) => {
+                    testState.storageSetCalls.push(payload);
+                },
                 get: async () => ({})
             }
         },
         notifications: {
             create: (options, callback) => {
-                notificationStore.push(options);
+                testState.notifications.push(options);
 
                 if (typeof callback === 'function') {
-                    callback(`notification-${notificationStore.length}`);
+                    callback(`notification-${testState.notifications.length}`);
                 }
             },
             clear: () => {},
             onClicked: {
-                addListener: () => {}
+                addListener: (listener) => {
+                    testState.notificationClickListener = listener;
+                }
             },
             onClosed: {
-                addListener: () => {}
+                addListener: (listener) => {
+                    testState.notificationCloseListener = listener;
+                }
             }
         },
         runtime: {
             lastError: null,
             onMessage: {
-                addListener: () => {}
+                addListener: (listener) => {
+                    testState.runtimeMessageListener = listener;
+                }
             }
         }
     };
@@ -58,7 +76,21 @@ function runExpression(context, expression) {
 }
 
 function createBaseContext(overrides = {}) {
-    const notifications = [];
+    const testState = {
+        notifications: [],
+        createdTabs: [],
+        tabUpdates: [],
+        removedTabs: [],
+        storageSetCalls: [],
+        tabsQueryResult: [],
+        windowsResult: [{ id: 1 }],
+        nextTabId: 1,
+        runtimeMessageListener: null,
+        tabsOnRemovedListener: null,
+        notificationClickListener: null,
+        notificationCloseListener: null
+    };
+
     const context = {
         URL,
         console: {
@@ -71,9 +103,9 @@ function createBaseContext(overrides = {}) {
         clearTimeout: () => {},
         setInterval: () => 0,
         clearInterval: () => {},
-        chrome: createChromeStub(notifications),
+        chrome: createChromeStub(testState),
         self: {},
-        __testNotifications: notifications,
+        __test: testState,
         ...overrides
     };
 
@@ -96,6 +128,11 @@ function loadBackgroundContext(overrides = {}) {
     runScript('notification-rules.js', context);
     runScript('background.js', context);
     return context;
+}
+
+async function settleBackgroundContext() {
+    await Promise.resolve();
+    await Promise.resolve();
 }
 
 function setBackgroundState(context, state = {}) {
@@ -130,10 +167,39 @@ function getBackgroundState(context) {
     return JSON.parse(snapshot);
 }
 
+async function sendRuntimeMessage(context, message, sender = {}) {
+    const listener = context.__test.runtimeMessageListener;
+
+    if (typeof listener !== 'function') {
+        throw new Error('runtime message listener is not registered');
+    }
+
+    return await new Promise((resolve, reject) => {
+        let settled = false;
+
+        const sendResponse = (response) => {
+            settled = true;
+            resolve(response);
+        };
+
+        try {
+            const maybeAsync = listener(message, sender, sendResponse);
+
+            if (maybeAsync !== true && !settled) {
+                resolve(undefined);
+            }
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
 module.exports = {
     loadRulesContext,
     loadBackgroundContext,
+    settleBackgroundContext,
     runExpression,
     setBackgroundState,
-    getBackgroundState
+    getBackgroundState,
+    sendRuntimeMessage
 };
