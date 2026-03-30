@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-function createChromeStub() {
+function createChromeStub(notificationStore = []) {
     return {
         tabs: {
             query: async () => [],
@@ -23,9 +23,11 @@ function createChromeStub() {
             }
         },
         notifications: {
-            create: (_options, callback) => {
+            create: (options, callback) => {
+                notificationStore.push(options);
+
                 if (typeof callback === 'function') {
-                    callback('notification-id');
+                    callback(`notification-${notificationStore.length}`);
                 }
             },
             clear: () => {},
@@ -51,7 +53,12 @@ function runScript(filename, context) {
     vm.runInContext(source, context, { filename });
 }
 
+function runExpression(context, expression) {
+    return vm.runInContext(expression, context);
+}
+
 function createBaseContext(overrides = {}) {
+    const notifications = [];
     const context = {
         URL,
         console: {
@@ -64,8 +71,9 @@ function createBaseContext(overrides = {}) {
         clearTimeout: () => {},
         setInterval: () => 0,
         clearInterval: () => {},
-        chrome: createChromeStub(),
+        chrome: createChromeStub(notifications),
         self: {},
+        __testNotifications: notifications,
         ...overrides
     };
 
@@ -90,7 +98,42 @@ function loadBackgroundContext(overrides = {}) {
     return context;
 }
 
+function setBackgroundState(context, state = {}) {
+    context.__testState = state;
+
+    runExpression(context, `
+        ordersDB = __testState.ordersDB || {};
+        ordersHashDB = __testState.ordersHashDB || {};
+        notificationTargets = __testState.notificationTargets || {};
+        workerTabId = __testState.workerTabId ?? null;
+        lastBaselineDate = __testState.lastBaselineDate ?? null;
+        isRunning = __testState.isRunning ?? false;
+        userConfig = __testState.userConfig ?? getEffectiveUserConfig({});
+        pendingRebaseline = __testState.pendingRebaseline ?? false;
+    `);
+
+    delete context.__testState;
+}
+
+function getBackgroundState(context) {
+    const snapshot = runExpression(context, `JSON.stringify({
+        ordersDB,
+        ordersHashDB,
+        notificationTargets,
+        workerTabId,
+        lastBaselineDate,
+        isRunning,
+        userConfig,
+        pendingRebaseline
+    })`);
+
+    return JSON.parse(snapshot);
+}
+
 module.exports = {
     loadRulesContext,
-    loadBackgroundContext
+    loadBackgroundContext,
+    runExpression,
+    setBackgroundState,
+    getBackgroundState
 };
