@@ -22,12 +22,24 @@ function createOrder(overrides = {}) {
     };
 }
 
+function getEffectiveConfigSnapshot(context, config) {
+    context.__testConfig = config;
+
+    const effectiveConfig = JSON.parse(
+        runExpression(context, 'JSON.stringify(getEffectiveUserConfig(__testConfig))')
+    );
+
+    delete context.__testConfig;
+
+    return effectiveConfig;
+}
+
 test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
     setBackgroundState(context, {
-        userConfig: {
+        userConfig: getEffectiveConfigSnapshot(context, {
             rules: {
                 ignoreOzon: false
             },
@@ -35,12 +47,16 @@ test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
                 status: [],
                 delivery: [],
                 payment: [],
-                flags: {
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
                     ozonOnly: false,
                     juridicalOnly: false
                 }
             }
-        },
+        }),
         pendingRebaseline: false
     });
 
@@ -54,7 +70,11 @@ test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
                 status: [],
                 delivery: [],
                 payment: [],
-                flags: {
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
                     ozonOnly: false,
                     juridicalOnly: false
                 }
@@ -74,18 +94,22 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
     await settleBackgroundContext();
 
     setBackgroundState(context, {
-        userConfig: {
+        userConfig: getEffectiveConfigSnapshot(context, {
             rules: {},
             monitorScope: {
                 status: [],
                 delivery: [],
                 payment: [],
-                flags: {
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
                     ozonOnly: false,
                     juridicalOnly: false
                 }
             }
-        },
+        }),
         pendingRebaseline: false
     });
 
@@ -97,7 +121,11 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
                 status: ['6806'],
                 delivery: [],
                 payment: [],
-                flags: {
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
                     ozonOnly: false,
                     juridicalOnly: false
                 }
@@ -124,20 +152,18 @@ test('UPDATE_CONFIG keeps pendingRebaseline unchanged when config does not chang
             status: ['6806'],
             delivery: [],
             payment: [],
-            flags: {
+            orderFlags: [],
+            store: [],
+            reserve: [],
+            assemblyStatus: [],
+            predicates: {
                 ozonOnly: false,
                 juridicalOnly: false
             }
         }
     };
 
-    context.__testStableConfig = stableConfig;
-
-    const effectiveStableConfig = JSON.parse(
-        runExpression(context, 'JSON.stringify(getEffectiveUserConfig(__testStableConfig))')
-    );
-
-    delete context.__testStableConfig;
+    const effectiveStableConfig = getEffectiveConfigSnapshot(context, stableConfig);
 
     setBackgroundState(context, {
         userConfig: effectiveStableConfig,
@@ -169,18 +195,22 @@ test('ORDERS runs rebaseline when pendingRebaseline is set', async () => {
         ordersHashDB: {
             stale: 'old-hash'
         },
-        userConfig: {
+        userConfig: getEffectiveConfigSnapshot(context, {
             rules: {},
             monitorScope: {
                 status: [],
                 delivery: [],
                 payment: [],
-                flags: {
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
                     ozonOnly: false,
                     juridicalOnly: false
                 }
             }
-        }
+        })
     });
 
     const orders = [
@@ -221,18 +251,22 @@ test('START creates worker tab with URL from current monitorScope', async () => 
     setBackgroundState(context, {
         isRunning: false,
         workerTabId: null,
-        userConfig: {
+        userConfig: getEffectiveConfigSnapshot(context, {
             rules: {},
             monitorScope: {
                 status: ['6806'],
                 delivery: ['9797'],
                 payment: ['9791'],
-                flags: {
+                orderFlags: ['1'],
+                store: ['4'],
+                reserve: ['1'],
+                assemblyStatus: ['yes'],
+                predicates: {
                     ozonOnly: false,
                     juridicalOnly: false
                 }
             }
-        }
+        })
     });
 
     const response = await sendRuntimeMessage(context, {
@@ -246,7 +280,6 @@ test('START creates worker tab with URL from current monitorScope', async () => 
     assert.equal(context.__test.createdTabs.length, 1);
     assert.equal(
         context.__test.createdTabs[0].url,
-        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791#tab_wanderer_worker=1'
+        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791&flag%5B%5D=1&store%5B%5D=4&reserve%5B%5D=1&assembly_status%5B%5D=yes#tab_wanderer_worker=1'
     );
-
 });

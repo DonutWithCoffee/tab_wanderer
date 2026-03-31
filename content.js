@@ -47,6 +47,19 @@ function extractPrimaryDate(text) {
     return firstLine.trim();
 }
 
+function extractShipmentDate(text) {
+    const raw = String(text || '');
+    const lines = raw.split('\n').map(line => line.trim());
+
+    for (const line of lines) {
+        if (line.startsWith('Отгр')) {
+            return line;
+        }
+    }
+
+    return '';
+}
+
 // ---------- COLUMN MAP ----------
 function getColumnMap() {
     const headers = document.querySelectorAll('thead th');
@@ -108,14 +121,30 @@ function parseOrders() {
             ? (cells[map.contractor]?.innerText?.trim() || '')
             : '';
 
+        const shipmentDateText = map.date !== undefined
+            ? extractShipmentDate(cells[map.date]?.innerText || '')
+            : '';
+
+        const hasOrderFlag = !!r.querySelector('.fa-flag');
+        const hasAutoreserve = !!r.querySelector('.fa-lock');
+
+        const tags = Array.from(r.querySelectorAll('.label, .badge'))
+            .map(el => el.innerText.trim())
+            .filter(Boolean);
+
         result.push({
             id: displayId,
+            internalId,
             status,
             delivery,
             payment,
             date,
             contractor,
-            orderUrl
+            orderUrl,
+            shipmentDateText,
+            hasOrderFlag,
+            hasAutoreserve,
+            tags
         });
     });
 

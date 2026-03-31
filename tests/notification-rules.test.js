@@ -14,14 +14,18 @@ function createOrder(overrides = {}) {
     };
 }
 
-test('normalizeMonitorScope sanitizes arrays and flags', () => {
+test('normalizeMonitorScope sanitizes arrays and predicates', () => {
     const context = loadRulesContext();
 
     const normalized = context.normalizeMonitorScope({
         status: ['6806'],
         delivery: '9797',
         payment: null,
-        flags: {
+        orderFlags: '1',
+        store: {},
+        reserve: 1,
+        assemblyStatus: 'partial',
+        predicates: {
             ozonOnly: 1,
             juridicalOnly: 0
         }
@@ -31,7 +35,11 @@ test('normalizeMonitorScope sanitizes arrays and flags', () => {
         status: ['6806'],
         delivery: [],
         payment: [],
-        flags: {
+        orderFlags: [],
+        store: [],
+        reserve: [],
+        assemblyStatus: [],
+        predicates: {
             ozonOnly: true,
             juridicalOnly: false
         }
@@ -56,7 +64,11 @@ test('getEffectiveConfig merges default rules with incoming config', () => {
         status: [],
         delivery: [],
         payment: ['9791'],
-        flags: {
+        orderFlags: [],
+        store: [],
+        reserve: [],
+        assemblyStatus: [],
+        predicates: {
             ozonOnly: false,
             juridicalOnly: false
         }

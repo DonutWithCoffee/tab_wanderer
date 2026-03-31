@@ -9,14 +9,18 @@ test('buildOrdersUrl builds config-driven worker URL with query params and marke
         {
             status: ['6806', '6810'],
             delivery: ['9797'],
-            payment: ['9791', '9793']
+            payment: ['9791', '9793'],
+            orderFlags: ['1'],
+            store: ['4', '5416'],
+            reserve: ['1'],
+            assemblyStatus: ['partial', 'yes']
         },
         2
     );
 
     assert.equal(
         url,
-        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&status%5B%5D=6810&delivery%5B%5D=9797&payment%5B%5D=9791&payment%5B%5D=9793&page=2#tab_wanderer_worker=1'
+        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&status%5B%5D=6810&delivery%5B%5D=9797&payment%5B%5D=9791&payment%5B%5D=9793&flag%5B%5D=1&store%5B%5D=4&store%5B%5D=5416&reserve%5B%5D=1&assembly_status%5B%5D=partial&assembly_status%5B%5D=yes&page=2#tab_wanderer_worker=1'
     );
 });
 

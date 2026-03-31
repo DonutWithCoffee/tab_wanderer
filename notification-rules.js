@@ -29,7 +29,11 @@ const DEFAULT_CONFIG = {
         status: [],
         delivery: [],
         payment: [],
-        flags: {
+        orderFlags: [],
+        store: [],
+        reserve: [],
+        assemblyStatus: [],
+        predicates: {
             ozonOnly: false,
             juridicalOnly: false
         }
@@ -163,15 +167,19 @@ function normalizeRuleValues(values) {
 
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
-    const safeFlags = safeScope.flags || {};
+    const safePredicates = safeScope.predicates || {};
 
     return {
         status: Array.isArray(safeScope.status) ? safeScope.status : [],
         delivery: Array.isArray(safeScope.delivery) ? safeScope.delivery : [],
         payment: Array.isArray(safeScope.payment) ? safeScope.payment : [],
-        flags: {
-            ozonOnly: Boolean(safeFlags.ozonOnly),
-            juridicalOnly: Boolean(safeFlags.juridicalOnly)
+        orderFlags: Array.isArray(safeScope.orderFlags) ? safeScope.orderFlags : [],
+        store: Array.isArray(safeScope.store) ? safeScope.store : [],
+        reserve: Array.isArray(safeScope.reserve) ? safeScope.reserve : [],
+        assemblyStatus: Array.isArray(safeScope.assemblyStatus) ? safeScope.assemblyStatus : [],
+        predicates: {
+            ozonOnly: Boolean(safePredicates.ozonOnly),
+            juridicalOnly: Boolean(safePredicates.juridicalOnly)
         }
     };
 }

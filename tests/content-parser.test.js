@@ -119,17 +119,64 @@ test('parseOrders extracts normalized order payload from table', () => {
 
     const orders = context.parseOrders();
 
-    assert.deepEqual(JSON.parse(JSON.stringify(orders)), [
-        {
-            id: '1000-300326',
-            status: 'Новый',
-            delivery: 'Пункт самовывоза СДЭК',
-            payment: 'Оплата онлайн',
-            date: '30 мар. 2026 10:00',
-            contractor: 'ООО "Ромашка"',
-            orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/'
-        }
-    ]);
+assert.deepEqual(JSON.parse(JSON.stringify(orders)), [
+    {
+        id: '1000-300326',
+        internalId: '1000',
+        status: 'Новый',
+        delivery: 'Пункт самовывоза СДЭК',
+        payment: 'Оплата онлайн',
+        date: '30 мар. 2026 10:00',
+        contractor: 'ООО "Ромашка"',
+        orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/',
+        shipmentDateText: '',
+        hasOrderFlag: false,
+        hasAutoreserve: false,
+        tags: []
+    }
+]);
+
+test('parseOrders extracts diagnostic fields', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            headers: [
+                'ID',
+                'Статус',
+                'Доставка',
+                'Оплата',
+                'Дата',
+                'Контрагент'
+            ],
+            rows: [
+                {
+                    internalId: '2000',
+                    displayId: '2000-300326',
+                    href: '/admin/orders/2000-300326/',
+                    hasFlag: true,
+                    hasLock: true,
+                    tags: ['tag1', 'tag2'],
+                    cells: [
+                        '2000-300326',
+                        'Новый',
+                        'СДЭК',
+                        'Онлайн',
+                        '30 мар. 2026 10:00\nОтгр.: 31 мар.',
+                        'ООО "Тест"'
+                    ]
+                }
+            ]
+        })
+    );
+
+    const orders = context.parseOrders();
+    const order = orders[0];
+
+    assert.equal(order.hasOrderFlag, true);
+    assert.equal(order.hasAutoreserve, true);
+    assert.deepEqual(order.tags, ['tag1', 'tag2']);
+    assert.equal(order.shipmentDateText, 'Отгр.: 31 мар.');
+});
+
 });
 
 test('parseOrders returns empty list when required columns are missing', () => {

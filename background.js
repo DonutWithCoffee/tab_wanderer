@@ -25,6 +25,10 @@ function buildOrdersUrl(monitorScope = {}, page = 1) {
     const statusList = Array.isArray(monitorScope.status) ? monitorScope.status : [];
     const deliveryList = Array.isArray(monitorScope.delivery) ? monitorScope.delivery : [];
     const paymentList = Array.isArray(monitorScope.payment) ? monitorScope.payment : [];
+    const orderFlagsList = Array.isArray(monitorScope.orderFlags) ? monitorScope.orderFlags : [];
+    const storeList = Array.isArray(monitorScope.store) ? monitorScope.store : [];
+    const reserveList = Array.isArray(monitorScope.reserve) ? monitorScope.reserve : [];
+    const assemblyStatusList = Array.isArray(monitorScope.assemblyStatus) ? monitorScope.assemblyStatus : [];
 
     statusList.forEach(value => {
         url.searchParams.append('status[]', String(value));
@@ -36,6 +40,22 @@ function buildOrdersUrl(monitorScope = {}, page = 1) {
 
     paymentList.forEach(value => {
         url.searchParams.append('payment[]', String(value));
+    });
+
+    orderFlagsList.forEach(value => {
+        url.searchParams.append('flag[]', String(value));
+    });
+
+    storeList.forEach(value => {
+        url.searchParams.append('store[]', String(value));
+    });
+
+    reserveList.forEach(value => {
+        url.searchParams.append('reserve[]', String(value));
+    });
+
+    assemblyStatusList.forEach(value => {
+        url.searchParams.append('assembly_status[]', String(value));
     });
 
     if (page > 1) {

@@ -42,15 +42,19 @@ test('processOrders adds new order, sends notification and updates state', () =>
         },
         userConfig: {
             rules: {},
-            monitorScope: {
-                status: [],
-                delivery: [],
-                payment: [],
-                flags: {
-                    ozonOnly: false,
-                    juridicalOnly: false
-                }
-            }
+monitorScope: {
+    status: [],
+    delivery: [],
+    payment: [],
+    orderFlags: [],
+    store: [],
+    reserve: [],
+    assemblyStatus: [],
+    predicates: {
+        ozonOnly: false,
+        juridicalOnly: false
+    }
+}
         }
     });
 
@@ -93,15 +97,19 @@ test('processOrders sends notification on status change and updates hash', () =>
         },
         userConfig: {
             rules: {},
-            monitorScope: {
-                status: [],
-                delivery: [],
-                payment: [],
-                flags: {
-                    ozonOnly: false,
-                    juridicalOnly: false
-                }
-            }
+monitorScope: {
+    status: [],
+    delivery: [],
+    payment: [],
+    orderFlags: [],
+    store: [],
+    reserve: [],
+    assemblyStatus: [],
+    predicates: {
+        ozonOnly: false,
+        juridicalOnly: false
+    }
+}
         }
     });
 
@@ -141,15 +149,19 @@ test('processOrders applies ignore rule without notification but still updates s
             rules: {
                 ignoreLegalEntityBankTransfer: true
             },
-            monitorScope: {
-                status: [],
-                delivery: [],
-                payment: [],
-                flags: {
-                    ozonOnly: false,
-                    juridicalOnly: false
-                }
-            }
+monitorScope: {
+    status: [],
+    delivery: [],
+    payment: [],
+    orderFlags: [],
+    store: [],
+    reserve: [],
+    assemblyStatus: [],
+    predicates: {
+        ozonOnly: false,
+        juridicalOnly: false
+    }
+}
         }
     });
 
@@ -190,15 +202,19 @@ test('processOrders in testMode does not mutate state', () => {
         },
         userConfig: {
             rules: {},
-            monitorScope: {
-                status: [],
-                delivery: [],
-                payment: [],
-                flags: {
-                    ozonOnly: false,
-                    juridicalOnly: false
-                }
-            }
+monitorScope: {
+    status: [],
+    delivery: [],
+    payment: [],
+    orderFlags: [],
+    store: [],
+    reserve: [],
+    assemblyStatus: [],
+    predicates: {
+        ozonOnly: false,
+        juridicalOnly: false
+    }
+}
         }
     });
 
@@ -223,15 +239,19 @@ test('runBaseline initializes state without sending notifications', () => {
         ordersHashDB: {},
         userConfig: {
             rules: {},
-            monitorScope: {
-                status: [],
-                delivery: [],
-                payment: [],
-                flags: {
-                    ozonOnly: false,
-                    juridicalOnly: false
-                }
-            }
+monitorScope: {
+    status: [],
+    delivery: [],
+    payment: [],
+    orderFlags: [],
+    store: [],
+    reserve: [],
+    assemblyStatus: [],
+    predicates: {
+        ozonOnly: false,
+        juridicalOnly: false
+    }
+}
         },
         pendingRebaseline: true
     });

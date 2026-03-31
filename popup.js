@@ -71,7 +71,7 @@ function collectConfigFromUI(currentConfig = {}) {
     const scopePayment = document.getElementById('scopePayment');
 
     const currentMonitorScope = safeConfig.monitorScope || {};
-    const currentFlags = currentMonitorScope.flags || {};
+    const currentPredicates = currentMonitorScope.predicates || {};
 
     return {
         ...safeConfig,
@@ -85,8 +85,8 @@ function collectConfigFromUI(currentConfig = {}) {
             status: parseScopeList(scopeStatus?.value),
             delivery: parseScopeList(scopeDelivery?.value),
             payment: parseScopeList(scopePayment?.value),
-            flags: {
-                ...currentFlags
+            predicates: {
+                ...currentPredicates
             }
         }
     };

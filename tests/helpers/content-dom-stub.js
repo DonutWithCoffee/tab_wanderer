@@ -27,7 +27,10 @@ function createRow({
     internalId,
     displayId,
     href,
-    cells
+    cells,
+    hasFlag = false,
+    hasLock = false,
+    tags = []
 }) {
     return {
         getAttribute(name) {
@@ -44,16 +47,24 @@ function createRow({
 
             return [];
         },
-        querySelector(selector) {
-            if (selector === 'a[href*="/admin/orders/"]' && href) {
-                return createLink({
-                    text: displayId,
-                    href
-                });
-            }
+querySelector(selector) {
+    if (selector === 'a[href*="/admin/orders/"]' && href) {
+        return createLink({
+            text: displayId,
+            href
+        });
+    }
 
-            return null;
-        }
+    if (selector === '.fa-flag' && hasFlag) {
+        return {};
+    }
+
+    if (selector === '.fa-lock' && hasLock) {
+        return {};
+    }
+
+    return null;
+}
     };
 }
 
@@ -62,17 +73,19 @@ function createDocumentStub({
     rows = []
 }) {
     return {
-        querySelectorAll(selector) {
-            if (selector === 'thead th') {
-                return headers.map(createHeaderCell);
-            }
+querySelectorAll(selector) {
+    if (selector === 'td') {
+        return cells.map(createDataCell);
+    }
 
-            if (selector === 'tr[data-order-id]') {
-                return rows.map(createRow);
-            }
+    if (selector === '.label, .badge') {
+        return tags.map(t => ({
+            innerText: t
+        }));
+    }
 
-            return [];
-        }
+    return [];
+}
     };
 }
 
