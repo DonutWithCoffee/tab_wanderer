@@ -13,6 +13,7 @@ let lastDeepSyncAt = 0;
 let userConfig = null;
 let pendingRebaseline = false;
 let collectionSession = null;
+let monitorDictionaries = null;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -388,6 +389,43 @@ async function getMarkedWorkerTabs() {
     });
 }
 
+function normalizeDictionaries(raw) {
+    const safe = raw || {};
+
+    const normalizeGroup = (list) => {
+        if (!Array.isArray(list)) return [];
+
+        return list
+            .map((item) => ({
+                id: String(item?.id || '').trim(),
+                label: String(item?.label || '').trim()
+            }))
+            .filter((item) => item.id && item.label);
+    };
+
+    return {
+        status: normalizeGroup(safe.status),
+        delivery: normalizeGroup(safe.delivery),
+        payment: normalizeGroup(safe.payment),
+        updatedAt: Date.now()
+    };
+}
+
+function areDictionariesEqual(prev, next) {
+    if (!prev && !next) return true;
+    if (!prev || !next) return false;
+
+    return JSON.stringify({
+        status: prev.status || [],
+        delivery: prev.delivery || [],
+        payment: prev.payment || []
+    }) === JSON.stringify({
+        status: next.status || [],
+        delivery: next.delivery || [],
+        payment: next.payment || []
+    });
+}
+
 // ---------- STORAGE ----------
 async function save() {
     await chrome.storage.local.set({
@@ -403,7 +441,8 @@ async function save() {
         lastDeepSyncAt,
         userConfig,
         pendingRebaseline,
-        collectionSession
+        collectionSession,
+        monitorDictionaries
     });
 
     logState('SAVE');
@@ -422,7 +461,8 @@ async function load() {
         'lastDeepSyncAt',
         'userConfig',
         'pendingRebaseline',
-        'collectionSession'
+        'collectionSession',
+        'monitorDictionaries'
     ]);
 
     knownOrdersDB = d.knownOrdersDB || {};
@@ -437,6 +477,7 @@ async function load() {
     userConfig = getEffectiveUserConfig(d.userConfig);
     pendingRebaseline = d.pendingRebaseline === true;
     collectionSession = d.collectionSession || null;
+    monitorDictionaries = d.monitorDictionaries || null;
 
     workerTabId = null;
 
@@ -894,8 +935,36 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             if (msg.type === 'GET_CONFIG') {
                 send({
                     ok: true,
-                    userConfig
+                    userConfig,
+                    monitorDictionaries
                 });
+                return;
+            }
+
+            if (msg.type === 'DICTIONARIES') {
+                if (senderTabId !== workerTabId) {
+                    send({ ignored: true });
+                    return;
+                }
+
+                const nextDictionaries = normalizeDictionaries(msg.data);
+
+                if (areDictionariesEqual(monitorDictionaries, nextDictionaries)) {
+                    send({ ok: true, unchanged: true });
+                    return;
+                }
+
+                monitorDictionaries = nextDictionaries;
+
+                log('INFO', 'DICT', 'updated', {
+                    status: monitorDictionaries.status.length,
+                    delivery: monitorDictionaries.delivery.length,
+                    payment: monitorDictionaries.payment.length
+                });
+
+                await save();
+
+                send({ ok: true });
                 return;
             }
 

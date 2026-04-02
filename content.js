@@ -160,6 +160,52 @@ function isTableReady() {
     return rows.length > 0;
 }
 
+function parseDictionaries() {
+    function extract(name) {
+        const inputs = document.querySelectorAll(`input[type="checkbox"][name="${name}"]`);
+        const result = [];
+
+        inputs.forEach((input) => {
+            const id = input.value;
+            if (!id) return;
+
+            const label =
+                input.closest('label')?.querySelector('.form-check-label')?.innerText?.trim()
+                || input.closest('label')?.innerText?.trim()
+                || '';
+
+            if (!label) return;
+
+            result.push({ id, label });
+        });
+
+        return result;
+    }
+
+    const dictionaries = {
+        status: extract('status[]'),
+        delivery: extract('delivery[]'),
+        payment: extract('payment[]')
+    };
+
+    log('INFO', 'DICT', 'parsed', {
+        status: dictionaries.status.length,
+        delivery: dictionaries.delivery.length,
+        payment: dictionaries.payment.length
+    });
+
+    return dictionaries;
+}
+
+function sendDictionaries() {
+    const dictionaries = parseDictionaries();
+
+    sendWithRetry({
+        type: 'DICTIONARIES',
+        data: dictionaries
+    });
+}
+
 // ---------- SEND ----------
 function sendOrders() {
     const page = getCurrentPageFromUrl();
@@ -200,7 +246,8 @@ function startWorkerLoop() {
 
     log('INFO', 'START', 'worker active');
 
-    sendOrders();
+        sendDictionaries();
+        sendOrders();
 
     reloadTimer = setInterval(() => {
         log('DEBUG', 'RELOAD', 'refresh page');

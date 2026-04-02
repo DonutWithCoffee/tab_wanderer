@@ -5,7 +5,8 @@ const testFiles = [
     'tests/background-core.test.js',
     'tests/background-process.test.js',
     'tests/background-config.test.js',
-    'tests/content-parser.test.js'
+    'tests/content-parser.test.js',
+    'tests/popup-ui.test.js'
 ];
 
 for (const file of testFiles) {

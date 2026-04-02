@@ -1,4 +1,7 @@
 let currentConfig = {};
+let draftConfig = {};
+let currentDictionaries = null;
+let isDirty = false;
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -19,27 +22,124 @@ function updateStatus(isRunning) {
     el.classList.add(isRunning ? 'running' : 'stopped');
 }
 
-function parseScopeList(value) {
-    return String(value || '')
-        .split(',')
-        .map(item => item.trim())
-        .filter(v => /^\d+$/.test(v));
+function getScopeList(values) {
+    return Array.isArray(values) ? values.map(v => String(v)) : [];
 }
 
 function formatScopeList(values) {
     return Array.isArray(values) ? values.join(',') : '';
 }
 
+function deepEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function updateDirtyState() {
+    isDirty = !deepEqual(currentConfig, draftConfig);
+
+    const el = document.getElementById('configStatus');
+    if (!el) return;
+
+    el.innerText = isDirty ? 'Unsaved changes' : 'No changes';
+}
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getSelectedScopeValues(groupName) {
+    return Array.from(document.querySelectorAll(`input[data-scope-group="${groupName}"]:checked`))
+        .map((input) => input.value)
+        .filter(Boolean);
+}
+
+function buildSummaryText(title, selectedIds, options) {
+    if (!selectedIds.length) {
+        return `${title}: все`;
+    }
+
+    const selectedSet = new Set(selectedIds.map(String));
+    const selectedLabels = (options || [])
+        .filter((item) => selectedSet.has(String(item.id)))
+        .map((item) => item.label);
+
+    if (!selectedLabels.length) {
+        return `${title}: ${selectedIds.length} выбрано`;
+    }
+
+    if (selectedLabels.length <= 2) {
+        return `${title}: ${selectedLabels.join(', ')}`;
+    }
+
+    return `${title}: ${selectedLabels.slice(0, 2).join(', ')} +${selectedLabels.length - 2}`;
+}
+
+function renderScopeGroup(groupName, title, options, selectedIds) {
+    const container = document.getElementById(`scope${groupName}Options`);
+    const summary = document.getElementById(`scope${groupName}Summary`);
+
+    if (!container || !summary) return;
+
+    const safeOptions = Array.isArray(options) ? options : [];
+    const selectedSet = new Set((selectedIds || []).map(String));
+
+    container.innerHTML = safeOptions.map((item) => {
+        const id = String(item.id);
+        const label = String(item.label || '');
+        const checked = selectedSet.has(id) ? ' checked' : '';
+
+        return `
+            <label>
+                <input
+                    type="checkbox"
+                    data-scope-group="${groupName}"
+                    value="${escapeHtml(id)}"${checked}
+                >
+                ${escapeHtml(label)}
+            </label>
+            <br>
+        `;
+    }).join('');
+
+    summary.innerText = buildSummaryText(title, selectedIds || [], safeOptions);
+}
+
+function renderScopeOptions(config, dictionaries) {
+    const monitorScope = config?.monitorScope || {};
+    const safeDictionaries = dictionaries || {};
+
+    renderScopeGroup(
+        'Status',
+        'Статус',
+        safeDictionaries.status || [],
+        getScopeList(monitorScope.status)
+    );
+
+    renderScopeGroup(
+        'Delivery',
+        'Доставка',
+        safeDictionaries.delivery || [],
+        getScopeList(monitorScope.delivery)
+    );
+
+    renderScopeGroup(
+        'Payment',
+        'Оплата',
+        safeDictionaries.payment || [],
+        getScopeList(monitorScope.payment)
+    );
+}
+
 function updateConfigUI(userConfig) {
     const rules = userConfig?.rules || {};
-    const monitorScope = userConfig?.monitorScope || {};
 
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
-
-    const scopeStatus = document.getElementById('scopeStatus');
-    const scopeDelivery = document.getElementById('scopeDelivery');
-    const scopePayment = document.getElementById('scopePayment');
 
     if (ignoreOzon) {
         ignoreOzon.checked = Boolean(rules.ignoreOzon);
@@ -49,17 +149,7 @@ function updateConfigUI(userConfig) {
         ignoreJurics.checked = Boolean(rules.ignoreLegalEntityBankTransfer);
     }
 
-    if (scopeStatus) {
-        scopeStatus.value = formatScopeList(monitorScope.status);
-    }
-
-    if (scopeDelivery) {
-        scopeDelivery.value = formatScopeList(monitorScope.delivery);
-    }
-
-    if (scopePayment) {
-        scopePayment.value = formatScopeList(monitorScope.payment);
-    }
+    renderScopeOptions(userConfig, currentDictionaries);
 }
 
 function collectConfigFromUI(baseConfig = {}) {
@@ -67,10 +157,6 @@ function collectConfigFromUI(baseConfig = {}) {
 
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
-
-    const scopeStatus = document.getElementById('scopeStatus');
-    const scopeDelivery = document.getElementById('scopeDelivery');
-    const scopePayment = document.getElementById('scopePayment');
 
     const currentMonitorScope = safeConfig.monitorScope || {};
     const currentPredicates = currentMonitorScope.predicates || {};
@@ -84,9 +170,9 @@ function collectConfigFromUI(baseConfig = {}) {
         },
         monitorScope: {
             ...currentMonitorScope,
-            status: parseScopeList(scopeStatus?.value),
-            delivery: parseScopeList(scopeDelivery?.value),
-            payment: parseScopeList(scopePayment?.value),
+            status: getSelectedScopeValues('Status'),
+            delivery: getSelectedScopeValues('Delivery'),
+            payment: getSelectedScopeValues('Payment'),
             predicates: {
                 ...currentPredicates
             }
@@ -99,7 +185,11 @@ function loadConfig() {
         if (!res?.ok) return;
 
         currentConfig = res.userConfig || {};
-        updateConfigUI(currentConfig);
+        draftConfig = JSON.parse(JSON.stringify(currentConfig));
+        currentDictionaries = res.monitorDictionaries || null;
+
+        updateConfigUI(draftConfig);
+        updateDirtyState();
     });
 }
 
@@ -107,21 +197,10 @@ function bindConfigControls() {
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
 
-    const scopeStatus = document.getElementById('scopeStatus');
-    const scopeDelivery = document.getElementById('scopeDelivery');
-    const scopePayment = document.getElementById('scopePayment');
-
     const onChange = () => {
-        const nextConfig = collectConfigFromUI(currentConfig);
-
-        send({
-            type: 'UPDATE_CONFIG',
-            userConfig: nextConfig
-        }, (res) => {
-            if (!res?.ok) return;
-
-            currentConfig = res.userConfig || nextConfig;
-        });
+        draftConfig = collectConfigFromUI(draftConfig);
+        updateConfigUI(draftConfig);
+        updateDirtyState();
     };
 
     if (ignoreOzon) {
@@ -132,16 +211,44 @@ function bindConfigControls() {
         ignoreJurics.addEventListener('change', onChange);
     }
 
-    if (scopeStatus) {
-        scopeStatus.addEventListener('change', onChange);
+    document.addEventListener('change', (event) => {
+        const target = event.target;
+
+        if (!(target instanceof HTMLInputElement)) return;
+        if (!target.matches('input[data-scope-group]')) return;
+
+        onChange();
+    });
+}
+
+function bindConfigActions() {
+    const applyBtn = document.getElementById('applyConfig');
+    const resetBtn = document.getElementById('resetConfig');
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            if (!isDirty) return;
+
+            send({
+                type: 'UPDATE_CONFIG',
+                userConfig: draftConfig
+            }, (res) => {
+                if (!res?.ok) return;
+
+                currentConfig = res.userConfig || draftConfig;
+                draftConfig = JSON.parse(JSON.stringify(currentConfig));
+
+                updateDirtyState();
+            });
+        });
     }
 
-    if (scopeDelivery) {
-        scopeDelivery.addEventListener('change', onChange);
-    }
-
-    if (scopePayment) {
-        scopePayment.addEventListener('change', onChange);
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            draftConfig = JSON.parse(JSON.stringify(currentConfig));
+            updateConfigUI(draftConfig);
+            updateDirtyState();
+        });
     }
 }
 
@@ -169,5 +276,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('version').innerText = `v${version}`;
 
     bindConfigControls();
+    bindConfigActions();
     init();
 });

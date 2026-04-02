@@ -193,6 +193,7 @@ function setBackgroundState(context, state = {}) {
         userConfig = __testState.userConfig ?? getEffectiveUserConfig({});
         pendingRebaseline = __testState.pendingRebaseline ?? false;
         collectionSession = __testState.collectionSession ?? null;
+        monitorDictionaries = __testState.monitorDictionaries ?? null;
     `);
 
     delete context.__testState;
@@ -212,7 +213,8 @@ function getBackgroundState(context) {
         lastDeepSyncAt,
         userConfig,
         pendingRebaseline,
-        collectionSession
+        collectionSession,
+        monitorDictionaries
     })`);
 
     return JSON.parse(snapshot);

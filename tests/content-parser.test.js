@@ -202,3 +202,86 @@ test('parseOrders returns null when required columns are missing', () => {
 
     assert.equal(orders, null);
 });
+
+test('parseDictionaries extracts monitor dictionaries from checkbox groups', () => {
+    const documentStub = {
+        querySelectorAll(selector) {
+            const groups = {
+                'input[type="checkbox"][name="status[]"]': [
+                    {
+                        value: '6806',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector(innerSelector) {
+                                    if (innerSelector === '.form-check-label') {
+                                        return {
+                                            innerText: 'Ожидает оплаты'
+                                        };
+                                    }
+
+                                    return null;
+                                },
+                                innerText: 'Ожидает оплаты'
+                            };
+                        }
+                    }
+                ],
+                'input[type="checkbox"][name="delivery[]"]': [
+                    {
+                        value: '9797',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector(innerSelector) {
+                                    if (innerSelector === '.form-check-label') {
+                                        return {
+                                            innerText: 'Самовывоз'
+                                        };
+                                    }
+
+                                    return null;
+                                },
+                                innerText: 'Самовывоз'
+                            };
+                        }
+                    }
+                ],
+                'input[type="checkbox"][name="payment[]"]': [
+                    {
+                        value: '9791',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector(innerSelector) {
+                                    if (innerSelector === '.form-check-label') {
+                                        return {
+                                            innerText: 'Наличными в офисе'
+                                        };
+                                    }
+
+                                    return null;
+                                },
+                                innerText: 'Наличными в офисе'
+                            };
+                        }
+                    }
+                ]
+            };
+
+            return groups[selector] || [];
+        }
+    };
+
+    const context = loadContentContext(documentStub);
+    const dictionaries = context.parseDictionaries();
+
+    assert.deepEqual(JSON.parse(JSON.stringify(dictionaries)), {
+        status: [{ id: '6806', label: 'Ожидает оплаты' }],
+        delivery: [{ id: '9797', label: 'Самовывоз' }],
+        payment: [{ id: '9791', label: 'Наличными в офисе' }]
+    });
+});

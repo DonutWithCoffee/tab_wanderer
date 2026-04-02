@@ -698,3 +698,121 @@ test('START creates worker tab with URL from current monitorScope and enters war
         'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791&flag%5B%5D=1&store%5B%5D=4&reserve%5B%5D=1&assembly_status%5B%5D=yes#tab_wanderer_worker=1'
     );
 });
+
+test('GET_CONFIG returns monitorDictionaries together with userConfig', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const effectiveConfig = getEffectiveConfigSnapshot(context, {
+        rules: {
+            ignoreOzon: true
+        },
+        monitorScope: {
+            status: ['6806'],
+            delivery: ['9797'],
+            payment: ['9791'],
+            orderFlags: [],
+            store: [],
+            reserve: [],
+            assemblyStatus: [],
+            predicates: {
+                ozonOnly: false,
+                juridicalOnly: false
+            }
+        }
+    });
+
+    setBackgroundState(context, {
+        userConfig: effectiveConfig,
+        monitorDictionaries: {
+            status: [{ id: '6806', label: 'Ожидает оплаты' }],
+            delivery: [{ id: '9797', label: 'Самовывоз' }],
+            payment: [{ id: '9791', label: 'Наличными в офисе' }],
+            updatedAt: 123
+        }
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'GET_CONFIG'
+    });
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(response.userConfig, effectiveConfig);
+    assert.deepEqual(response.monitorDictionaries, {
+        status: [{ id: '6806', label: 'Ожидает оплаты' }],
+        delivery: [{ id: '9797', label: 'Самовывоз' }],
+        payment: [{ id: '9791', label: 'Наличными в офисе' }],
+        updatedAt: 123
+    });
+});
+
+test('DICTIONARIES stores normalized payload from worker tab', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        workerTabId: 77
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DICTIONARIES',
+            data: {
+                status: [{ id: 6806, label: ' Ожидает оплаты ' }],
+                delivery: [{ id: 9797, label: ' Самовывоз ' }],
+                payment: [{ id: 9791, label: ' Наличными в офисе ' }]
+            }
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(state.monitorDictionaries.status, [
+        { id: '6806', label: 'Ожидает оплаты' }
+    ]);
+    assert.deepEqual(state.monitorDictionaries.delivery, [
+        { id: '9797', label: 'Самовывоз' }
+    ]);
+    assert.deepEqual(state.monitorDictionaries.payment, [
+        { id: '9791', label: 'Наличными в офисе' }
+    ]);
+    assert.equal(typeof state.monitorDictionaries.updatedAt, 'number');
+});
+
+test('DICTIONARIES ignores payload from non-worker tab', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        workerTabId: 77
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DICTIONARIES',
+            data: {
+                status: [{ id: '6806', label: 'Ожидает оплаты' }]
+            }
+        },
+        {
+            tab: {
+                id: 99,
+                url: 'https://amperkot.ru/admin/orders/'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ignored, true);
+    assert.equal(state.monitorDictionaries, null);
+});

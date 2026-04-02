@@ -51,21 +51,39 @@
 
 <br>
 
-<label for="scopeStatus">Статус</label>
+<div>
+    <strong>Monitor Scope</strong>
+</div>
+
 <br>
-<input type="text" id="scopeStatus" placeholder="-1,6806">
 
-<br><br>
+<details>
+    <summary id="scopeStatusSummary">Статус</summary>
+    <div id="scopeStatusOptions"></div>
+</details>
 
-<label for="scopeDelivery">Доставка</label>
 <br>
-<input type="text" id="scopeDelivery" placeholder="9797">
 
-<br><br>
+<details>
+    <summary id="scopeDeliverySummary">Доставка</summary>
+    <div id="scopeDeliveryOptions"></div>
+</details>
 
-<label for="scopePayment">Оплата</label>
 <br>
-<input type="text" id="scopePayment" placeholder="9791,9793">
+
+<details>
+    <summary id="scopePaymentSummary">Оплата</summary>
+    <div id="scopePaymentOptions"></div>
+</details>
+
+<hr>
+
+<div id="configStatus">No changes</div>
+
+<br>
+
+<button id="applyConfig">Apply</button>
+<button id="resetConfig">Reset</button>
 
 <script src="popup.js"></script>
 </body>
