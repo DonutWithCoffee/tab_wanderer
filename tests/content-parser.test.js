@@ -88,6 +88,18 @@ test('extractPrimaryDate keeps only first line', () => {
     assert.equal(value, '30 мар. 2026 10:00');
 });
 
+test('extractShipmentDate returns shipment line when present', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            headers: []
+        })
+    );
+
+    const value = context.extractShipmentDate('30 мар. 2026 10:00\nОтгр.: 31 мар.\nчерез 3 минуты');
+
+    assert.equal(value, 'Отгр.: 31 мар.');
+});
+
 test('parseOrders extracts normalized order payload from table', () => {
     const context = loadContentContext(
         createDocumentStub({
@@ -119,22 +131,23 @@ test('parseOrders extracts normalized order payload from table', () => {
 
     const orders = context.parseOrders();
 
-assert.deepEqual(JSON.parse(JSON.stringify(orders)), [
-    {
-        id: '1000-300326',
-        internalId: '1000',
-        status: 'Новый',
-        delivery: 'Пункт самовывоза СДЭК',
-        payment: 'Оплата онлайн',
-        date: '30 мар. 2026 10:00',
-        contractor: 'ООО "Ромашка"',
-        orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/',
-        shipmentDateText: '',
-        hasOrderFlag: false,
-        hasAutoreserve: false,
-        tags: []
-    }
-]);
+    assert.deepEqual(JSON.parse(JSON.stringify(orders)), [
+        {
+            id: '1000-300326',
+            internalId: '1000',
+            status: 'Новый',
+            delivery: 'Пункт самовывоза СДЭК',
+            payment: 'Оплата онлайн',
+            date: '30 мар. 2026 10:00',
+            contractor: 'ООО "Ромашка"',
+            orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/',
+            shipmentDateText: '',
+            hasOrderFlag: false,
+            hasAutoreserve: false,
+            tags: []
+        }
+    ]);
+});
 
 test('parseOrders extracts diagnostic fields', () => {
     const context = loadContentContext(
@@ -173,36 +186,19 @@ test('parseOrders extracts diagnostic fields', () => {
 
     assert.equal(order.hasOrderFlag, true);
     assert.equal(order.hasAutoreserve, true);
-    assert.deepEqual(order.tags, ['tag1', 'tag2']);
+    assert.deepEqual(JSON.parse(JSON.stringify(order.tags)), ['tag1', 'tag2']);
     assert.equal(order.shipmentDateText, 'Отгр.: 31 мар.');
 });
 
-});
-
-test('parseOrders returns empty list when required columns are missing', () => {
+test('parseOrders returns null when required columns are missing', () => {
     const context = loadContentContext(
         createDocumentStub({
-            headers: [
-                'ID',
-                'Дата',
-                'Контрагент'
-            ],
-            rows: [
-                {
-                    internalId: '1000',
-                    displayId: '1000-300326',
-                    href: '/admin/orders/1000-300326/',
-                    cells: [
-                        '1000-300326',
-                        '30 мар. 2026 10:00',
-                        'ООО "Ромашка"'
-                    ]
-                }
-            ]
+            headers: ['№', 'Дата'],
+            rows: []
         })
     );
 
     const orders = context.parseOrders();
 
-    assert.deepEqual(JSON.parse(JSON.stringify(orders)), []);
+    assert.equal(orders, null);
 });

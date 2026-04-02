@@ -20,6 +20,46 @@ function createOrder(overrides = {}) {
     };
 }
 
+function createDefaultMonitorScope() {
+    return {
+        status: [],
+        delivery: [],
+        payment: [],
+        orderFlags: [],
+        store: [],
+        reserve: [],
+        assemblyStatus: [],
+        predicates: {
+            ozonOnly: false,
+            juridicalOnly: false
+        }
+    };
+}
+
+function createStateWithKnownAndWindow(context, order, userConfigOverrides = {}) {
+    const hash = getHashForOrder(context, order);
+
+    return {
+        knownOrdersDB: {
+            [order.id]: order
+        },
+        knownOrdersHashDB: {
+            [order.id]: hash
+        },
+        windowOrdersDB: {
+            [order.id]: order
+        },
+        windowOrdersHashDB: {
+            [order.id]: hash
+        },
+        userConfig: {
+            rules: {},
+            monitorScope: createDefaultMonitorScope(),
+            ...userConfigOverrides
+        }
+    };
+}
+
 function getHashForOrder(context, order) {
     context.__testOrder = order;
     const hash = runExpression(context, 'getHash(__testOrder)');
@@ -31,37 +71,15 @@ test('processOrders adds new order, sends notification and updates state', () =>
     const context = loadBackgroundContext();
 
     const existingOrder = createOrder();
-    const existingHash = getHashForOrder(context, existingOrder);
-
-    setBackgroundState(context, {
-        ordersDB: {
-            [existingOrder.id]: existingOrder
-        },
-        ordersHashDB: {
-            [existingOrder.id]: existingHash
-        },
-        userConfig: {
-            rules: {},
-monitorScope: {
-    status: [],
-    delivery: [],
-    payment: [],
-    orderFlags: [],
-    store: [],
-    reserve: [],
-    assemblyStatus: [],
-    predicates: {
-        ozonOnly: false,
-        juridicalOnly: false
-    }
-}
-        }
-    });
-
     const newOrder = createOrder({
         id: '1001-300326',
         orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
     });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, existingOrder)
+    );
 
     context.__testOrders = [existingOrder, newOrder];
     runExpression(context, 'processOrders(__testOrders)');
@@ -70,9 +88,14 @@ monitorScope: {
     const state = getBackgroundState(context);
 
     assert.equal(context.__test.notifications.length, 1);
-    assert.equal(state.ordersDB['1001-300326'].id, '1001-300326');
+    assert.equal(state.knownOrdersDB['1001-300326'].id, '1001-300326');
+    assert.equal(state.windowOrdersDB['1001-300326'].id, '1001-300326');
     assert.equal(
-        state.ordersHashDB['1001-300326'],
+        state.knownOrdersHashDB['1001-300326'],
+        getHashForOrder(context, newOrder)
+    );
+    assert.equal(
+        state.windowOrdersHashDB['1001-300326'],
         getHashForOrder(context, newOrder)
     );
 });
@@ -88,30 +111,10 @@ test('processOrders sends notification on status change and updates hash', () =>
         status: 'Оплачен'
     });
 
-    setBackgroundState(context, {
-        ordersDB: {
-            [prevOrder.id]: prevOrder
-        },
-        ordersHashDB: {
-            [prevOrder.id]: getHashForOrder(context, prevOrder)
-        },
-        userConfig: {
-            rules: {},
-monitorScope: {
-    status: [],
-    delivery: [],
-    payment: [],
-    orderFlags: [],
-    store: [],
-    reserve: [],
-    assemblyStatus: [],
-    predicates: {
-        ozonOnly: false,
-        juridicalOnly: false
-    }
-}
-        }
-    });
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
 
     context.__testOrders = [nextOrder];
     runExpression(context, 'processOrders(__testOrders)');
@@ -120,9 +123,14 @@ monitorScope: {
     const state = getBackgroundState(context);
 
     assert.equal(context.__test.notifications.length, 1);
-    assert.equal(state.ordersDB[prevOrder.id].status, 'Оплачен');
+    assert.equal(state.knownOrdersDB[prevOrder.id].status, 'Оплачен');
+    assert.equal(state.windowOrdersDB[prevOrder.id].status, 'Оплачен');
     assert.equal(
-        state.ordersHashDB[prevOrder.id],
+        state.knownOrdersHashDB[prevOrder.id],
+        getHashForOrder(context, nextOrder)
+    );
+    assert.equal(
+        state.windowOrdersHashDB[prevOrder.id],
         getHashForOrder(context, nextOrder)
     );
 });
@@ -138,32 +146,14 @@ test('processOrders applies ignore rule without notification but still updates s
         payment: 'Безналичный расчет для юридических лиц'
     });
 
-    setBackgroundState(context, {
-        ordersDB: {
-            [prevOrder.id]: prevOrder
-        },
-        ordersHashDB: {
-            [prevOrder.id]: getHashForOrder(context, prevOrder)
-        },
-        userConfig: {
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder, {
             rules: {
                 ignoreLegalEntityBankTransfer: true
-            },
-monitorScope: {
-    status: [],
-    delivery: [],
-    payment: [],
-    orderFlags: [],
-    store: [],
-    reserve: [],
-    assemblyStatus: [],
-    predicates: {
-        ozonOnly: false,
-        juridicalOnly: false
-    }
-}
-        }
-    });
+            }
+        })
+    );
 
     context.__testOrders = [nextOrder];
     runExpression(context, 'processOrders(__testOrders)');
@@ -173,11 +163,19 @@ monitorScope: {
 
     assert.equal(context.__test.notifications.length, 0);
     assert.equal(
-        state.ordersDB[prevOrder.id].payment,
+        state.knownOrdersDB[prevOrder.id].payment,
         'Безналичный расчет для юридических лиц'
     );
     assert.equal(
-        state.ordersHashDB[prevOrder.id],
+        state.windowOrdersDB[prevOrder.id].payment,
+        'Безналичный расчет для юридических лиц'
+    );
+    assert.equal(
+        state.knownOrdersHashDB[prevOrder.id],
+        getHashForOrder(context, nextOrder)
+    );
+    assert.equal(
+        state.windowOrdersHashDB[prevOrder.id],
         getHashForOrder(context, nextOrder)
     );
 });
@@ -193,30 +191,10 @@ test('processOrders in testMode does not mutate state', () => {
         status: 'Оплачен'
     });
 
-    setBackgroundState(context, {
-        ordersDB: {
-            [prevOrder.id]: prevOrder
-        },
-        ordersHashDB: {
-            [prevOrder.id]: getHashForOrder(context, prevOrder)
-        },
-        userConfig: {
-            rules: {},
-monitorScope: {
-    status: [],
-    delivery: [],
-    payment: [],
-    orderFlags: [],
-    store: [],
-    reserve: [],
-    assemblyStatus: [],
-    predicates: {
-        ozonOnly: false,
-        juridicalOnly: false
-    }
-}
-        }
-    });
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
 
     const before = getBackgroundState(context);
 
@@ -227,31 +205,23 @@ monitorScope: {
     const after = getBackgroundState(context);
 
     assert.equal(context.__test.notifications.length, 1);
-    assert.deepEqual(after.ordersDB, before.ordersDB);
-    assert.deepEqual(after.ordersHashDB, before.ordersHashDB);
+    assert.deepEqual(after.knownOrdersDB, before.knownOrdersDB);
+    assert.deepEqual(after.knownOrdersHashDB, before.knownOrdersHashDB);
+    assert.deepEqual(after.windowOrdersDB, before.windowOrdersDB);
+    assert.deepEqual(after.windowOrdersHashDB, before.windowOrdersHashDB);
 });
 
-test('runBaseline initializes state without sending notifications', () => {
+test('runBaseline initializes known and window state without sending notifications', () => {
     const context = loadBackgroundContext();
 
     setBackgroundState(context, {
-        ordersDB: {},
-        ordersHashDB: {},
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
         userConfig: {
             rules: {},
-monitorScope: {
-    status: [],
-    delivery: [],
-    payment: [],
-    orderFlags: [],
-    store: [],
-    reserve: [],
-    assemblyStatus: [],
-    predicates: {
-        ozonOnly: false,
-        juridicalOnly: false
-    }
-}
+            monitorScope: createDefaultMonitorScope()
         },
         pendingRebaseline: true
     });
@@ -271,8 +241,10 @@ monitorScope: {
     const state = getBackgroundState(context);
 
     assert.equal(context.__test.notifications.length, 0);
-    assert.equal(Object.keys(state.ordersDB).length, 2);
-    assert.equal(Object.keys(state.ordersHashDB).length, 2);
+    assert.equal(Object.keys(state.knownOrdersDB).length, 2);
+    assert.equal(Object.keys(state.knownOrdersHashDB).length, 2);
+    assert.equal(Object.keys(state.windowOrdersDB).length, 2);
+    assert.equal(Object.keys(state.windowOrdersHashDB).length, 2);
     assert.equal(state.pendingRebaseline, false);
     assert.equal(typeof state.lastBaselineDate, 'string');
 });

@@ -1,3 +1,5 @@
+let currentConfig = {};
+
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
         console.log('[POPUP]', msg.type, res);
@@ -60,8 +62,8 @@ function updateConfigUI(userConfig) {
     }
 }
 
-function collectConfigFromUI(currentConfig = {}) {
-    const safeConfig = currentConfig || {};
+function collectConfigFromUI(baseConfig = {}) {
+    const safeConfig = baseConfig || {};
 
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
@@ -95,7 +97,9 @@ function collectConfigFromUI(currentConfig = {}) {
 function loadConfig() {
     send({ type: 'GET_CONFIG' }, (res) => {
         if (!res?.ok) return;
-        updateConfigUI(res.userConfig || {});
+
+        currentConfig = res.userConfig || {};
+        updateConfigUI(currentConfig);
     });
 }
 
@@ -108,15 +112,15 @@ function bindConfigControls() {
     const scopePayment = document.getElementById('scopePayment');
 
     const onChange = () => {
-        send({ type: 'GET_CONFIG' }, (res) => {
+        const nextConfig = collectConfigFromUI(currentConfig);
+
+        send({
+            type: 'UPDATE_CONFIG',
+            userConfig: nextConfig
+        }, (res) => {
             if (!res?.ok) return;
 
-            const nextConfig = collectConfigFromUI(res.userConfig || {});
-
-            send({
-                type: 'UPDATE_CONFIG',
-                userConfig: nextConfig
-            });
+            currentConfig = res.userConfig || nextConfig;
         });
     };
 

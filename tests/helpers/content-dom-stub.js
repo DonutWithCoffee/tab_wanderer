@@ -23,6 +23,12 @@ function createLink({ text, href }) {
     };
 }
 
+function createTag(text) {
+    return {
+        innerText: text
+    };
+}
+
 function createRow({
     internalId,
     displayId,
@@ -45,26 +51,30 @@ function createRow({
                 return cells.map(createDataCell);
             }
 
+            if (selector === '.label, .badge') {
+                return tags.map(createTag);
+            }
+
             return [];
         },
-querySelector(selector) {
-    if (selector === 'a[href*="/admin/orders/"]' && href) {
-        return createLink({
-            text: displayId,
-            href
-        });
-    }
+        querySelector(selector) {
+            if (selector === 'a[href*="/admin/orders/"]' && href) {
+                return createLink({
+                    text: displayId,
+                    href
+                });
+            }
 
-    if (selector === '.fa-flag' && hasFlag) {
-        return {};
-    }
+            if (selector === '.fa-flag' && hasFlag) {
+                return {};
+            }
 
-    if (selector === '.fa-lock' && hasLock) {
-        return {};
-    }
+            if (selector === '.fa-lock' && hasLock) {
+                return {};
+            }
 
-    return null;
-}
+            return null;
+        }
     };
 }
 
@@ -73,19 +83,17 @@ function createDocumentStub({
     rows = []
 }) {
     return {
-querySelectorAll(selector) {
-    if (selector === 'td') {
-        return cells.map(createDataCell);
-    }
+        querySelectorAll(selector) {
+            if (selector === 'thead th') {
+                return headers.map(createHeaderCell);
+            }
 
-    if (selector === '.label, .badge') {
-        return tags.map(t => ({
-            innerText: t
-        }));
-    }
+            if (selector === 'tr[data-order-id]') {
+                return rows.map(createRow);
+            }
 
-    return [];
-}
+            return [];
+        }
     };
 }
 

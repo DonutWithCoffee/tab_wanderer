@@ -180,14 +180,19 @@ function setBackgroundState(context, state = {}) {
     context.__testState = state;
 
     runExpression(context, `
-        ordersDB = __testState.ordersDB || {};
-        ordersHashDB = __testState.ordersHashDB || {};
+        knownOrdersDB = __testState.knownOrdersDB || {};
+        knownOrdersHashDB = __testState.knownOrdersHashDB || {};
+        windowOrdersDB = __testState.windowOrdersDB || {};
+        windowOrdersHashDB = __testState.windowOrdersHashDB || {};
         notificationTargets = __testState.notificationTargets || {};
         workerTabId = __testState.workerTabId ?? null;
         lastBaselineDate = __testState.lastBaselineDate ?? null;
         isRunning = __testState.isRunning ?? false;
+        monitorState = __testState.monitorState ?? 'uninitialized';
+        lastDeepSyncAt = __testState.lastDeepSyncAt ?? 0;
         userConfig = __testState.userConfig ?? getEffectiveUserConfig({});
         pendingRebaseline = __testState.pendingRebaseline ?? false;
+        collectionSession = __testState.collectionSession ?? null;
     `);
 
     delete context.__testState;
@@ -195,14 +200,19 @@ function setBackgroundState(context, state = {}) {
 
 function getBackgroundState(context) {
     const snapshot = runExpression(context, `JSON.stringify({
-        ordersDB,
-        ordersHashDB,
+        knownOrdersDB,
+        knownOrdersHashDB,
+        windowOrdersDB,
+        windowOrdersHashDB,
         notificationTargets,
         workerTabId,
         lastBaselineDate,
         isRunning,
+        monitorState,
+        lastDeepSyncAt,
         userConfig,
-        pendingRebaseline
+        pendingRebaseline,
+        collectionSession
     })`);
 
     return JSON.parse(snapshot);

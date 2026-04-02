@@ -1,13 +1,18 @@
 importScripts('version.js', 'notification-rules.js');
 
-let ordersDB = {};
-let ordersHashDB = {};
+let knownOrdersDB = {};
+let knownOrdersHashDB = {};
+let windowOrdersDB = {};
+let windowOrdersHashDB = {};
 let notificationTargets = {};
 let workerTabId = null;
 let lastBaselineDate = null;
 let isRunning = false;
+let monitorState = 'uninitialized';
+let lastDeepSyncAt = 0;
 let userConfig = null;
 let pendingRebaseline = false;
+let collectionSession = null;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -18,6 +23,210 @@ let workerRetryTimer = null;
 
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
+const FAST_POLL_INTERVAL_MS = 15000;
+const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const DEEP_SYNC_MAX_PAGES = 10;
+const COLLECTION_TIMEOUT_MS = 60000;
+const COLLECTION_MAX_ADVANCE_ATTEMPTS = DEEP_SYNC_MAX_PAGES + 2;
+
+function createCollectionSession(mode = 'fast') {
+    return {
+        mode,
+        startedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        advanceAttempts: 0,
+        orders: {},
+        isComplete: false,
+        completionReason: null,
+        currentPage: 1,
+        lastCollectedPage: 0,
+        nextPage: 2,
+        seenKnownOrder: false,
+        processedPages: {}
+    };
+}
+
+function collectPageIntoSession(session, orders, page = 1) {
+session.processedPages = session.processedPages || {};
+
+if (session.processedPages[page]) {
+    log('DEBUG', 'COLLECTION', 'duplicate page ignored', page);
+    return false;
+}
+
+session.processedPages[page] = true;
+session.lastActivityAt = Date.now();
+
+    session.currentPage = page;
+
+    if (page > session.lastCollectedPage) {
+        session.lastCollectedPage = page;
+    }
+
+    session.nextPage = page + 1;
+
+    orders.forEach(order => {
+        if (!order.id) return;
+
+        session.orders[order.id] = order;
+
+        if (knownOrdersDB[order.id]) {
+            session.seenKnownOrder = true;
+        }
+    });
+
+    return true;
+}
+
+async function goToCollectionPage(page) {
+    if (!workerTabId) {
+        log('WARN', 'COLLECTION', 'cannot navigate, workerTabId is missing');
+        return false;
+    }
+
+    try {
+        await chrome.tabs.update(workerTabId, {
+            url: buildOrdersUrl(userConfig?.monitorScope, page)
+        });
+
+        log('INFO', 'COLLECTION', 'navigated to page', page);
+        return true;
+    } catch (err) {
+        log('ERROR', 'COLLECTION', 'failed to navigate', {
+            page,
+            error: err?.message || err
+        });
+        return false;
+    }
+}
+
+async function advanceCollectionPage() {
+    if (!collectionSession) {
+        log('WARN', 'COLLECTION', 'advance requested without session');
+        return { ok: false, aborted: false };
+    }
+
+    collectionSession.advanceAttempts += 1;
+    collectionSession.lastActivityAt = Date.now();
+
+    if (collectionSession.advanceAttempts > COLLECTION_MAX_ADVANCE_ATTEMPTS) {
+        log('ERROR', 'COLLECTION', 'advance limit exceeded', {
+            advanceAttempts: collectionSession.advanceAttempts,
+            maxAdvanceAttempts: COLLECTION_MAX_ADVANCE_ATTEMPTS,
+            mode: collectionSession.mode,
+            currentPage: collectionSession.currentPage,
+            nextPage: collectionSession.nextPage
+        });
+
+        resetCollectionSession();
+
+        if (workerTabId) {
+            await goToCollectionPage(1);
+        }
+
+        return { ok: false, aborted: true };
+    }
+
+    const ok = await goToCollectionPage(collectionSession.nextPage);
+
+    return { ok, aborted: false };
+}
+
+function shouldCompleteSession(session, meta) {
+    if (!session) {
+        return {
+            complete: false,
+            reason: null
+        };
+    }
+
+    if (session.mode === 'fast') {
+        return {
+            complete: true,
+            reason: 'fast-page-1'
+        };
+    }
+
+    if (session.lastCollectedPage >= DEEP_SYNC_MAX_PAGES) {
+        return {
+            complete: true,
+            reason: 'deep-sync-page-limit'
+        };
+    }
+
+    if (meta.isComplete) {
+        return {
+            complete: true,
+            reason: meta.completionReason || 'explicit-complete'
+        };
+    }
+
+    return {
+        complete: false,
+        reason: null
+    };
+}
+
+function finalizeSession(session) {
+    return Object.values(session.orders || {});
+}
+
+function resetCollectionSession() {
+    collectionSession = null;
+}
+
+function shouldStartDeepSync() {
+    if (pendingRebaseline) {
+        return true;
+    }
+
+    return (Date.now() - lastDeepSyncAt) >= DEEP_SYNC_INTERVAL_MS;
+}
+
+function ensureCollectionSession() {
+    if (!collectionSession) {
+        collectionSession = createCollectionSession(
+            shouldStartDeepSync() ? 'deep' : 'fast'
+        );
+    }
+
+    return collectionSession;
+}
+
+function markDeepSyncCompleted(session) {
+    if (session?.mode === 'deep') {
+        lastDeepSyncAt = Date.now();
+    }
+}
+
+function completeCollectionSession(session, reason = 'legacy-single-page') {
+    if (!session) {
+        return [];
+    }
+
+    session.isComplete = true;
+    session.completionReason = reason;
+
+    return finalizeSession(session);
+}
+
+function normalizeOrdersMessageMeta(msg = {}) {
+    const rawPage = Number(msg.page);
+    const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+
+    const hasCompletionFlag = typeof msg.isComplete === 'boolean';
+    const isComplete = hasCompletionFlag ? msg.isComplete : true;
+
+    const completionReason = typeof msg.completionReason === 'string' && msg.completionReason.trim()
+        ? msg.completionReason.trim()
+        : (hasCompletionFlag && msg.isComplete ? 'explicit-complete' : 'legacy-single-page');
+
+    return {
+        page,
+        isComplete,
+        completionReason
+    };
+}
 
 function buildOrdersUrl(monitorScope = {}, page = 1) {
     const url = new URL(TARGET_URL);
@@ -90,16 +299,38 @@ log('INFO', 'VERSION', VERSION);
 
 // ---------- STATE ----------
 function logState(scope = 'STATE') {
-    const ids = Object.keys(ordersDB);
-    const lastIds = ids.slice(-5);
+    const knownIds = Object.keys(knownOrdersDB);
+    const windowIds = Object.keys(windowOrdersDB);
 
     log('DEBUG', scope, {
-        totalOrders: ids.length,
-        totalHashes: Object.keys(ordersHashDB).length,
-        lastOrders: lastIds,
+        totalKnownOrders: knownIds.length,
+        totalKnownHashes: Object.keys(knownOrdersHashDB).length,
+        totalWindowOrders: windowIds.length,
+        totalWindowHashes: Object.keys(windowOrdersHashDB).length,
+        lastKnownOrders: knownIds.slice(-5),
+        lastWindowOrders: windowIds.slice(-5),
         lastBaselineDate,
         isRunning,
-        workerTabId
+        monitorState,
+        lastDeepSyncAt,
+        workerTabId,
+        pendingRebaseline,
+        collectionSession: collectionSession
+            ? {
+                mode: collectionSession.mode,
+                startedAt: collectionSession.startedAt,
+                lastActivityAt: collectionSession.lastActivityAt,
+                advanceAttempts: collectionSession.advanceAttempts,
+                totalOrders: Object.keys(collectionSession.orders || {}).length,
+                isComplete: collectionSession.isComplete,
+                completionReason: collectionSession.completionReason,
+                currentPage: collectionSession.currentPage,
+                lastCollectedPage: collectionSession.lastCollectedPage,
+                nextPage: collectionSession.nextPage,
+                seenKnownOrder: collectionSession.seenKnownOrder,
+                processedPages: Object.keys(collectionSession.processedPages || {})
+            }
+            : null
     });
 }
 
@@ -160,14 +391,19 @@ async function getMarkedWorkerTabs() {
 // ---------- STORAGE ----------
 async function save() {
     await chrome.storage.local.set({
-        ordersDB,
-        ordersHashDB,
+        knownOrdersDB,
+        knownOrdersHashDB,
+        windowOrdersDB,
+        windowOrdersHashDB,
         notificationTargets,
         lastBaselineDate,
         workerTabId,
         isRunning,
+        monitorState,
+        lastDeepSyncAt,
         userConfig,
-        pendingRebaseline
+        pendingRebaseline,
+        collectionSession
     });
 
     logState('SAVE');
@@ -175,24 +411,40 @@ async function save() {
 
 async function load() {
     const d = await chrome.storage.local.get([
-        'ordersDB',
-        'ordersHashDB',
+        'knownOrdersDB',
+        'knownOrdersHashDB',
+        'windowOrdersDB',
+        'windowOrdersHashDB',
         'notificationTargets',
         'lastBaselineDate',
         'isRunning',
+        'monitorState',
+        'lastDeepSyncAt',
         'userConfig',
-        'pendingRebaseline'
+        'pendingRebaseline',
+        'collectionSession'
     ]);
 
-    ordersDB = d.ordersDB || {};
-    ordersHashDB = d.ordersHashDB || {};
+    knownOrdersDB = d.knownOrdersDB || {};
+    knownOrdersHashDB = d.knownOrdersHashDB || {};
+    windowOrdersDB = d.windowOrdersDB || {};
+    windowOrdersHashDB = d.windowOrdersHashDB || {};
     notificationTargets = d.notificationTargets || {};
     lastBaselineDate = d.lastBaselineDate || null;
     isRunning = d.isRunning || false;
+    monitorState = d.monitorState || 'uninitialized';
+    lastDeepSyncAt = Number(d.lastDeepSyncAt) || 0;
     userConfig = getEffectiveUserConfig(d.userConfig);
     pendingRebaseline = d.pendingRebaseline === true;
+    collectionSession = d.collectionSession || null;
 
     workerTabId = null;
+
+    if (isRunning) {
+        monitorState = 'warming';
+        pendingRebaseline = true;
+        resetCollectionSession();
+    }
 
     log('INFO', 'INIT', 'state loaded');
     logState('LOAD');
@@ -442,24 +694,61 @@ chrome.notifications.onClosed.addListener(async (notificationId) => {
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
-    const db = {};
-    const hash = {};
+    const nextKnownDB = {};
+    const nextKnownHashDB = {};
+    const nextWindowDB = {};
+    const nextWindowHashDB = {};
+
+    markDeepSyncCompleted(collectionSession);
 
     orders.forEach(order => {
         if (!order.id) return;
-        db[order.id] = order;
-        hash[order.id] = getHash(order);
+
+        const hash = getHash(order);
+
+        nextKnownDB[order.id] = order;
+        nextKnownHashDB[order.id] = hash;
+        nextWindowDB[order.id] = order;
+        nextWindowHashDB[order.id] = hash;
     });
 
-    ordersDB = db;
-    ordersHashDB = hash;
+    knownOrdersDB = nextKnownDB;
+    knownOrdersHashDB = nextKnownHashDB;
+    windowOrdersDB = nextWindowDB;
+    windowOrdersHashDB = nextWindowHashDB;
     lastBaselineDate = todayKey();
     pendingRebaseline = false;
+    monitorState = 'active';
+    resetCollectionSession();
 
     log('INFO', 'BASELINE', `${reason} count=${orders.length}`);
     logState('BASELINE');
 
     save();
+}
+
+function applyWindowSnapshot(orders) {
+    const nextWindowDB = {};
+    const nextWindowHashDB = {};
+
+    orders.forEach(order => {
+        if (!order.id) return;
+
+        const hash = getHash(order);
+
+        nextWindowDB[order.id] = order;
+        nextWindowHashDB[order.id] = hash;
+
+        if (!knownOrdersHashDB[order.id] || knownOrdersHashDB[order.id] !== hash) {
+            knownOrdersDB[order.id] = order;
+            knownOrdersHashDB[order.id] = hash;
+        }
+    });
+
+    windowOrdersDB = nextWindowDB;
+    windowOrdersHashDB = nextWindowHashDB;
+
+    log('INFO', 'WINDOW_SYNC', `applied window snapshot count=${orders.length}`);
 }
 
 // ---------- CORE ----------
@@ -474,7 +763,10 @@ function processOrders(orders, options = {}) {
         if (!order.id) continue;
 
         const newHash = getHash(order);
-        const prevHash = ordersHashDB[order.id];
+        const prevHash =
+            windowOrdersHashDB[order.id] ||
+            knownOrdersHashDB[order.id] ||
+            null;
 
         if (newHash === prevHash) {
             continue;
@@ -482,7 +774,10 @@ function processOrders(orders, options = {}) {
 
         hasChanges = true;
 
-        const prevOrder = ordersDB[order.id] || null;
+        const prevOrder =
+            windowOrdersDB[order.id] ||
+            knownOrdersDB[order.id] ||
+            null;
 
         log('INFO', 'CHANGE', {
             id: order.id,
@@ -490,7 +785,7 @@ function processOrders(orders, options = {}) {
             next: newHash
         });
 
-        const isNewOrder = !prevOrder;
+        const isNewOrder = !knownOrdersDB[order.id];
 
         const decision = evaluateNotification(
             order,
@@ -522,8 +817,10 @@ function processOrders(orders, options = {}) {
         }
 
         if (!testMode) {
-            ordersDB[order.id] = order;
-            ordersHashDB[order.id] = newHash;
+            knownOrdersDB[order.id] = order;
+            knownOrdersHashDB[order.id] = newHash;
+            windowOrdersDB[order.id] = order;
+            windowOrdersHashDB[order.id] = newHash;
         }
     }
 
@@ -535,6 +832,19 @@ function processOrders(orders, options = {}) {
 
 // ---------- WATCHDOG ----------
 setInterval(() => {
+    if (collectionSession) {
+    const idle = Date.now() - (collectionSession.lastActivityAt || 0);
+
+    if (idle > COLLECTION_TIMEOUT_MS) {
+        log('WARN', 'COLLECTION', 'session timeout, resetting');
+
+        resetCollectionSession();
+
+        if (workerTabId) {
+            goToCollectionPage(1);
+        }
+    }
+}
     if (!isRunning || !workerTabId) return;
 
     const referenceTime = Math.max(lastPing, workerActivatedAt);
@@ -660,9 +970,12 @@ if (msg.type === 'START') {
     isRunning = true;
     isStarting = true;
     pendingRebaseline = true;
+    monitorState = 'warming';
+    resetCollectionSession();
 
     log('INFO', 'CONTROL', 'START');
     log('INFO', 'CONTROL', 'rebaseline scheduled on start');
+    log('INFO', 'CONTROL', 'monitor state -> warming');
     log('INFO', 'CONTROL', 'monitor scope on start', userConfig?.monitorScope || {});
 
     const oldTabId = workerTabId;
@@ -685,24 +998,27 @@ if (msg.type === 'START') {
     return;
 }
 
-            if (msg.type === 'STOP') {
-                isRunning = false;
+if (msg.type === 'STOP') {
+    isRunning = false;
+    monitorState = 'uninitialized';
+    resetCollectionSession();
 
-                log('INFO', 'CONTROL', 'STOP');
+    log('INFO', 'CONTROL', 'STOP');
+    log('INFO', 'CONTROL', 'monitor state -> uninitialized');
 
-                if (workerTabId) {
-                    try {
-                        await chrome.tabs.remove(workerTabId);
-                    } catch {}
-                }
+    if (workerTabId) {
+        try {
+            await chrome.tabs.remove(workerTabId);
+        } catch {}
+    }
 
-                workerTabId = null;
+    workerTabId = null;
 
-                await save();
+    await save();
 
-                send({ ok: true });
-                return;
-            }
+    send({ ok: true });
+    return;
+}
 
 if (msg.type === 'ORDERS') {
     const isTest = msg.isTest === true;
@@ -727,15 +1043,50 @@ if (msg.type === 'ORDERS') {
         return;
     }
 
-    const isEmptyDB = Object.keys(ordersDB).length === 0;
+        const isEmptyDB = Object.keys(windowOrdersDB).length === 0;
+    const meta = normalizeOrdersMessageMeta(msg);
 
-    if (pendingRebaseline) {
-        runBaseline(msg.data, 'rebaseline');
-    } else if (isEmptyDB) {
-        runBaseline(msg.data, 'init');
+const session = ensureCollectionSession();
+const collected = collectPageIntoSession(session, msg.data, meta.page);
+
+if (!collected) {
+    send({ ok: true, collecting: true, duplicate: true });
+    return;
+}
+
+const decision = shouldCompleteSession(session, meta);
+
+if (!decision.complete) {
+    await save();
+
+    const advanceResult = await advanceCollectionPage();
+
+    send({
+        ok: true,
+        collecting: !advanceResult.aborted,
+        advanced: advanceResult.ok,
+        aborted: advanceResult.aborted
+    });
+    return;
+}
+
+const snapshot = completeCollectionSession(session, decision.reason);
+
+if (pendingRebaseline) {
+    runBaseline(snapshot, 'rebaseline');
+} else if (isEmptyDB || monitorState !== 'active') {
+    runBaseline(snapshot, 'init');
+} else {
+    if (session?.mode === 'deep') {
+        markDeepSyncCompleted(session);
+        applyWindowSnapshot(snapshot);
     } else {
-        processOrders(msg.data);
+        processOrders(snapshot);
     }
+
+    resetCollectionSession();
+    await save();
+}
 
     send({ ok: true });
     return;

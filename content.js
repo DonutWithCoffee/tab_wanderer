@@ -17,6 +17,7 @@ function log(level, scope, ...args) {
 }
 
 let reloadTimer = null;
+let lastSentPage = null;
 
 // ---------- RETRY SEND ----------
 function sendWithRetry(payload, retries = 3) {
@@ -87,10 +88,12 @@ function getColumnMap() {
     return map;
 }
 
+
+
 // ---------- PARSE ----------
 function parseOrders() {
     const map = getColumnMap();
-    if (!map) return [];
+    if (!map) return null;
 
     const rows = document.querySelectorAll('tr[data-order-id]');
     const result = [];
@@ -152,13 +155,38 @@ function parseOrders() {
     return result;
 }
 
+function isTableReady() {
+    const rows = document.querySelectorAll('tr[data-order-id]');
+    return rows.length > 0;
+}
+
 // ---------- SEND ----------
 function sendOrders() {
+    const page = getCurrentPageFromUrl();
+
+    if (lastSentPage === page) {
+        log('DEBUG', 'SEND', 'duplicate page skip', page);
+        return;
+    }
+
+    if (!isTableReady()) {
+        log('WARN', 'PARSE', 'table not ready, skip send');
+        return;
+    }
+
     const orders = parseOrders();
-    if (!orders.length) return;
+
+    if (!orders) {
+        log('WARN', 'PARSE', 'invalid parse, skip send');
+        return;
+    }
+
+    lastSentPage = page;
 
     sendWithRetry({
         type: 'ORDERS',
+        page,
+        isComplete: false,
         data: orders
     });
 }
@@ -185,6 +213,7 @@ function stopWorkerLoop() {
 
     clearInterval(reloadTimer);
     reloadTimer = null;
+    lastSentPage = null;
 
     log('INFO', 'STOP', 'worker stopped');
 }
@@ -211,6 +240,18 @@ function init() {
 
         startWorkerLoop();
     });
+}
+
+function getCurrentPageFromUrl() {
+    try {
+        const url = new URL(window.location.href);
+        const raw = url.searchParams.get('page');
+        const page = Number(raw);
+
+        return Number.isInteger(page) && page > 0 ? page : 1;
+    } catch {
+        return 1;
+    }
 }
 
 init();
