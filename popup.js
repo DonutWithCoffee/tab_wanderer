@@ -22,12 +22,24 @@ function updateStatus(isRunning) {
     el.classList.add(isRunning ? 'running' : 'stopped');
 }
 
+// ---------- HELPERS ----------
 function getScopeList(values) {
-    return Array.isArray(values) ? values.map(v => String(v)) : [];
+    return Array.isArray(values) ? values.map((value) => String(value)) : [];
 }
 
-function formatScopeList(values) {
-    return Array.isArray(values) ? values.join(',') : '';
+function getSelectedMonitorMode() {
+    const windowed = document.getElementById('monitorModeWindowed');
+    const active = document.getElementById('monitorModeActive');
+
+    if (active?.checked) {
+        return 'active';
+    }
+
+    if (windowed?.checked) {
+        return 'windowed';
+    }
+
+    return 'windowed';
 }
 
 function deepEqual(a, b) {
@@ -79,6 +91,7 @@ function buildSummaryText(title, selectedIds, options) {
     return `${title}: ${selectedLabels.slice(0, 2).join(', ')} +${selectedLabels.length - 2}`;
 }
 
+// ---------- SCOPE RENDER ----------
 function renderScopeGroup(groupName, title, options, selectedIds) {
     const container = document.getElementById(`scope${groupName}Options`);
     const summary = document.getElementById(`scope${groupName}Summary`);
@@ -94,15 +107,14 @@ function renderScopeGroup(groupName, title, options, selectedIds) {
         const checked = selectedSet.has(id) ? ' checked' : '';
 
         return `
-            <label>
+            <label class="scope-option">
                 <input
                     type="checkbox"
                     data-scope-group="${groupName}"
                     value="${escapeHtml(id)}"${checked}
                 >
-                ${escapeHtml(label)}
+                <span>${escapeHtml(label)}</span>
             </label>
-            <br>
         `;
     }).join('');
 
@@ -135,11 +147,15 @@ function renderScopeOptions(config, dictionaries) {
     );
 }
 
+// ---------- CONFIG UI ----------
 function updateConfigUI(userConfig) {
     const rules = userConfig?.rules || {};
+    const monitorMode = String(userConfig?.monitorMode || 'windowed');
 
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
+    const monitorModeWindowed = document.getElementById('monitorModeWindowed');
+    const monitorModeActive = document.getElementById('monitorModeActive');
 
     if (ignoreOzon) {
         ignoreOzon.checked = Boolean(rules.ignoreOzon);
@@ -147,6 +163,14 @@ function updateConfigUI(userConfig) {
 
     if (ignoreJurics) {
         ignoreJurics.checked = Boolean(rules.ignoreLegalEntityBankTransfer);
+    }
+
+    if (monitorModeWindowed) {
+        monitorModeWindowed.checked = monitorMode === 'windowed';
+    }
+
+    if (monitorModeActive) {
+        monitorModeActive.checked = monitorMode === 'active';
     }
 
     renderScopeOptions(userConfig, currentDictionaries);
@@ -163,6 +187,7 @@ function collectConfigFromUI(baseConfig = {}) {
 
     return {
         ...safeConfig,
+        monitorMode: getSelectedMonitorMode(),
         rules: {
             ...(safeConfig.rules || {}),
             ignoreOzon: Boolean(ignoreOzon?.checked),
@@ -196,6 +221,8 @@ function loadConfig() {
 function bindConfigControls() {
     const ignoreOzon = document.getElementById('ignoreOzon');
     const ignoreJurics = document.getElementById('ignoreJurics');
+    const monitorModeWindowed = document.getElementById('monitorModeWindowed');
+    const monitorModeActive = document.getElementById('monitorModeActive');
 
     const onChange = () => {
         draftConfig = collectConfigFromUI(draftConfig);
@@ -209,6 +236,14 @@ function bindConfigControls() {
 
     if (ignoreJurics) {
         ignoreJurics.addEventListener('change', onChange);
+    }
+
+    if (monitorModeWindowed) {
+        monitorModeWindowed.addEventListener('change', onChange);
+    }
+
+    if (monitorModeActive) {
+        monitorModeActive.addEventListener('change', onChange);
     }
 
     document.addEventListener('change', (event) => {

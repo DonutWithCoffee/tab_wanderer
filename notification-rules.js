@@ -13,6 +13,7 @@ const RULE_GROUP_OPERATOR = {
 };
 
 const DEFAULT_CONFIG = {
+    monitorMode: 'windowed',
     rules: {
         ignoreEmptyStatus: false,
         ignoreEmptyDelivery: false,
@@ -188,9 +189,14 @@ function getEffectiveConfig(config = {}) {
     const baseRules = DEFAULT_CONFIG.rules || {};
     const incomingRules = config?.rules || {};
 
+    const monitorMode = config?.monitorMode === 'active'
+        ? 'active'
+        : 'windowed';
+
     return {
         ...DEFAULT_CONFIG,
         ...config,
+        monitorMode,
         rules: {
             ...baseRules,
             ...incomingRules

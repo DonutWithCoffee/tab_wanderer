@@ -40,6 +40,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
 
     setBackgroundState(context, {
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {
                 ignoreOzon: false
             },
@@ -63,6 +64,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
     const response = await sendRuntimeMessage(context, {
         type: 'UPDATE_CONFIG',
         userConfig: {
+            monitorMode: 'windowed',
             rules: {
                 ignoreOzon: true
             },
@@ -95,6 +97,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
 
     setBackgroundState(context, {
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: [],
@@ -116,6 +119,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
     const response = await sendRuntimeMessage(context, {
         type: 'UPDATE_CONFIG',
         userConfig: {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -173,6 +177,7 @@ test('collection aborts when advance attempt limit is exceeded', async () => {
             }
         },
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -234,6 +239,7 @@ knownOrdersHashDB: {},
 windowOrdersDB: {},
 windowOrdersHashDB: {},
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: [],
@@ -288,6 +294,7 @@ test('UPDATE_CONFIG keeps pendingRebaseline unchanged when config does not chang
     await settleBackgroundContext();
 
     const stableConfig = {
+        monitorMode: 'windowed',
         rules: {
             ignoreOzon: true
         },
@@ -346,6 +353,7 @@ setBackgroundState(context, {
         stale: 'old-hash'
     },
     userConfig: getEffectiveConfigSnapshot(context, {
+        monitorMode: 'windowed',
         rules: {},
         monitorScope: {
             status: [],
@@ -422,6 +430,7 @@ setBackgroundState(context, {
         known: 'hash'
     },
     userConfig: getEffectiveConfigSnapshot(context, {
+        monitorMode: 'windowed',
         rules: {},
         monitorScope: {
             status: [],
@@ -482,6 +491,7 @@ knownOrdersHashDB: {},
 windowOrdersDB: {},
 windowOrdersHashDB: {},
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -553,6 +563,7 @@ windowOrdersHashDB: {
     known: 'known-hash'
 },
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: [],
@@ -609,6 +620,7 @@ knownOrdersHashDB: {},
 windowOrdersDB: {},
 windowOrdersHashDB: {},
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -666,6 +678,7 @@ test('START creates worker tab with URL from current monitorScope and enters war
         monitorState: 'uninitialized',
         workerTabId: null,
         userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -704,6 +717,7 @@ test('GET_CONFIG returns monitorDictionaries together with userConfig', async ()
     await settleBackgroundContext();
 
     const effectiveConfig = getEffectiveConfigSnapshot(context, {
+        monitorMode: 'windowed',
         rules: {
             ignoreOzon: true
         },
@@ -815,4 +829,203 @@ test('DICTIONARIES ignores payload from non-worker tab', async () => {
 
     assert.equal(response.ignored, true);
     assert.equal(state.monitorDictionaries, null);
+});
+
+test('UPDATE_CONFIG sets pendingRebaseline when monitorMode changes', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            rules: {},
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        }),
+        pendingRebaseline: false
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: {
+            monitorMode: 'active',
+            rules: {},
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        }
+    });
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(state.userConfig.monitorMode, 'active');
+    assert.equal(state.pendingRebaseline, true);
+});
+
+test('active mode never starts deep sync even when deepSync is due', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        pendingRebaseline: false,
+        lastDeepSyncAt: 0, // normally would trigger deep sync
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'active',
+            rules: {},
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            data: [createOrder()]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(state.collectionSession, null); // completed immediately
+    assert.equal(context.__test.tabUpdates.length, 0); // no pagination
+});
+
+test('active mode never advances to next page', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'active',
+            rules: {},
+            monitorScope: {
+                status: ['6806'],
+                delivery: ['9797'],
+                payment: ['9791'],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: false,
+            data: [createOrder()]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(response.advanced, undefined);
+    assert.equal(context.__test.tabUpdates.length, 0);
+    assert.equal(state.collectionSession, null);
+});
+
+test('active mode always uses fast session mode', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        pendingRebaseline: true,
+        lastDeepSyncAt: 0,
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'active',
+            rules: {},
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const policy = JSON.parse(
+        runExpression(context, 'JSON.stringify(getCollectionPolicy())')
+    );
+
+    assert.equal(policy.sessionMode, 'fast');
+    assert.equal(policy.deepSyncDue, false);
+    assert.equal(policy.maxPages, 1);
 });

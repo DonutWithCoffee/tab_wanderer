@@ -47,6 +47,31 @@ function createCollectionSession(mode = 'fast') {
     };
 }
 
+function getCollectionPolicy() {
+    const monitorMode = String(userConfig?.monitorMode || 'windowed');
+
+    if (monitorMode === 'active') {
+        return {
+            sessionMode: 'fast',
+            deepSyncDue: false,
+            maxPages: 1
+        };
+    }
+
+    const deepSyncDue = pendingRebaseline
+        || (Date.now() - lastDeepSyncAt) >= DEEP_SYNC_INTERVAL_MS;
+
+    return {
+        sessionMode: deepSyncDue ? 'deep' : 'fast',
+        deepSyncDue,
+        maxPages: DEEP_SYNC_MAX_PAGES
+    };
+}
+
+function getCollectionSessionMode() {
+    return getCollectionPolicy().sessionMode;
+}
+
 function collectPageIntoSession(session, orders, page = 1) {
 session.processedPages = session.processedPages || {};
 
@@ -141,6 +166,8 @@ function shouldCompleteSession(session, meta) {
         };
     }
 
+    const policy = getCollectionPolicy();
+
     if (session.mode === 'fast') {
         return {
             complete: true,
@@ -148,7 +175,7 @@ function shouldCompleteSession(session, meta) {
         };
     }
 
-    if (session.lastCollectedPage >= DEEP_SYNC_MAX_PAGES) {
+    if (session.lastCollectedPage >= policy.maxPages) {
         return {
             complete: true,
             reason: 'deep-sync-page-limit'
@@ -177,17 +204,13 @@ function resetCollectionSession() {
 }
 
 function shouldStartDeepSync() {
-    if (pendingRebaseline) {
-        return true;
-    }
-
-    return (Date.now() - lastDeepSyncAt) >= DEEP_SYNC_INTERVAL_MS;
+    return getCollectionPolicy().deepSyncDue;
 }
 
 function ensureCollectionSession() {
     if (!collectionSession) {
         collectionSession = createCollectionSession(
-            shouldStartDeepSync() ? 'deep' : 'fast'
+            getCollectionSessionMode()
         );
     }
 
@@ -997,7 +1020,11 @@ if (msg.type === 'UPDATE_CONFIG') {
     const nextScope = JSON.stringify(userConfig?.monitorScope || {});
     const scopeChanged = prevScope !== nextScope;
 
-    if (ruleChanges.length > 0 || scopeChanged) {
+    const prevMode = String(prevConfig?.monitorMode || 'windowed');
+    const nextMode = String(userConfig?.monitorMode || 'windowed');
+    const modeChanged = prevMode !== nextMode;
+
+    if (ruleChanges.length > 0 || scopeChanged || modeChanged) {
         pendingRebaseline = true;
 
         if (ruleChanges.length > 0) {
@@ -1006,6 +1033,13 @@ if (msg.type === 'UPDATE_CONFIG') {
 
         if (scopeChanged) {
             log('INFO', 'CONFIG', 'monitor scope changed', userConfig?.monitorScope || {});
+        }
+
+        if (modeChanged) {
+            log('INFO', 'CONFIG', 'monitor mode changed', {
+                from: prevMode,
+                to: nextMode
+            });
         }
 
         log('INFO', 'CONFIG', 'effective config', userConfig);

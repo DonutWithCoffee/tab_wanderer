@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <style>
+        body {
+            min-width: 320px;
+            font-family: Arial, sans-serif;
+        }
+
         #status {
             font-weight: bold;
             margin-top: 5px;
@@ -14,6 +19,44 @@
 
         .stopped {
             color: red;
+        }
+
+        .section-title {
+            font-weight: bold;
+        }
+
+        .mode-group,
+        .rules-group,
+        .actions-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        details {
+            margin-bottom: 8px;
+        }
+
+        summary {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .scope-options {
+            margin-top: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .scope-option {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #configStatus {
+            font-weight: bold;
         }
     </style>
 </head>
@@ -31,49 +74,59 @@
 
 <hr>
 
-<label>
-    <input type="checkbox" id="ignoreOzon">
-    Игнорировать ОЗОН
-</label>
+<div class="section-title">Режим мониторинга</div>
 
 <br>
 
-<label>
-    <input type="checkbox" id="ignoreJurics">
-    Игнорировать юриков
-</label>
+<div class="mode-group">
+    <label>
+        <input type="radio" name="monitorMode" id="monitorModeWindowed" value="windowed">
+        Windowed monitoring
+    </label>
+
+    <label>
+        <input type="radio" name="monitorMode" id="monitorModeActive" value="active">
+        Active page monitoring
+    </label>
+</div>
 
 <hr>
 
-<div>
-    <strong>Monitor Scope</strong>
-</div>
+<div class="section-title">Rules</div>
 
 <br>
 
-<div>
-    <strong>Monitor Scope</strong>
+<div class="rules-group">
+    <label>
+        <input type="checkbox" id="ignoreOzon">
+        Игнорировать ОЗОН
+    </label>
+
+    <label>
+        <input type="checkbox" id="ignoreJurics">
+        Игнорировать юриков
+    </label>
 </div>
+
+<hr>
+
+<div class="section-title">Monitor Scope</div>
 
 <br>
 
 <details>
     <summary id="scopeStatusSummary">Статус</summary>
-    <div id="scopeStatusOptions"></div>
+    <div id="scopeStatusOptions" class="scope-options"></div>
 </details>
-
-<br>
 
 <details>
     <summary id="scopeDeliverySummary">Доставка</summary>
-    <div id="scopeDeliveryOptions"></div>
+    <div id="scopeDeliveryOptions" class="scope-options"></div>
 </details>
-
-<br>
 
 <details>
     <summary id="scopePaymentSummary">Оплата</summary>
-    <div id="scopePaymentOptions"></div>
+    <div id="scopePaymentOptions" class="scope-options"></div>
 </details>
 
 <hr>
@@ -82,8 +135,10 @@
 
 <br>
 
-<button id="applyConfig">Apply</button>
-<button id="resetConfig">Reset</button>
+<div class="actions-group">
+    <button id="applyConfig">Apply</button>
+    <button id="resetConfig">Reset</button>
+</div>
 
 <script src="popup.js"></script>
 </body>

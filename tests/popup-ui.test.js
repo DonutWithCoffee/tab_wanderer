@@ -185,6 +185,8 @@ function createPopupDom() {
         'status',
         'start',
         'stop',
+        'monitorModeWindowed',
+        'monitorModeActive',
         'ignoreOzon',
         'ignoreJurics',
         'scopeStatusSummary',
@@ -199,11 +201,13 @@ function createPopupDom() {
     ];
 
     for (const id of ids) {
-        const isInput = ['ignoreOzon', 'ignoreJurics'].includes(id);
+              const isInput = ['monitorModeWindowed', 'monitorModeActive', 'ignoreOzon', 'ignoreJurics'].includes(id);
         const element = isInput ? new FakeInputElement(document, id) : new FakeElement('div', document, id);
 
         if (isInput) {
-            element.type = 'checkbox';
+            element.type = ['monitorModeWindowed', 'monitorModeActive'].includes(id)
+                ? 'radio'
+                : 'checkbox';
         }
 
         document.registerElement(id, element);
@@ -222,6 +226,7 @@ function loadPopupContext(overrides = {}) {
     const manifest = { version: '0.9.7-test' };
 
     const defaultConfig = {
+        monitorMode: 'windowed',
         rules: {
             ignoreOzon: false,
             ignoreLegalEntityBankTransfer: false
@@ -340,8 +345,10 @@ test('popup initializes from GET_CONFIG and renders dictionaries', () => {
 
     assert.equal(document.getElementById('status').innerText, 'Status: RUNNING');
     assert.equal(document.getElementById('version').innerText, 'v0.9.7-test');
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
+       assert.equal(document.getElementById('configStatus').innerText, 'No changes');
 
+    assert.equal(document.getElementById('monitorModeWindowed').checked, true);
+    assert.equal(document.getElementById('monitorModeActive').checked, false);
     assert.equal(document.getElementById('ignoreOzon').checked, false);
     assert.equal(document.getElementById('ignoreJurics').checked, false);
 
