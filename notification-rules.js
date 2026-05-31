@@ -26,6 +26,21 @@ const DEFAULT_CONFIG = {
         ignoreCashlessBankTransfer: false,
         ignoreCancelledCourierCashless: false
     },
+    notificationTriggers: {
+        newOrders: true,
+        changedOrders: true,
+        changedFields: {
+            status: true,
+            delivery: true,
+            payment: true,
+            contractor: false,
+            date: false,
+            shipmentDateText: true,
+            hasOrderFlag: true,
+            hasAutoreserve: true,
+            tags: true
+        }
+    },
     monitorScope: {
         status: [],
         delivery: [],
@@ -185,6 +200,51 @@ function normalizeMonitorScope(scope = {}) {
     };
 }
 
+function normalizeNotificationTriggers(triggers = {}) {
+    const safeTriggers = triggers || {};
+    const safeChangedFields = safeTriggers.changedFields || {};
+    const defaultTriggers = DEFAULT_CONFIG.notificationTriggers;
+    const defaultChangedFields = defaultTriggers.changedFields;
+
+    return {
+        newOrders: safeTriggers.newOrders === undefined
+            ? defaultTriggers.newOrders
+            : Boolean(safeTriggers.newOrders),
+        changedOrders: safeTriggers.changedOrders === undefined
+            ? defaultTriggers.changedOrders
+            : Boolean(safeTriggers.changedOrders),
+        changedFields: {
+            status: safeChangedFields.status === undefined
+                ? defaultChangedFields.status
+                : Boolean(safeChangedFields.status),
+            delivery: safeChangedFields.delivery === undefined
+                ? defaultChangedFields.delivery
+                : Boolean(safeChangedFields.delivery),
+            payment: safeChangedFields.payment === undefined
+                ? defaultChangedFields.payment
+                : Boolean(safeChangedFields.payment),
+            contractor: safeChangedFields.contractor === undefined
+                ? defaultChangedFields.contractor
+                : Boolean(safeChangedFields.contractor),
+            date: safeChangedFields.date === undefined
+                ? defaultChangedFields.date
+                : Boolean(safeChangedFields.date),
+            shipmentDateText: safeChangedFields.shipmentDateText === undefined
+                ? defaultChangedFields.shipmentDateText
+                : Boolean(safeChangedFields.shipmentDateText),
+            hasOrderFlag: safeChangedFields.hasOrderFlag === undefined
+                ? defaultChangedFields.hasOrderFlag
+                : Boolean(safeChangedFields.hasOrderFlag),
+            hasAutoreserve: safeChangedFields.hasAutoreserve === undefined
+                ? defaultChangedFields.hasAutoreserve
+                : Boolean(safeChangedFields.hasAutoreserve),
+            tags: safeChangedFields.tags === undefined
+                ? defaultChangedFields.tags
+                : Boolean(safeChangedFields.tags)
+        }
+    };
+}
+
 function getEffectiveConfig(config = {}) {
     const baseRules = DEFAULT_CONFIG.rules || {};
     const incomingRules = config?.rules || {};
@@ -201,6 +261,7 @@ function getEffectiveConfig(config = {}) {
             ...baseRules,
             ...incomingRules
         },
+        notificationTriggers: normalizeNotificationTriggers(config?.notificationTriggers),
         monitorScope: normalizeMonitorScope(config?.monitorScope)
     };
 }

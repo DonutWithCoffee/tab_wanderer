@@ -75,6 +75,45 @@ test('getEffectiveConfig merges default rules with incoming config', () => {
     });
 });
 
+test('getEffectiveConfig normalizes notification trigger defaults', () => {
+    const context = loadRulesContext();
+
+    const config = context.getEffectiveConfig({});
+
+    assert.equal(config.notificationTriggers.newOrders, true);
+    assert.equal(config.notificationTriggers.changedOrders, true);
+    assert.equal(config.notificationTriggers.changedFields.status, true);
+    assert.equal(config.notificationTriggers.changedFields.delivery, true);
+    assert.equal(config.notificationTriggers.changedFields.payment, true);
+    assert.equal(config.notificationTriggers.changedFields.contractor, false);
+    assert.equal(config.notificationTriggers.changedFields.date, false);
+    assert.equal(config.notificationTriggers.changedFields.shipmentDateText, true);
+    assert.equal(config.notificationTriggers.changedFields.hasOrderFlag, true);
+    assert.equal(config.notificationTriggers.changedFields.hasAutoreserve, true);
+    assert.equal(config.notificationTriggers.changedFields.tags, true);
+});
+
+test('getEffectiveConfig merges incoming notification triggers with defaults', () => {
+    const context = loadRulesContext();
+
+    const config = context.getEffectiveConfig({
+        notificationTriggers: {
+            newOrders: false,
+            changedFields: {
+                status: false,
+                contractor: true
+            }
+        }
+    });
+
+    assert.equal(config.notificationTriggers.newOrders, false);
+    assert.equal(config.notificationTriggers.changedOrders, true);
+    assert.equal(config.notificationTriggers.changedFields.status, false);
+    assert.equal(config.notificationTriggers.changedFields.delivery, true);
+    assert.equal(config.notificationTriggers.changedFields.contractor, true);
+    assert.equal(config.notificationTriggers.changedFields.date, false);
+});
+
 test('evaluateNotification ignores legal entity bank transfer when rule enabled', () => {
     const context = loadRulesContext();
 
