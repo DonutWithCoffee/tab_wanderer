@@ -9,14 +9,56 @@ const testFiles = [
     'tests/popup-ui.test.js'
 ];
 
+function collectSummary(output) {
+    const text = String(output || '');
+    const lines = text.split(/\r?\n/);
+
+    let pass = 0;
+    let fail = 0;
+
+    for (const line of lines) {
+        const passMatch = line.match(/\bpass\s+(\d+)\b/);
+        const failMatch = line.match(/\bfail\s+(\d+)\b/);
+
+        if (passMatch) {
+            pass += Number(passMatch[1]);
+        }
+
+        if (failMatch) {
+            fail += Number(failMatch[1]);
+        }
+    }
+
+    return { pass, fail };
+}
+
+let totalPass = 0;
+let totalFail = 0;
+let exitCode = 0;
+
 for (const file of testFiles) {
     const result = spawnSync(process.execPath, ['--test', file], {
-        stdio: 'inherit'
+        encoding: 'utf8'
     });
 
+    if (result.stdout) {
+        process.stdout.write(result.stdout);
+    }
+
+    if (result.stderr) {
+        process.stderr.write(result.stderr);
+    }
+
+    const summary = collectSummary(`${result.stdout || ''}\n${result.stderr || ''}`);
+
+    totalPass += summary.pass;
+    totalFail += summary.fail;
+
     if (result.status !== 0) {
-        process.exit(result.status || 1);
+        exitCode = result.status || 1;
     }
 }
 
-process.exit(0);
+console.log(`${totalPass} pass ${totalFail} fail`);
+
+process.exit(exitCode);
