@@ -390,6 +390,80 @@ function getHash(o) {
     ].join('|');
 }
 
+function normalizeBooleanForDiff(value) {
+    return value === true ? 'true' : 'false';
+}
+
+function normalizeTagsForDiff(tags) {
+    if (!Array.isArray(tags)) {
+        return '';
+    }
+
+    return tags
+        .map(tag => normalize(tag))
+        .filter(Boolean)
+        .sort()
+        .join('|');
+}
+
+function getChangedFields(prevOrder, nextOrder) {
+    if (!prevOrder || !nextOrder) {
+        return [];
+    }
+
+    const fields = [
+        {
+            name: 'status',
+            prev: normalize(prevOrder.status),
+            next: normalize(nextOrder.status)
+        },
+        {
+            name: 'delivery',
+            prev: normalize(prevOrder.delivery),
+            next: normalize(nextOrder.delivery)
+        },
+        {
+            name: 'payment',
+            prev: normalize(prevOrder.payment),
+            next: normalize(nextOrder.payment)
+        },
+        {
+            name: 'contractor',
+            prev: normalize(prevOrder.contractor),
+            next: normalize(nextOrder.contractor)
+        },
+        {
+            name: 'date',
+            prev: normalizeDateForHash(prevOrder.date),
+            next: normalizeDateForHash(nextOrder.date)
+        },
+        {
+            name: 'shipmentDateText',
+            prev: normalize(prevOrder.shipmentDateText),
+            next: normalize(nextOrder.shipmentDateText)
+        },
+        {
+            name: 'hasOrderFlag',
+            prev: normalizeBooleanForDiff(prevOrder.hasOrderFlag),
+            next: normalizeBooleanForDiff(nextOrder.hasOrderFlag)
+        },
+        {
+            name: 'hasAutoreserve',
+            prev: normalizeBooleanForDiff(prevOrder.hasAutoreserve),
+            next: normalizeBooleanForDiff(nextOrder.hasAutoreserve)
+        },
+        {
+            name: 'tags',
+            prev: normalizeTagsForDiff(prevOrder.tags),
+            next: normalizeTagsForDiff(nextOrder.tags)
+        }
+    ];
+
+    return fields
+        .filter(field => field.prev !== field.next)
+        .map(field => field.name);
+}
+
 function todayKey() {
     return new Date().toDateString();
 }
