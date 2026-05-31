@@ -465,6 +465,45 @@ test('popup changes notification trigger draft without live UPDATE_CONFIG', () =
     assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
 });
 
+test('popup disables changed field controls when changed order trigger is off', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+    const triggerChangedOrders = document.getElementById('triggerChangedOrders');
+    const triggerFieldStatus = document.getElementById('triggerFieldStatus');
+    const triggerFieldTags = document.getElementById('triggerFieldTags');
+
+    assert.equal(triggerChangedOrders.checked, true);
+    assert.equal(triggerFieldStatus.disabled, false);
+    assert.equal(triggerFieldTags.disabled, false);
+    assert.equal(triggerFieldStatus.checked, true);
+    assert.equal(triggerFieldTags.checked, true);
+
+    triggerChangedOrders.checked = false;
+
+    triggerChangedOrders.dispatchEvent({
+        type: 'change',
+        target: triggerChangedOrders
+    });
+
+    assert.equal(triggerFieldStatus.disabled, true);
+    assert.equal(triggerFieldTags.disabled, true);
+    assert.equal(triggerFieldStatus.checked, true);
+    assert.equal(triggerFieldTags.checked, true);
+    assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
+
+    triggerChangedOrders.checked = true;
+
+    triggerChangedOrders.dispatchEvent({
+        type: 'change',
+        target: triggerChangedOrders
+    });
+
+    assert.equal(triggerFieldStatus.disabled, false);
+    assert.equal(triggerFieldTags.disabled, false);
+    assert.equal(triggerFieldStatus.checked, true);
+    assert.equal(triggerFieldTags.checked, true);
+});
+
 test('popup Apply sends notification trigger settings', () => {
     const context = loadPopupContext();
     const document = context.__test.document;

@@ -107,6 +107,22 @@ function isCheckboxChecked(id) {
     return Boolean(document.getElementById(id)?.checked);
 }
 
+function setCheckboxDisabled(id, disabled) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.disabled = Boolean(disabled);
+    }
+}
+
+function updateChangedFieldControlState(changedOrdersEnabled) {
+    const disabled = !changedOrdersEnabled;
+
+    for (const control of TRIGGER_FIELD_CONTROLS) {
+        setCheckboxDisabled(control.id, disabled);
+    }
+}
+
 function deepEqual(a, b) {
     return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -221,6 +237,8 @@ function renderNotificationTriggers(config) {
     for (const control of TRIGGER_FIELD_CONTROLS) {
         setCheckboxChecked(control.id, triggers.changedFields[control.field]);
     }
+
+    updateChangedFieldControlState(triggers.changedOrders);
 }
 
 // ---------- CONFIG UI ----------
@@ -314,7 +332,7 @@ function bindConfigControls() {
         monitorModeActive.addEventListener('change', onChange);
     }
 
-        const triggerControlIds = [
+    const triggerControlIds = [
         'triggerNewOrders',
         'triggerChangedOrders',
         ...TRIGGER_FIELD_CONTROLS.map((control) => control.id)
