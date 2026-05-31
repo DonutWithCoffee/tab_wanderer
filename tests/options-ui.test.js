@@ -85,7 +85,10 @@ function createOptionsDom() {
         'optionsNotifyFieldTags',
         'optionsApplyNotificationTriggers',
         'optionsResetNotificationTriggers',
-        'optionsNotificationEditStatus'
+        'optionsNotificationEditStatus',
+        'optionsScopeDictionaryStatus',
+        'optionsScopeDictionaryDelivery',
+        'optionsScopeDictionaryPayment'
     ]) {
         document.registerElement(id);
     }
@@ -212,6 +215,9 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsApplyNotificationTriggers"/);
     assert.match(html, /id="optionsResetNotificationTriggers"/);
     assert.match(html, /id="optionsNotificationEditStatus"/);
+    assert.match(html, /id="optionsScopeDictionaryStatus"/);
+    assert.match(html, /id="optionsScopeDictionaryDelivery"/);
+    assert.match(html, /id="optionsScopeDictionaryPayment"/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
 
@@ -265,9 +271,71 @@ test('options page loads current config summary without updating config', () => 
         document.getElementById('optionsScopeSummary').innerText,
         'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе'
     );
+        assert.equal(
+        document.getElementById('optionsScopeDictionaryStatus').innerText,
+        'Статус: Ожидает оплаты'
+    );
+    assert.equal(
+        document.getElementById('optionsScopeDictionaryDelivery').innerText,
+        'Доставка: Самовывоз'
+    );
+    assert.equal(
+        document.getElementById('optionsScopeDictionaryPayment').innerText,
+        'Оплата: Наличными в офисе'
+    );
     assert.equal(
         document.getElementById('optionsNotificationSummary').innerText,
         'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 7 включено'
+    );
+});
+
+test('options page shows unloaded scope dictionaries without updating config', () => {
+    const emptyDictionariesConfig = {
+        monitorMode: 'windowed',
+        notificationTriggers: {
+            newOrders: true,
+            changedOrders: true,
+            changedFields: {
+                status: true,
+                delivery: true,
+                payment: true,
+                contractor: false,
+                date: false,
+                shipmentDateText: true,
+                hasOrderFlag: true,
+                hasAutoreserve: true,
+                tags: true
+            }
+        },
+        monitorScope: {
+            status: ['6806'],
+            delivery: ['9797'],
+            payment: ['9791']
+        }
+    };
+
+    const context = loadOptionsContext({
+        getConfigResponse: () => ({
+            ok: true,
+            userConfig: emptyDictionariesConfig,
+            monitorDictionaries: {}
+        })
+    });
+    const document = context.__test.document;
+
+    assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(
+        document.getElementById('optionsScopeDictionaryStatus').innerText,
+        'Статус: справочник не загружен'
+    );
+    assert.equal(
+        document.getElementById('optionsScopeDictionaryDelivery').innerText,
+        'Доставка: справочник не загружен'
+    );
+    assert.equal(
+        document.getElementById('optionsScopeDictionaryPayment').innerText,
+        'Оплата: справочник не загружен'
     );
 });
 

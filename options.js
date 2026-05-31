@@ -154,6 +154,43 @@ function buildScopeText(title, selectedIds, options) {
     return `${title}: ${selectedLabels.slice(0, 2).join(', ')} +${selectedLabels.length - 2}`;
 }
 
+function getDictionaryLabels(options) {
+    return Array.isArray(options)
+        ? options
+            .map((item) => String(item?.label || item?.name || item?.id || '').trim())
+            .filter(Boolean)
+        : [];
+}
+
+function buildDictionaryText(title, options) {
+    const labels = getDictionaryLabels(options);
+
+    if (!labels.length) {
+        return `${title}: справочник не загружен`;
+    }
+
+    if (labels.length <= 3) {
+        return `${title}: ${labels.join(', ')}`;
+    }
+
+    return `${title}: ${labels.slice(0, 3).join(', ')} +${labels.length - 3}`;
+}
+
+function renderScopeDictionaries(dictionaries = {}) {
+    setText(
+        'optionsScopeDictionaryStatus',
+        buildDictionaryText('Статус', dictionaries.status || [])
+    );
+    setText(
+        'optionsScopeDictionaryDelivery',
+        buildDictionaryText('Доставка', dictionaries.delivery || [])
+    );
+    setText(
+        'optionsScopeDictionaryPayment',
+        buildDictionaryText('Оплата', dictionaries.payment || [])
+    );
+}
+
 function getScopeSummary(config = {}, dictionaries = {}) {
     const monitorScope = config.monitorScope || {};
 
@@ -373,6 +410,7 @@ function loadConfigSummary() {
         currentDictionaries = res.monitorDictionaries || {};
 
         renderConfigSummary(currentConfig, currentDictionaries);
+        renderScopeDictionaries(currentDictionaries);
         renderMonitorModeEditor(currentConfig);
         renderNotificationTriggersEditor(currentConfig);
     });

@@ -131,6 +131,17 @@
             margin: 0;
             font-weight: 400;
         }
+
+        .dictionary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .dictionary-value {
+            margin: 0;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -233,6 +244,27 @@
                 <button id="optionsResetNotificationTriggers">Reset</button>
             </div>
             <p id="optionsNotificationEditStatus" class="muted">Загрузка настроек уведомлений...</p>
+        </section>
+
+                <section class="card">
+            <h2>Справочники области мониторинга</h2>
+            <p class="muted">
+                Эти значения приходят из админки после запуска мониторинга. Сейчас блок работает только в режиме чтения.
+            </p>
+            <div class="dictionary-grid">
+                <div>
+                    <h3>Статус</h3>
+                    <p id="optionsScopeDictionaryStatus" class="dictionary-value">—</p>
+                </div>
+                <div>
+                    <h3>Доставка</h3>
+                    <p id="optionsScopeDictionaryDelivery" class="dictionary-value">—</p>
+                </div>
+                <div>
+                    <h3>Оплата</h3>
+                    <p id="optionsScopeDictionaryPayment" class="dictionary-value">—</p>
+                </div>
+            </div>
         </section>
 
         <section class="card">
