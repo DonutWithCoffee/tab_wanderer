@@ -263,6 +263,85 @@ test('processOrders applies ignore rule without notification but still updates s
     );
 });
 
+test('processOrders applies disabled new-order trigger without notification but still updates state', () => {
+    const context = loadBackgroundContext();
+
+    const existingOrder = createOrder();
+
+    const newOrder = createOrder({
+        id: '1001-300326',
+        orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, existingOrder, {
+            notificationTriggers: {
+                newOrders: false
+            }
+        })
+    );
+
+    context.__testOrders = [existingOrder, newOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.knownOrdersDB[newOrder.id].id, newOrder.id);
+    assert.equal(state.windowOrdersDB[newOrder.id].id, newOrder.id);
+    assert.equal(
+        state.knownOrdersHashDB[newOrder.id],
+        getHashForOrder(context, newOrder)
+    );
+    assert.equal(
+        state.windowOrdersHashDB[newOrder.id],
+        getHashForOrder(context, newOrder)
+    );
+});
+
+test('processOrders applies disabled changed-field trigger without notification but still updates state', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        status: 'Новый'
+    });
+
+    const nextOrder = createOrder({
+        status: 'Оплачен'
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder, {
+            notificationTriggers: {
+                changedFields: {
+                    status: false
+                }
+            }
+        })
+    );
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.knownOrdersDB[prevOrder.id].status, 'Оплачен');
+    assert.equal(state.windowOrdersDB[prevOrder.id].status, 'Оплачен');
+    assert.equal(
+        state.knownOrdersHashDB[prevOrder.id],
+        getHashForOrder(context, nextOrder)
+    );
+    assert.equal(
+        state.windowOrdersHashDB[prevOrder.id],
+        getHashForOrder(context, nextOrder)
+    );
+});
+
 test('processOrders in testMode does not mutate state', () => {
     const context = loadBackgroundContext();
 
