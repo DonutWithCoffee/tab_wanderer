@@ -4,9 +4,26 @@ function createHeaderCell(text) {
     };
 }
 
-function createDataCell(text) {
+function createDataCell(cell) {
+    const data = typeof cell === 'object' && cell !== null
+        ? cell
+        : { innerText: cell };
+
     return {
-        innerText: text
+        innerText: data.innerText || '',
+        querySelector(selector) {
+            if (
+                selector === 'a[href*="/admin/orders/"]'
+                && data.orderDateText
+            ) {
+                return createLink({
+                    text: data.orderDateText,
+                    href: data.orderDateHref || '/admin/orders/test/'
+                });
+            }
+
+            return null;
+        }
     };
 }
 

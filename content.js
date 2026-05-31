@@ -41,21 +41,55 @@ function sendWithRetry(payload, retries = 3) {
 }
 
 // ---------- HELPERS ----------
+// ---------- HELPERS ----------
+function normalizeCellText(text) {
+    return String(text || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function extractPrimaryDate(text) {
     const raw = String(text || '');
     const firstLine = raw.split('\n')[0] || '';
 
-    return firstLine.trim();
+    return normalizeCellText(firstLine);
+}
+
+function extractPrimaryDateFromCell(cell) {
+    const dateLink = cell?.querySelector?.('a[href*="/admin/orders/"]');
+    const dateFromLink = normalizeCellText(dateLink?.innerText || '');
+
+    if (dateFromLink) {
+        return dateFromLink;
+    }
+
+    return extractPrimaryDate(cell?.innerText || '');
 }
 
 function extractShipmentDate(text) {
     const raw = String(text || '');
-    const lines = raw.split('\n').map(line => line.trim());
+    const lines = raw.split('\n')
+        .map(line => normalizeCellText(line))
+        .filter(Boolean);
 
-    for (const line of lines) {
-        if (line.startsWith('Отгр')) {
-            return line;
+    for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
+
+        if (!line.startsWith('Отгр')) continue;
+
+        const inlineValue = line.replace(/^Отгр\.?\s*:?\s*/i, '').trim();
+
+        if (inlineValue) {
+            return `Отгр.: ${inlineValue}`;
         }
+
+        const nextLine = lines[i + 1] || '';
+
+        if (nextLine && !nextLine.startsWith('(')) {
+            return `Отгр.: ${nextLine}`;
+        }
+
+        return 'Отгр.:';
     }
 
     return '';
@@ -118,7 +152,7 @@ function parseOrders() {
         const delivery = cells[map.delivery]?.innerText?.trim() || '';
         const payment = cells[map.payment]?.innerText?.trim() || '';
         const date = map.date !== undefined
-            ? extractPrimaryDate(cells[map.date]?.innerText || '')
+            ? extractPrimaryDateFromCell(cells[map.date])
             : '';
         const contractor = map.contractor !== undefined
             ? (cells[map.contractor]?.innerText?.trim() || '')

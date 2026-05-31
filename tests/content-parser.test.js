@@ -88,6 +88,27 @@ test('extractPrimaryDate keeps only first line', () => {
     assert.equal(value, '30 мар. 2026 10:00');
 });
 
+test('extractPrimaryDateFromCell prefers normalized order date link text', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            headers: []
+        })
+    );
+
+    const value = context.extractPrimaryDateFromCell({
+        innerText: '31 мая\n2026 09:36\nОтгр.:\n31 мая, 11:00\n00420706-0111-1',
+        querySelector(selector) {
+            if (selector !== 'a[href*="/admin/orders/"]') return null;
+
+            return {
+                innerText: '31 мая\n2026 09:36'
+            };
+        }
+    });
+
+    assert.equal(value, '31 мая 2026 09:36');
+});
+
 test('extractShipmentDate returns shipment line when present', () => {
     const context = loadContentContext(
         createDocumentStub({
@@ -98,6 +119,18 @@ test('extractShipmentDate returns shipment line when present', () => {
     const value = context.extractShipmentDate('30 мар. 2026 10:00\nОтгр.: 31 мар.\nчерез 3 минуты');
 
     assert.equal(value, 'Отгр.: 31 мар.');
+});
+
+test('extractShipmentDate joins split shipment label and value', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            headers: []
+        })
+    );
+
+    const value = context.extractShipmentDate('31 мая\n2026 09:36\nОтгр.:\n31 мая, 11:00\n(30 минут назад)\n00420706-0111-1');
+
+    assert.equal(value, 'Отгр.: 31 мая, 11:00');
 });
 
 test('parseOrders extracts normalized order payload from table', () => {
@@ -121,7 +154,10 @@ test('parseOrders extracts normalized order payload from table', () => {
                         'Новый',
                         'Пункт самовывоза СДЭК',
                         'Оплата онлайн',
-                        '30 мар. 2026 10:00\nобновлено 10:15',
+                        {
+                            innerText: '30 мар.\n2026 10:00\nобновлено 10:15',
+                            orderDateText: '30 мар.\n2026 10:00'
+                        },
                         'ООО "Ромашка"'
                     ]
                 }
@@ -149,7 +185,7 @@ test('parseOrders extracts normalized order payload from table', () => {
     ]);
 });
 
-test('parseOrders extracts diagnostic fields', () => {
+test('parseOrders keeps date tags out of primary date and shipment date', () => {
     const context = loadContentContext(
         createDocumentStub({
             headers: [
@@ -162,32 +198,31 @@ test('parseOrders extracts diagnostic fields', () => {
             ],
             rows: [
                 {
-                    internalId: '2000',
-                    displayId: '2000-300326',
-                    href: '/admin/orders/2000-300326/',
-                    hasFlag: true,
-                    hasLock: true,
-                    tags: ['tag1', 'tag2'],
+                    internalId: '3000',
+                    displayId: '3000-300326',
+                    href: '/admin/orders/3000-300326/',
+                    tags: ['00420706-0111-1'],
                     cells: [
-                        '2000-300326',
-                        'Новый',
-                        'СДЭК',
-                        'Онлайн',
-                        '30 мар. 2026 10:00\nОтгр.: 31 мар.',
-                        'ООО "Тест"'
+                        '3000-300326',
+                        'Доставляется',
+                        '-',
+                        '-',
+                        {
+                            innerText: '31 мая\n2026 09:36\nОтгр.:\n31 мая, 11:00\n(30 минут назад)\n00420706-0111-1',
+                            orderDateText: '31 мая\n2026 09:36'
+                        },
+                        'OZON (ОЗОН)'
                     ]
                 }
             ]
         })
     );
 
-    const orders = context.parseOrders();
-    const order = orders[0];
+    const order = context.parseOrders()[0];
 
-    assert.equal(order.hasOrderFlag, true);
-    assert.equal(order.hasAutoreserve, true);
-    assert.deepEqual(JSON.parse(JSON.stringify(order.tags)), ['tag1', 'tag2']);
-    assert.equal(order.shipmentDateText, 'Отгр.: 31 мар.');
+    assert.equal(order.date, '31 мая 2026 09:36');
+    assert.equal(order.shipmentDateText, 'Отгр.: 31 мая, 11:00');
+    assert.deepEqual(JSON.parse(JSON.stringify(order.tags)), ['00420706-0111-1']);
 });
 
 test('parseOrders returns null when required columns are missing', () => {
