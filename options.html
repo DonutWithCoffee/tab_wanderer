@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Настройки tab_wanderer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 32px;
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            color: #222;
+        }
+
+        .page {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        .header {
+            margin-bottom: 24px;
+        }
+
+        .eyebrow {
+            margin: 0 0 6px;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #666;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        h2 {
+            margin: 0 0 10px;
+            font-size: 18px;
+        }
+
+        p {
+            line-height: 1.5;
+        }
+
+        .lead {
+            max-width: 720px;
+            margin: 0;
+            color: #444;
+        }
+
+        .card {
+            margin-bottom: 16px;
+            padding: 18px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            background: #fff;
+        }
+
+        .notice {
+            border-color: #c8d8ff;
+            background: #f7f9ff;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 20px;
+            line-height: 1.7;
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <header class="header">
+            <p class="eyebrow">tab_wanderer</p>
+            <h1>Настройки tab_wanderer</h1>
+            <p class="lead">
+                Эта страница будет использоваться для расширенных настроек мониторинга и уведомлений.
+            </p>
+        </header>
+
+        <section class="card">
+            <h2>Назначение страницы</h2>
+            <p>
+                Popup останется быстрым контролом START / STOP и краткой сводки состояния.
+                Расширенные настройки будут перенесены сюда.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>Что будет здесь</h2>
+            <ul>
+                <li>Режим мониторинга</li>
+                <li>Область мониторинга</li>
+                <li>Notification triggers</li>
+                <li>Поля изменений</li>
+                <li>Apply / Reset</li>
+            </ul>
+        </section>
+
+        <section class="card notice">
+            <h2>Статус</h2>
+            <p>
+                Пока это только каркас. Runtime-логика, monitorScope и notificationTriggers не изменены.
+            </p>
+        </section>
+    </main>
+</body>
+</html>

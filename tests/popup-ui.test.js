@@ -204,7 +204,8 @@ function createPopupDom() {
         'scopePaymentOptions',
         'configStatus',
         'applyConfig',
-        'resetConfig'
+        'resetConfig',
+        'openOptions'
     ];
 
     for (const id of ids) {
@@ -242,6 +243,7 @@ function loadPopupContext(overrides = {}) {
     );
 
     const sentMessages = [];
+     let optionsPageOpenCount = 0;
     const manifest = { version: '0.9.7-test' };
 
     const defaultConfig = {
@@ -333,14 +335,18 @@ function loadPopupContext(overrides = {}) {
                         callback(response);
                     }
                 },
-                getManifest: () => manifest
+                                getManifest: () => manifest,
+                openOptionsPage: () => {
+                    optionsPageOpenCount += 1;
+                }
             }
         },
         __test: {
             sentMessages,
             document,
             defaultConfig,
-            defaultDictionaries
+            defaultDictionaries,
+             getOptionsPageOpenCount: () => optionsPageOpenCount
         },
         ...overrides
     };
@@ -373,6 +379,22 @@ function readPopupHtml() {
     );
 }
 
+function readOptionsHtml() {
+    return fs.readFileSync(
+        path.join(__dirname, '..', 'options.html'),
+        'utf8'
+    );
+}
+
+function readManifest() {
+    return JSON.parse(
+        fs.readFileSync(
+            path.join(__dirname, '..', 'manifest.json'),
+            'utf8'
+        )
+    );
+}
+
 test('popup explains monitor scope and notification trigger boundaries', () => {
     const html = readPopupHtml();
 
@@ -380,6 +402,35 @@ test('popup explains monitor scope and notification trigger boundaries', () => {
     assert.match(html, /После Apply изменение области запускает rebaseline без уведомлений/);
     assert.match(html, /Notification triggers управляют только уведомлениями/);
     assert.match(html, /Состояние заказа обновляется даже если уведомление подавлено/);
+});
+
+test('extension declares options page skeleton', () => {
+    const manifest = readManifest();
+    const popupHtml = readPopupHtml();
+    const optionsHtml = readOptionsHtml();
+
+    assert.equal(manifest.options_page, 'options.html');
+    assert.match(popupHtml, /id="openOptions"/);
+    assert.match(popupHtml, /Настройки/);
+    assert.match(optionsHtml, /Настройки tab_wanderer/);
+    assert.match(optionsHtml, /Расширенные настройки будут перенесены сюда/);
+    assert.match(optionsHtml, /Popup останется быстрым контролом START \/ STOP/);
+    assert.match(optionsHtml, /Пока это только каркас/);
+    assert.match(optionsHtml, /Runtime-логика, monitorScope и notificationTriggers не изменены/);
+});
+
+test('popup opens options page from settings button', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+    const openOptionsBtn = document.getElementById('openOptions');
+
+    openOptionsBtn.dispatchEvent({
+        type: 'click',
+        target: openOptionsBtn
+    });
+
+    assert.equal(context.__test.getOptionsPageOpenCount(), 1);
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
 });
 
 test('popup initializes from GET_CONFIG and renders dictionaries', () => {

@@ -378,11 +378,21 @@ function bindConfigActions() {
         });
     }
 
-    if (resetBtn) {
+       if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             draftConfig = JSON.parse(JSON.stringify(currentConfig));
             updateConfigUI(draftConfig);
             updateDirtyState();
+        });
+    }
+}
+
+function bindNavigationActions() {
+    const openOptionsBtn = document.getElementById('openOptions');
+
+    if (openOptionsBtn) {
+        openOptionsBtn.addEventListener('click', () => {
+            chrome.runtime.openOptionsPage();
         });
     }
 }
@@ -412,5 +422,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindConfigControls();
     bindConfigActions();
+    bindNavigationActions();
     init();
 });
