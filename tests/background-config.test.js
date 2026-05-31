@@ -34,6 +34,13 @@ function getEffectiveConfigSnapshot(context, config) {
     return effectiveConfig;
 }
 
+function getHashForOrder(context, order) {
+    context.__testOrder = order;
+    const hash = runExpression(context, 'getHash(__testOrder)');
+    delete context.__testOrder;
+    return hash;
+}
+
 test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
@@ -1028,4 +1035,156 @@ test('active mode always uses fast session mode', async () => {
     assert.equal(policy.sessionMode, 'fast');
     assert.equal(policy.deepSyncDue, false);
     assert.equal(policy.maxPages, 1);
+});
+
+test('active deep sync emits notification for changed known order', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({
+        id: 'known',
+        status: 'Новый'
+    });
+
+    const nextOrder = createOrder({
+        id: 'known',
+        status: 'Оплачен'
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        pendingRebaseline: false,
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {
+            known: prevOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, prevOrder)
+        },
+        windowOrdersDB: {
+            known: prevOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, prevOrder)
+        },
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            rules: {},
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 10,
+            isComplete: false,
+            data: [nextOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/?page=10#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(state.knownOrdersDB.known.status, 'Оплачен');
+    assert.equal(state.windowOrdersDB.known.status, 'Оплачен');
+    assert.equal(state.collectionSession, null);
+    assert.ok(state.lastDeepSyncAt > 0);
+});
+
+test('active deep sync rebuilds window snapshot after emitting events', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const oldWindowOrder = createOrder({
+        id: 'old-window-order'
+    });
+
+    const currentDeepOrder = createOrder({
+        id: 'current-deep-order'
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        pendingRebaseline: false,
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {
+            [oldWindowOrder.id]: oldWindowOrder
+        },
+        knownOrdersHashDB: {
+            [oldWindowOrder.id]: getHashForOrder(context, oldWindowOrder)
+        },
+        windowOrdersDB: {
+            [oldWindowOrder.id]: oldWindowOrder
+        },
+        windowOrdersHashDB: {
+            [oldWindowOrder.id]: getHashForOrder(context, oldWindowOrder)
+        },
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            rules: {},
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 10,
+            isComplete: false,
+            data: [currentDeepOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/?page=10#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(state.windowOrdersDB[oldWindowOrder.id], undefined);
+    assert.equal(state.windowOrdersDB[currentDeepOrder.id].id, currentDeepOrder.id);
+    assert.equal(state.knownOrdersDB[oldWindowOrder.id].id, oldWindowOrder.id);
+    assert.equal(state.knownOrdersDB[currentDeepOrder.id].id, currentDeepOrder.id);
 });

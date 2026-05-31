@@ -223,6 +223,10 @@ function markDeepSyncCompleted(session) {
     }
 }
 
+function shouldEmitEvents() {
+    return monitorState === 'active' && pendingRebaseline !== true;
+}
+
 function completeCollectionSession(session, reason = 'legacy-single-page') {
     if (!session) {
         return [];
@@ -1177,14 +1181,14 @@ const snapshot = completeCollectionSession(session, decision.reason);
 
 if (pendingRebaseline) {
     runBaseline(snapshot, 'rebaseline');
-} else if (isEmptyDB || monitorState !== 'active') {
+} else if (isEmptyDB || !shouldEmitEvents()) {
     runBaseline(snapshot, 'init');
 } else {
+    markDeepSyncCompleted(session);
+    processOrders(snapshot);
+
     if (session?.mode === 'deep') {
-        markDeepSyncCompleted(session);
         applyWindowSnapshot(snapshot);
-    } else {
-        processOrders(snapshot);
     }
 
     resetCollectionSession();
