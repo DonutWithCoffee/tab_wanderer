@@ -3,6 +3,32 @@ let draftConfig = {};
 let currentDictionaries = null;
 let isDirty = false;
 
+const POPUP_DEFAULT_NOTIFICATION_TRIGGERS = {
+    newOrders: true,
+    changedOrders: true,
+    changedFields: {
+        status: true,
+        delivery: true,
+        payment: true,
+        contractor: false,
+        date: false,
+        shipmentDateText: true,
+        hasOrderFlag: true,
+        hasAutoreserve: true,
+        tags: true
+    }
+};
+
+const TRIGGER_FIELD_CONTROLS = [
+    { field: 'status', id: 'triggerFieldStatus' },
+    { field: 'delivery', id: 'triggerFieldDelivery' },
+    { field: 'payment', id: 'triggerFieldPayment' },
+    { field: 'shipmentDateText', id: 'triggerFieldShipmentDateText' },
+    { field: 'hasOrderFlag', id: 'triggerFieldHasOrderFlag' },
+    { field: 'hasAutoreserve', id: 'triggerFieldHasAutoreserve' },
+    { field: 'tags', id: 'triggerFieldTags' }
+];
+
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
         console.log('[POPUP]', msg.type, res);
@@ -40,6 +66,45 @@ function getSelectedMonitorMode() {
     }
 
     return 'windowed';
+}
+
+function getBooleanConfigValue(value, fallback) {
+    return value === undefined ? fallback : Boolean(value);
+}
+
+function getNotificationTriggers(config = {}) {
+    const triggers = config?.notificationTriggers || {};
+    const changedFields = triggers.changedFields || {};
+    const defaultTriggers = POPUP_DEFAULT_NOTIFICATION_TRIGGERS;
+    const defaultChangedFields = defaultTriggers.changedFields;
+
+    return {
+        newOrders: getBooleanConfigValue(triggers.newOrders, defaultTriggers.newOrders),
+        changedOrders: getBooleanConfigValue(triggers.changedOrders, defaultTriggers.changedOrders),
+        changedFields: {
+            status: getBooleanConfigValue(changedFields.status, defaultChangedFields.status),
+            delivery: getBooleanConfigValue(changedFields.delivery, defaultChangedFields.delivery),
+            payment: getBooleanConfigValue(changedFields.payment, defaultChangedFields.payment),
+            contractor: getBooleanConfigValue(changedFields.contractor, defaultChangedFields.contractor),
+            date: getBooleanConfigValue(changedFields.date, defaultChangedFields.date),
+            shipmentDateText: getBooleanConfigValue(changedFields.shipmentDateText, defaultChangedFields.shipmentDateText),
+            hasOrderFlag: getBooleanConfigValue(changedFields.hasOrderFlag, defaultChangedFields.hasOrderFlag),
+            hasAutoreserve: getBooleanConfigValue(changedFields.hasAutoreserve, defaultChangedFields.hasAutoreserve),
+            tags: getBooleanConfigValue(changedFields.tags, defaultChangedFields.tags)
+        }
+    };
+}
+
+function setCheckboxChecked(id, checked) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.checked = Boolean(checked);
+    }
+}
+
+function isCheckboxChecked(id) {
+    return Boolean(document.getElementById(id)?.checked);
 }
 
 function deepEqual(a, b) {
@@ -147,6 +212,17 @@ function renderScopeOptions(config, dictionaries) {
     );
 }
 
+function renderNotificationTriggers(config) {
+    const triggers = getNotificationTriggers(config);
+
+    setCheckboxChecked('triggerNewOrders', triggers.newOrders);
+    setCheckboxChecked('triggerChangedOrders', triggers.changedOrders);
+
+    for (const control of TRIGGER_FIELD_CONTROLS) {
+        setCheckboxChecked(control.id, triggers.changedFields[control.field]);
+    }
+}
+
 // ---------- CONFIG UI ----------
 function updateConfigUI(userConfig) {
     const monitorMode = String(userConfig?.monitorMode || 'windowed');
@@ -163,6 +239,23 @@ function updateConfigUI(userConfig) {
     }
 
     renderScopeOptions(userConfig, currentDictionaries);
+    renderNotificationTriggers(userConfig);
+}
+
+function collectNotificationTriggersFromUI(baseConfig = {}) {
+    const currentTriggers = getNotificationTriggers(baseConfig);
+    const changedFields = { ...currentTriggers.changedFields };
+
+    for (const control of TRIGGER_FIELD_CONTROLS) {
+        changedFields[control.field] = isCheckboxChecked(control.id);
+    }
+
+    return {
+        ...currentTriggers,
+        newOrders: isCheckboxChecked('triggerNewOrders'),
+        changedOrders: isCheckboxChecked('triggerChangedOrders'),
+        changedFields
+    };
 }
 
 function collectConfigFromUI(baseConfig = {}) {
@@ -177,6 +270,7 @@ function collectConfigFromUI(baseConfig = {}) {
     return {
         ...configWithoutRules,
         monitorMode: getSelectedMonitorMode(),
+        notificationTriggers: collectNotificationTriggersFromUI(safeConfig),
         monitorScope: {
             ...currentMonitorScope,
             status: getSelectedScopeValues('Status'),
@@ -218,6 +312,20 @@ function bindConfigControls() {
 
     if (monitorModeActive) {
         monitorModeActive.addEventListener('change', onChange);
+    }
+
+        const triggerControlIds = [
+        'triggerNewOrders',
+        'triggerChangedOrders',
+        ...TRIGGER_FIELD_CONTROLS.map((control) => control.id)
+    ];
+
+    for (const id of triggerControlIds) {
+        const control = document.getElementById(id);
+
+        if (control) {
+            control.addEventListener('change', onChange);
+        }
     }
 
     document.addEventListener('change', (event) => {

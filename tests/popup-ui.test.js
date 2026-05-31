@@ -187,6 +187,15 @@ function createPopupDom() {
         'stop',
         'monitorModeWindowed',
         'monitorModeActive',
+        'triggerNewOrders',
+        'triggerChangedOrders',
+        'triggerFieldStatus',
+        'triggerFieldDelivery',
+        'triggerFieldPayment',
+        'triggerFieldShipmentDateText',
+        'triggerFieldHasOrderFlag',
+        'triggerFieldHasAutoreserve',
+        'triggerFieldTags',
         'scopeStatusSummary',
         'scopeStatusOptions',
         'scopeDeliverySummary',
@@ -199,7 +208,19 @@ function createPopupDom() {
     ];
 
     for (const id of ids) {
-                     const isInput = ['monitorModeWindowed', 'monitorModeActive'].includes(id);
+        const isInput = [
+            'monitorModeWindowed',
+            'monitorModeActive',
+            'triggerNewOrders',
+            'triggerChangedOrders',
+            'triggerFieldStatus',
+            'triggerFieldDelivery',
+            'triggerFieldPayment',
+            'triggerFieldShipmentDateText',
+            'triggerFieldHasOrderFlag',
+            'triggerFieldHasAutoreserve',
+            'triggerFieldTags'
+        ].includes(id);
         const element = isInput ? new FakeInputElement(document, id) : new FakeElement('div', document, id);
 
         if (isInput) {
@@ -225,6 +246,21 @@ function loadPopupContext(overrides = {}) {
 
     const defaultConfig = {
         monitorMode: 'windowed',
+        notificationTriggers: {
+            newOrders: true,
+            changedOrders: true,
+            changedFields: {
+                status: true,
+                delivery: true,
+                payment: true,
+                contractor: false,
+                date: false,
+                shipmentDateText: true,
+                hasOrderFlag: true,
+                hasAutoreserve: true,
+                tags: true
+            }
+        },
         monitorScope: {
             status: ['6806'],
             delivery: ['9797'],
@@ -344,6 +380,16 @@ test('popup initializes from GET_CONFIG and renders dictionaries', () => {
     assert.equal(document.getElementById('monitorModeWindowed').checked, true);
     assert.equal(document.getElementById('monitorModeActive').checked, false);
 
+        assert.equal(document.getElementById('triggerNewOrders').checked, true);
+    assert.equal(document.getElementById('triggerChangedOrders').checked, true);
+    assert.equal(document.getElementById('triggerFieldStatus').checked, true);
+    assert.equal(document.getElementById('triggerFieldDelivery').checked, true);
+    assert.equal(document.getElementById('triggerFieldPayment').checked, true);
+    assert.equal(document.getElementById('triggerFieldShipmentDateText').checked, true);
+    assert.equal(document.getElementById('triggerFieldHasOrderFlag').checked, true);
+    assert.equal(document.getElementById('triggerFieldHasAutoreserve').checked, true);
+    assert.equal(document.getElementById('triggerFieldTags').checked, true);
+
     assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
     assert.equal(document.getElementById('scopeDeliverySummary').innerText, 'Доставка: Самовывоз');
     assert.equal(document.getElementById('scopePaymentSummary').innerText, 'Оплата: Наличными в офисе');
@@ -403,16 +449,73 @@ test('popup Apply sends UPDATE_CONFIG with draft state and clears dirty flag', (
     assert.equal(document.getElementById('configStatus').innerText, 'No changes');
 });
 
+test('popup changes notification trigger draft without live UPDATE_CONFIG', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+    const triggerNewOrders = document.getElementById('triggerNewOrders');
+
+    triggerNewOrders.checked = false;
+
+    triggerNewOrders.dispatchEvent({
+        type: 'change',
+        target: triggerNewOrders
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
+});
+
+test('popup Apply sends notification trigger settings', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+
+    const triggerNewOrders = document.getElementById('triggerNewOrders');
+    const triggerFieldStatus = document.getElementById('triggerFieldStatus');
+    const triggerFieldTags = document.getElementById('triggerFieldTags');
+
+    triggerNewOrders.checked = false;
+    triggerFieldStatus.checked = false;
+    triggerFieldTags.checked = false;
+
+    triggerFieldTags.dispatchEvent({
+        type: 'change',
+        target: triggerFieldTags
+    });
+
+    document.getElementById('applyConfig').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('applyConfig')
+    });
+
+    const updateCalls = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateCalls.length, 1);
+    assert.equal(updateCalls[0].userConfig.notificationTriggers.newOrders, false);
+    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedOrders, true);
+    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.status, false);
+    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.tags, false);
+    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.contractor, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig, 'rules'), false);
+    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
+});
+
 test('popup Reset restores current config and clears unsaved state', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
     const statusCheckboxes = getScopeCheckboxes(context, 'Status');
+    const triggerNewOrders = document.getElementById('triggerNewOrders');
 
     statusCheckboxes[1].checked = true;
+    triggerNewOrders.checked = false;
 
     document.dispatchEvent({
         type: 'change',
         target: statusCheckboxes[1]
+    });
+
+        triggerNewOrders.dispatchEvent({
+        type: 'change',
+        target: triggerNewOrders
     });
 
     assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
@@ -427,6 +530,7 @@ test('popup Reset restores current config and clears unsaved state', () => {
     assert.equal(document.getElementById('configStatus').innerText, 'No changes');
     assert.equal(resetStatusCheckboxes[0].checked, true);
     assert.equal(resetStatusCheckboxes[1].checked, false);
+    assert.equal(document.getElementById('triggerNewOrders').checked, true);
     assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
 });
 

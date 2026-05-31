@@ -26,6 +26,8 @@
         }
 
         .mode-group,
+        .trigger-group,
+        .trigger-fields,
         .actions-group {
             display: flex;
             flex-direction: column;
@@ -110,6 +112,67 @@
 <details>
     <summary id="scopePaymentSummary">Оплата</summary>
     <div id="scopePaymentOptions" class="scope-options"></div>
+</details>
+
+<hr>
+
+<div class="section-title">Notification Triggers</div>
+
+<br>
+
+<div class="trigger-group">
+    <label>
+        <input type="checkbox" id="triggerNewOrders">
+        Уведомлять о новых заказах
+    </label>
+
+    <label>
+        <input type="checkbox" id="triggerChangedOrders">
+        Уведомлять об изменениях заказов
+    </label>
+</div>
+
+<br>
+
+<details>
+    <summary>Поля изменений</summary>
+
+    <div class="trigger-fields">
+        <label>
+            <input type="checkbox" id="triggerFieldStatus">
+            Статус
+        </label>
+
+        <label>
+            <input type="checkbox" id="triggerFieldDelivery">
+            Доставка
+        </label>
+
+        <label>
+            <input type="checkbox" id="triggerFieldPayment">
+            Оплата
+        </label>
+
+        <label>
+            <input type="checkbox" id="triggerFieldShipmentDateText">
+            Дата отгрузки
+        </label>
+
+        <label>
+            <input type="checkbox" id="triggerFieldHasOrderFlag">
+            Флаг заказа
+        </label>
+
+        <label>
+            <input type="checkbox" id="triggerFieldHasAutoreserve">
+            Авторезерв
+        </label>
+
+        <label>
+            <input type="checkbox" id="triggerFieldTags">
+            Теги
+        </label>
+    </div>
 </details>
 
 <hr>
