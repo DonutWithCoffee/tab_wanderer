@@ -67,6 +67,26 @@
             padding-left: 20px;
             line-height: 1.7;
         }
+
+        h3 {
+            margin: 0 0 6px;
+            font-size: 14px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .summary-value {
+            margin: 0;
+            color: #333;
+        }
+
+        .muted {
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -98,6 +118,25 @@
             </ul>
         </section>
 
+        <section class="card">
+            <h2>Текущие настройки</h2>
+            <p id="optionsLoadStatus" class="muted">Загрузка текущих настроек...</p>
+            <div class="summary-grid">
+                <div>
+                    <h3>Режим мониторинга</h3>
+                    <p id="optionsMonitorMode" class="summary-value">—</p>
+                </div>
+                <div>
+                    <h3>Область мониторинга</h3>
+                    <p id="optionsScopeSummary" class="summary-value">—</p>
+                </div>
+                <div>
+                    <h3>Уведомления</h3>
+                    <p id="optionsNotificationSummary" class="summary-value">—</p>
+                </div>
+            </div>
+        </section>
+
         <section class="card notice">
             <h2>Статус</h2>
             <p>
@@ -105,5 +144,6 @@
             </p>
         </section>
     </main>
+    <script src="options.js"></script>
 </body>
 </html>

@@ -6,7 +6,8 @@ const testFiles = [
     'tests/background-process.test.js',
     'tests/background-config.test.js',
     'tests/content-parser.test.js',
-    'tests/popup-ui.test.js'
+    'tests/popup-ui.test.js',
+    'tests/options-ui.test.js'
 ];
 
 function collectSummary(output) {
