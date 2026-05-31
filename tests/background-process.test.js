@@ -53,7 +53,6 @@ function createStateWithKnownAndWindow(context, order, userConfigOverrides = {})
             [order.id]: hash
         },
         userConfig: {
-            rules: {},
             monitorScope: createDefaultMonitorScope(),
             ...userConfigOverrides
         }
@@ -218,51 +217,6 @@ test('processOrders passes new-order event context to notification decision', ()
     assert.equal(decisionContexts[0].newHash, getHashForOrder(context, newOrder));
 });
 
-test('processOrders applies ignore rule without notification but still updates state', () => {
-    const context = loadBackgroundContext();
-
-    const prevOrder = createOrder({
-        payment: 'Оплата онлайн'
-    });
-
-    const nextOrder = createOrder({
-        payment: 'Безналичный расчет для юридических лиц'
-    });
-
-    setBackgroundState(
-        context,
-        createStateWithKnownAndWindow(context, prevOrder, {
-            rules: {
-                ignoreLegalEntityBankTransfer: true
-            }
-        })
-    );
-
-    context.__testOrders = [nextOrder];
-    runExpression(context, 'processOrders(__testOrders)');
-    delete context.__testOrders;
-
-    const state = getBackgroundState(context);
-
-    assert.equal(context.__test.notifications.length, 0);
-    assert.equal(
-        state.knownOrdersDB[prevOrder.id].payment,
-        'Безналичный расчет для юридических лиц'
-    );
-    assert.equal(
-        state.windowOrdersDB[prevOrder.id].payment,
-        'Безналичный расчет для юридических лиц'
-    );
-    assert.equal(
-        state.knownOrdersHashDB[prevOrder.id],
-        getHashForOrder(context, nextOrder)
-    );
-    assert.equal(
-        state.windowOrdersHashDB[prevOrder.id],
-        getHashForOrder(context, nextOrder)
-    );
-});
-
 test('processOrders applies disabled new-order trigger without notification but still updates state', () => {
     const context = loadBackgroundContext();
 
@@ -382,7 +336,6 @@ test('runBaseline initializes known and window state without sending notificatio
         windowOrdersDB: {},
         windowOrdersHashDB: {},
         userConfig: {
-            rules: {},
             monitorScope: createDefaultMonitorScope()
         },
         pendingRebaseline: true

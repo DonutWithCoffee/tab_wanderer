@@ -470,14 +470,19 @@ function todayKey() {
 
 function getEffectiveUserConfig(storedConfig) {
     const safe = storedConfig || {};
+    const configWithoutRules = { ...safe };
+
+    delete configWithoutRules.rules;
+
+    const monitorMode = safe.monitorMode === 'active'
+        ? 'active'
+        : 'windowed';
 
     return {
         ...DEFAULT_CONFIG,
-        ...safe,
-        rules: {
-            ...(DEFAULT_CONFIG.rules || {}),
-            ...(safe.rules || {})
-        },
+        ...configWithoutRules,
+        monitorMode,
+        notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         monitorScope: normalizeMonitorScope(safe.monitorScope)
     };
 }
@@ -1084,26 +1089,6 @@ if (msg.type === 'UPDATE_CONFIG') {
 
     userConfig = getEffectiveUserConfig(msg.userConfig || {});
 
-    const ruleChanges = [];
-
-    const prevRules = prevConfig?.rules || {};
-    const nextRules = userConfig?.rules || {};
-
-    const ruleKeys = new Set([
-        ...Object.keys(prevRules),
-        ...Object.keys(nextRules)
-    ]);
-
-    for (const key of ruleKeys) {
-        if (prevRules[key] !== nextRules[key]) {
-            ruleChanges.push({
-                rule: key,
-                from: prevRules[key],
-                to: nextRules[key]
-            });
-        }
-    }
-
     const prevScope = JSON.stringify(prevConfig?.monitorScope || {});
     const nextScope = JSON.stringify(userConfig?.monitorScope || {});
     const scopeChanged = prevScope !== nextScope;
@@ -1112,12 +1097,8 @@ if (msg.type === 'UPDATE_CONFIG') {
     const nextMode = String(userConfig?.monitorMode || 'windowed');
     const modeChanged = prevMode !== nextMode;
 
-    if (ruleChanges.length > 0 || scopeChanged || modeChanged) {
+    if (scopeChanged || modeChanged) {
         pendingRebaseline = true;
-
-        if (ruleChanges.length > 0) {
-            log('INFO', 'CONFIG', 'rules changed', ruleChanges);
-        }
 
         if (scopeChanged) {
             log('INFO', 'CONFIG', 'monitor scope changed', userConfig?.monitorScope || {});

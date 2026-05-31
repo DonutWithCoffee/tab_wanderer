@@ -187,8 +187,6 @@ function createPopupDom() {
         'stop',
         'monitorModeWindowed',
         'monitorModeActive',
-        'ignoreOzon',
-        'ignoreJurics',
         'scopeStatusSummary',
         'scopeStatusOptions',
         'scopeDeliverySummary',
@@ -201,7 +199,7 @@ function createPopupDom() {
     ];
 
     for (const id of ids) {
-              const isInput = ['monitorModeWindowed', 'monitorModeActive', 'ignoreOzon', 'ignoreJurics'].includes(id);
+                     const isInput = ['monitorModeWindowed', 'monitorModeActive'].includes(id);
         const element = isInput ? new FakeInputElement(document, id) : new FakeElement('div', document, id);
 
         if (isInput) {
@@ -227,10 +225,6 @@ function loadPopupContext(overrides = {}) {
 
     const defaultConfig = {
         monitorMode: 'windowed',
-        rules: {
-            ignoreOzon: false,
-            ignoreLegalEntityBankTransfer: false
-        },
         monitorScope: {
             status: ['6806'],
             delivery: ['9797'],
@@ -349,8 +343,6 @@ test('popup initializes from GET_CONFIG and renders dictionaries', () => {
 
     assert.equal(document.getElementById('monitorModeWindowed').checked, true);
     assert.equal(document.getElementById('monitorModeActive').checked, false);
-    assert.equal(document.getElementById('ignoreOzon').checked, false);
-    assert.equal(document.getElementById('ignoreJurics').checked, false);
 
     assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
     assert.equal(document.getElementById('scopeDeliverySummary').innerText, 'Доставка: Самовывоз');
@@ -438,32 +430,6 @@ test('popup Reset restores current config and clears unsaved state', () => {
     assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
 });
 
-test('popup rules checkbox also works through draft and Apply', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-    const ignoreOzon = document.getElementById('ignoreOzon');
-
-    ignoreOzon.checked = true;
-    ignoreOzon.dispatchEvent({
-        type: 'change',
-        target: ignoreOzon
-    });
-
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
-
-    document.getElementById('applyConfig').dispatchEvent({
-        type: 'click',
-        target: document.getElementById('applyConfig')
-    });
-
-    const updateCalls = getSentMessagesByType(context, 'UPDATE_CONFIG');
-
-    assert.equal(updateCalls.length, 1);
-    assert.equal(updateCalls[0].userConfig.rules.ignoreOzon, true);
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
-});
-
 test('popup handles empty monitorDictionaries without crashing', () => {
     const sentMessages = [];
 
@@ -483,10 +449,6 @@ test('popup handles empty monitorDictionaries without crashing', () => {
                         response = {
                             ok: true,
                             userConfig: {
-                                rules: {
-                                    ignoreOzon: false,
-                                    ignoreLegalEntityBankTransfer: false
-                                },
                                 monitorScope: {
                                     status: ['6806'],
                                     delivery: ['9797'],
@@ -568,10 +530,6 @@ test('popup keeps working when monitorScope contains unknown ids', () => {
                         response = {
                             ok: true,
                             userConfig: {
-                                rules: {
-                                    ignoreOzon: false,
-                                    ignoreLegalEntityBankTransfer: false
-                                },
                                 monitorScope: {
                                     status: ['999999'],
                                     delivery: ['888888'],
@@ -644,10 +602,6 @@ test('popup summary uses compact format for three or more selected values', () =
                         response = {
                             ok: true,
                             userConfig: {
-                                rules: {
-                                    ignoreOzon: false,
-                                    ignoreLegalEntityBankTransfer: false
-                                },
                                 monitorScope: {
                                     status: ['6806', '6810', '11184'],
                                     delivery: ['9797'],

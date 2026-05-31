@@ -149,21 +149,10 @@ function renderScopeOptions(config, dictionaries) {
 
 // ---------- CONFIG UI ----------
 function updateConfigUI(userConfig) {
-    const rules = userConfig?.rules || {};
     const monitorMode = String(userConfig?.monitorMode || 'windowed');
 
-    const ignoreOzon = document.getElementById('ignoreOzon');
-    const ignoreJurics = document.getElementById('ignoreJurics');
     const monitorModeWindowed = document.getElementById('monitorModeWindowed');
     const monitorModeActive = document.getElementById('monitorModeActive');
-
-    if (ignoreOzon) {
-        ignoreOzon.checked = Boolean(rules.ignoreOzon);
-    }
-
-    if (ignoreJurics) {
-        ignoreJurics.checked = Boolean(rules.ignoreLegalEntityBankTransfer);
-    }
 
     if (monitorModeWindowed) {
         monitorModeWindowed.checked = monitorMode === 'windowed';
@@ -178,21 +167,16 @@ function updateConfigUI(userConfig) {
 
 function collectConfigFromUI(baseConfig = {}) {
     const safeConfig = baseConfig || {};
+    const configWithoutRules = { ...safeConfig };
 
-    const ignoreOzon = document.getElementById('ignoreOzon');
-    const ignoreJurics = document.getElementById('ignoreJurics');
+    delete configWithoutRules.rules;
 
     const currentMonitorScope = safeConfig.monitorScope || {};
     const currentPredicates = currentMonitorScope.predicates || {};
 
     return {
-        ...safeConfig,
+        ...configWithoutRules,
         monitorMode: getSelectedMonitorMode(),
-        rules: {
-            ...(safeConfig.rules || {}),
-            ignoreOzon: Boolean(ignoreOzon?.checked),
-            ignoreLegalEntityBankTransfer: Boolean(ignoreJurics?.checked)
-        },
         monitorScope: {
             ...currentMonitorScope,
             status: getSelectedScopeValues('Status'),
@@ -219,8 +203,6 @@ function loadConfig() {
 }
 
 function bindConfigControls() {
-    const ignoreOzon = document.getElementById('ignoreOzon');
-    const ignoreJurics = document.getElementById('ignoreJurics');
     const monitorModeWindowed = document.getElementById('monitorModeWindowed');
     const monitorModeActive = document.getElementById('monitorModeActive');
 
@@ -229,14 +211,6 @@ function bindConfigControls() {
         updateConfigUI(draftConfig);
         updateDirtyState();
     };
-
-    if (ignoreOzon) {
-        ignoreOzon.addEventListener('change', onChange);
-    }
-
-    if (ignoreJurics) {
-        ignoreJurics.addEventListener('change', onChange);
-    }
 
     if (monitorModeWindowed) {
         monitorModeWindowed.addEventListener('change', onChange);

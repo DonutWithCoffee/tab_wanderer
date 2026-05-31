@@ -41,15 +41,17 @@ function getHashForOrder(context, order) {
     return hash;
 }
 
-test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
+test('UPDATE_CONFIG normalizes notification triggers without scheduling rebaseline', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
     setBackgroundState(context, {
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
-            rules: {
-                ignoreOzon: false
+            notificationTriggers: {
+                changedFields: {
+                    status: true
+                }
             },
             monitorScope: {
                 status: [],
@@ -75,6 +77,11 @@ test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
             rules: {
                 ignoreOzon: true
             },
+            notificationTriggers: {
+                changedFields: {
+                    status: false
+                }
+            },
             monitorScope: {
                 status: [],
                 delivery: [],
@@ -94,8 +101,10 @@ test('UPDATE_CONFIG sets pendingRebaseline when rules change', async () => {
     const state = getBackgroundState(context);
 
     assert.equal(response.ok, true);
-    assert.equal(state.userConfig.rules.ignoreOzon, true);
-    assert.equal(state.pendingRebaseline, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(state.userConfig, 'rules'), false);
+    assert.equal(state.userConfig.notificationTriggers.changedFields.status, false);
+    assert.equal(state.userConfig.notificationTriggers.changedFields.delivery, true);
+    assert.equal(state.pendingRebaseline, false);
 });
 
 test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {

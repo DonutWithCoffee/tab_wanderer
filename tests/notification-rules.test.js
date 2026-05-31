@@ -46,7 +46,7 @@ test('normalizeMonitorScope sanitizes arrays and predicates', () => {
     });
 });
 
-test('getEffectiveConfig merges default rules with incoming config', () => {
+test('getEffectiveConfig normalizes monitor scope and drops legacy rules config', () => {
     const context = loadRulesContext();
 
     const config = context.getEffectiveConfig({
@@ -58,8 +58,7 @@ test('getEffectiveConfig merges default rules with incoming config', () => {
         }
     });
 
-    assert.equal(config.rules.ignoreOzon, true);
-    assert.equal(config.rules.ignoreCancelled, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(config, 'rules'), false);
     assert.deepEqual(JSON.parse(JSON.stringify(config.monitorScope)), {
         status: [],
         delivery: [],
@@ -194,14 +193,34 @@ test('evaluateNotification notifies changed orders when an enabled changed field
     assert.equal(decision.ruleId, null);
 });
 
-test('evaluateNotification ignores legal entity bank transfer when rule enabled', () => {
+test('evaluateNotification ignores legacy hardcoded rule keys', () => {
     const context = loadRulesContext();
 
-    const decision = context.evaluateNotification(
+    const ozonDecision = context.evaluateNotification(
+        createOrder({
+            contractor: 'OZON (ОЗОН)'
+        }),
+        {
+            eventType: 'new-order',
+            isNewOrder: true,
+            changedFields: []
+        },
+        {
+            rules: {
+                ignoreOzon: true
+            }
+        }
+    );
+
+    const juridicalDecision = context.evaluateNotification(
         createOrder({
             payment: 'Безналичный расчет для юридических лиц'
         }),
-        {},
+        {
+            eventType: 'new-order',
+            isNewOrder: true,
+            changedFields: []
+        },
         {
             rules: {
                 ignoreLegalEntityBankTransfer: true
@@ -209,26 +228,8 @@ test('evaluateNotification ignores legal entity bank transfer when rule enabled'
         }
     );
 
-    assert.equal(decision.notify, false);
-    assert.equal(decision.ruleId, 'ignore-legal-entity-bank-transfer');
-    assert.match(decision.reason, /legal entity bank transfer/i);
-});
-
-test('evaluateNotification notifies when matching rule is disabled', () => {
-    const context = loadRulesContext();
-
-    const decision = context.evaluateNotification(
-        createOrder({
-            contractor: 'OZON (ОЗОН)'
-        }),
-        {},
-        {
-            rules: {
-                ignoreOzon: false
-            }
-        }
-    );
-
-    assert.equal(decision.notify, true);
-    assert.equal(decision.ruleId, null);
+    assert.equal(ozonDecision.notify, true);
+    assert.equal(ozonDecision.ruleId, null);
+    assert.equal(juridicalDecision.notify, true);
+    assert.equal(juridicalDecision.ruleId, null);
 });
