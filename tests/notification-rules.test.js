@@ -114,6 +114,86 @@ test('getEffectiveConfig merges incoming notification triggers with defaults', (
     assert.equal(config.notificationTriggers.changedFields.date, false);
 });
 
+test('evaluateNotification suppresses new orders when new order trigger is disabled', () => {
+    const context = loadRulesContext();
+
+    const decision = context.evaluateNotification(
+        createOrder(),
+        {
+            eventType: 'new-order',
+            isNewOrder: true,
+            changedFields: []
+        },
+        {
+            notificationTriggers: {
+                newOrders: false
+            }
+        }
+    );
+
+    assert.equal(decision.notify, false);
+    assert.equal(decision.action, 'suppress');
+    assert.equal(decision.ruleId, 'notification-trigger-new-orders-disabled');
+});
+
+test('evaluateNotification suppresses changed orders when changed order trigger is disabled', () => {
+    const context = loadRulesContext();
+
+    const decision = context.evaluateNotification(
+        createOrder(),
+        {
+            eventType: 'order-changed',
+            isNewOrder: false,
+            changedFields: ['status']
+        },
+        {
+            notificationTriggers: {
+                changedOrders: false
+            }
+        }
+    );
+
+    assert.equal(decision.notify, false);
+    assert.equal(decision.action, 'suppress');
+    assert.equal(decision.ruleId, 'notification-trigger-changed-orders-disabled');
+});
+
+test('evaluateNotification suppresses changed orders when changed fields are disabled', () => {
+    const context = loadRulesContext();
+
+    const decision = context.evaluateNotification(
+        createOrder(),
+        {
+            eventType: 'order-changed',
+            isNewOrder: false,
+            changedFields: ['date']
+        },
+        {}
+    );
+
+    assert.equal(decision.notify, false);
+    assert.equal(decision.action, 'suppress');
+    assert.equal(decision.ruleId, 'notification-trigger-no-enabled-changed-fields');
+});
+
+test('evaluateNotification notifies changed orders when an enabled changed field matches', () => {
+    const context = loadRulesContext();
+
+    const decision = context.evaluateNotification(
+        createOrder(),
+        {
+            eventType: 'order-changed',
+            isNewOrder: false,
+            changedFields: ['status']
+        },
+        {}
+    );
+
+    assert.equal(decision.notify, true);
+    assert.equal(decision.action, 'notify');
+    assert.equal(decision.ruleId, null);
+});
+
 test('evaluateNotification ignores legal entity bank transfer when rule enabled', () => {
     const context = loadRulesContext();
 

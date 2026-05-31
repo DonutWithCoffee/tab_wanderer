@@ -430,8 +430,75 @@ function buildDecisionReason(rule, matchedFields) {
     return `${rule.description}; matched ${details}`;
 }
 
+function buildTriggerDecision(ruleId, reason, context, effectiveConfig) {
+    return {
+        notify: false,
+        action: 'suppress',
+        ruleId,
+        reason,
+        matchedFields: [],
+        context,
+        config: effectiveConfig
+    };
+}
+
+function getContextChangedFields(context) {
+    return Array.isArray(context?.changedFields)
+        ? context.changedFields
+        : [];
+}
+
+function hasEnabledChangedField(changedFields, changedFieldConfig = {}) {
+    return changedFields.some(field => changedFieldConfig[field] === true);
+}
+
+function evaluateNotificationTriggers(context = {}, effectiveConfig) {
+    const triggers = effectiveConfig.notificationTriggers || DEFAULT_CONFIG.notificationTriggers;
+    const eventType = context?.eventType;
+
+    if (eventType === 'new-order' && !triggers.newOrders) {
+        return buildTriggerDecision(
+            'notification-trigger-new-orders-disabled',
+            'New order notifications are disabled',
+            context,
+            effectiveConfig
+        );
+    }
+
+    if (eventType !== 'order-changed') {
+        return null;
+    }
+
+    if (!triggers.changedOrders) {
+        return buildTriggerDecision(
+            'notification-trigger-changed-orders-disabled',
+            'Changed order notifications are disabled',
+            context,
+            effectiveConfig
+        );
+    }
+
+    const changedFields = getContextChangedFields(context);
+
+    if (!hasEnabledChangedField(changedFields, triggers.changedFields)) {
+        return buildTriggerDecision(
+            'notification-trigger-no-enabled-changed-fields',
+            `No enabled changed fields matched: ${changedFields.join(', ') || 'none'}`,
+            context,
+            effectiveConfig
+        );
+    }
+
+    return null;
+}
+
 function evaluateNotification(order, context = {}, config = DEFAULT_CONFIG) {
     const effectiveConfig = getEffectiveConfig(config);
+    const triggerDecision = evaluateNotificationTriggers(context, effectiveConfig);
+
+    if (triggerDecision) {
+        return triggerDecision;
+    }
 
     for (const rule of NOTIFICATION_IGNORE_RULES) {
         if (!isRuleEnabled(rule, effectiveConfig)) {
