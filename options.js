@@ -14,6 +14,10 @@ const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
     }
 };
 
+let currentConfig = {};
+let currentDictionaries = {};
+let draftMonitorMode = 'windowed';
+
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
         console.log('[OPTIONS]', msg.type, res);
@@ -29,12 +33,30 @@ function setText(id, value) {
     }
 }
 
+function setValue(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.value = String(value || '');
+    }
+}
+
+function getValue(id) {
+    const el = document.getElementById(id);
+
+    return el ? String(el.value || '') : '';
+}
+
 function getScopeList(values) {
     return Array.isArray(values) ? values.map((value) => String(value)) : [];
 }
 
 function getBooleanConfigValue(value, fallback) {
     return value === undefined ? fallback : Boolean(value);
+}
+
+function normalizeMonitorMode(value) {
+    return String(value || 'windowed') === 'active' ? 'active' : 'windowed';
 }
 
 function getNotificationTriggers(config = {}) {
@@ -61,7 +83,7 @@ function getNotificationTriggers(config = {}) {
 }
 
 function getMonitorModeLabel(config = {}) {
-    const mode = String(config.monitorMode || 'windowed');
+    const mode = normalizeMonitorMode(config.monitorMode);
 
     if (mode === 'active') {
         return 'Active: только первая страница';
@@ -116,7 +138,79 @@ function renderConfigSummary(config, dictionaries) {
     setText('optionsMonitorMode', getMonitorModeLabel(config));
     setText('optionsScopeSummary', getScopeSummary(config, dictionaries));
     setText('optionsNotificationSummary', getNotificationSummary(config));
-    setText('optionsLoadStatus', 'Текущие настройки загружены. Страница пока работает в режиме чтения.');
+    setText('optionsLoadStatus', 'Текущие настройки загружены.');
+}
+
+function renderMonitorModeEditor(config = {}) {
+    draftMonitorMode = normalizeMonitorMode(config.monitorMode);
+    setValue('optionsMonitorModeSelect', draftMonitorMode);
+    setText('optionsMonitorModeEditStatus', 'Изменений нет.');
+}
+
+function updateMonitorModeDirtyState() {
+    const currentMode = normalizeMonitorMode(currentConfig.monitorMode);
+
+    if (draftMonitorMode === currentMode) {
+        setText('optionsMonitorModeEditStatus', 'Изменений нет.');
+        return;
+    }
+
+    setText('optionsMonitorModeEditStatus', 'Есть несохранённые изменения режима мониторинга.');
+}
+
+function applyMonitorMode() {
+    const currentMode = normalizeMonitorMode(currentConfig.monitorMode);
+
+    if (draftMonitorMode === currentMode) {
+        setText('optionsMonitorModeEditStatus', 'Изменений нет.');
+        return;
+    }
+
+    const nextConfig = {
+        ...currentConfig,
+        monitorMode: draftMonitorMode
+    };
+
+    send({ type: 'UPDATE_CONFIG', config: nextConfig }, (res) => {
+        if (!res?.ok) {
+            setText('optionsMonitorModeEditStatus', 'Не удалось сохранить режим мониторинга.');
+            return;
+        }
+
+        currentConfig = nextConfig;
+        renderConfigSummary(currentConfig, currentDictionaries);
+        renderMonitorModeEditor(currentConfig);
+        setText('optionsMonitorModeEditStatus', 'Режим мониторинга сохранён.');
+    });
+}
+
+function resetMonitorModeDraft() {
+    renderMonitorModeEditor(currentConfig);
+}
+
+function bindMonitorModeEditor() {
+    const select = document.getElementById('optionsMonitorModeSelect');
+    const applyBtn = document.getElementById('optionsApplyMonitorMode');
+    const resetBtn = document.getElementById('optionsResetMonitorMode');
+
+    if (select) {
+        select.addEventListener('change', () => {
+            draftMonitorMode = normalizeMonitorMode(getValue('optionsMonitorModeSelect'));
+            updateMonitorModeDirtyState();
+        });
+    }
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            applyMonitorMode();
+        });
+    }
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            resetMonitorModeDraft();
+        });
+    }
 }
 
 function loadConfigSummary() {
@@ -128,10 +222,15 @@ function loadConfigSummary() {
             return;
         }
 
-        renderConfigSummary(res.userConfig || {}, res.monitorDictionaries || {});
+        currentConfig = res.userConfig || {};
+        currentDictionaries = res.monitorDictionaries || {};
+
+        renderConfigSummary(currentConfig, currentDictionaries);
+        renderMonitorModeEditor(currentConfig);
     });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    bindMonitorModeEditor();
     loadConfigSummary();
 });

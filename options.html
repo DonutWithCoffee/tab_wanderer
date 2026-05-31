@@ -87,6 +87,29 @@
         .muted {
             color: #666;
         }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+
+        select {
+            min-width: 280px;
+            padding: 8px;
+            font-size: 14px;
+        }
+
+        .actions-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        button {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -116,6 +139,23 @@
                 <li>Поля изменений</li>
                 <li>Apply / Reset</li>
             </ul>
+        </section>
+
+                <section class="card">
+            <h2>Режим мониторинга</h2>
+            <p class="muted">
+                Windowed отслеживает первую страницу и deep sync. Active ограничивается первой страницей.
+            </p>
+            <label for="optionsMonitorModeSelect">Режим</label>
+            <select id="optionsMonitorModeSelect">
+                <option value="windowed">Windowed: первая страница + deep sync</option>
+                <option value="active">Active: только первая страница</option>
+            </select>
+            <div class="actions-row">
+                <button id="optionsApplyMonitorMode">Apply</button>
+                <button id="optionsResetMonitorMode">Reset</button>
+            </div>
+            <p id="optionsMonitorModeEditStatus" class="muted">Загрузка текущего режима...</p>
         </section>
 
         <section class="card">

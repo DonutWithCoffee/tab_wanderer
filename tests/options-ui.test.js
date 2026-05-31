@@ -32,6 +32,7 @@ class FakeElement extends FakeEventTarget {
         this.id = id;
         this.innerText = '';
         this.textContent = '';
+        this.value = '';
     }
 }
 
@@ -66,7 +67,11 @@ function createOptionsDom() {
         'optionsLoadStatus',
         'optionsMonitorMode',
         'optionsScopeSummary',
-        'optionsNotificationSummary'
+        'optionsNotificationSummary',
+        'optionsMonitorModeSelect',
+        'optionsApplyMonitorMode',
+        'optionsResetMonitorMode',
+        'optionsMonitorModeEditStatus'
     ]) {
         document.registerElement(id);
     }
@@ -177,6 +182,10 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsMonitorMode"/);
     assert.match(html, /id="optionsScopeSummary"/);
     assert.match(html, /id="optionsNotificationSummary"/);
+    assert.match(html, /id="optionsMonitorModeSelect"/);
+    assert.match(html, /id="optionsApplyMonitorMode"/);
+    assert.match(html, /id="optionsResetMonitorMode"/);
+    assert.match(html, /id="optionsMonitorModeEditStatus"/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
 
@@ -186,9 +195,17 @@ test('options page loads current config summary without updating config', () => 
 
     assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+        assert.equal(
+        document.getElementById('optionsMonitorModeSelect').value,
+        'windowed'
+    );
+    assert.equal(
+        document.getElementById('optionsMonitorModeEditStatus').innerText,
+        'Изменений нет.'
+    );
     assert.equal(
         document.getElementById('optionsLoadStatus').innerText,
-        'Текущие настройки загружены. Страница пока работает в режиме чтения.'
+        'Текущие настройки загружены.'
     );
     assert.equal(
         document.getElementById('optionsMonitorMode').innerText,
@@ -201,6 +218,79 @@ test('options page loads current config summary without updating config', () => 
     assert.equal(
         document.getElementById('optionsNotificationSummary').innerText,
         'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 7 включено'
+    );
+});
+
+test('options page changes monitor mode draft without live UPDATE_CONFIG', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const select = document.getElementById('optionsMonitorModeSelect');
+
+    select.value = 'active';
+    select.dispatchEvent({
+        type: 'change',
+        target: select
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(
+        document.getElementById('optionsMonitorModeEditStatus').innerText,
+        'Есть несохранённые изменения режима мониторинга.'
+    );
+});
+
+test('options page applies monitor mode change', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const select = document.getElementById('optionsMonitorModeSelect');
+    const applyBtn = document.getElementById('optionsApplyMonitorMode');
+
+    select.value = 'active';
+    select.dispatchEvent({
+        type: 'change',
+        target: select
+    });
+    applyBtn.dispatchEvent({
+        type: 'click',
+        target: applyBtn
+    });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].config.monitorMode, 'active');
+    assert.deepEqual(updateMessages[0].config.monitorScope.status, ['6806']);
+    assert.equal(
+        document.getElementById('optionsMonitorMode').innerText,
+        'Active: только первая страница'
+    );
+    assert.equal(
+        document.getElementById('optionsMonitorModeEditStatus').innerText,
+        'Режим мониторинга сохранён.'
+    );
+});
+
+test('options page resets monitor mode draft without updating config', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const select = document.getElementById('optionsMonitorModeSelect');
+    const resetBtn = document.getElementById('optionsResetMonitorMode');
+
+    select.value = 'active';
+    select.dispatchEvent({
+        type: 'change',
+        target: select
+    });
+    resetBtn.dispatchEvent({
+        type: 'click',
+        target: resetBtn
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(select.value, 'windowed');
+    assert.equal(
+        document.getElementById('optionsMonitorModeEditStatus').innerText,
+        'Изменений нет.'
     );
 });
 
