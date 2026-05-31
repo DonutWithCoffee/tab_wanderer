@@ -24,10 +24,32 @@ const OPTIONS_VISIBLE_CHANGED_FIELDS = [
     { key: 'tags', id: 'optionsNotifyFieldTags' }
 ];
 
+const OPTIONS_SCOPE_GROUPS = [
+    {
+        key: 'status',
+        title: 'Статус',
+        listId: 'optionsScopeStatusList',
+        elementPrefix: 'optionsScopeStatus'
+    },
+    {
+        key: 'delivery',
+        title: 'Доставка',
+        listId: 'optionsScopeDeliveryList',
+        elementPrefix: 'optionsScopeDelivery'
+    },
+    {
+        key: 'payment',
+        title: 'Оплата',
+        listId: 'optionsScopePaymentList',
+        elementPrefix: 'optionsScopePayment'
+    }
+];
+
 let currentConfig = {};
 let currentDictionaries = {};
 let draftMonitorMode = 'windowed';
 let draftNotificationTriggers = getNotificationTriggers({});
+let draftMonitorScope = getMonitorScope({});
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -41,6 +63,14 @@ function setText(id, value) {
 
     if (el) {
         el.innerText = String(value || '');
+    }
+}
+
+function setHtml(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.innerHTML = String(value || '');
     }
 }
 
@@ -86,6 +116,28 @@ function cloneNotificationTriggers(triggers) {
 
 function areNotificationTriggersEqual(a, b) {
     return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function getMonitorScope(config = {}) {
+    const scope = config.monitorScope || {};
+
+    return {
+        status: getScopeList(scope.status),
+        delivery: getScopeList(scope.delivery),
+        payment: getScopeList(scope.payment)
+    };
+}
+
+function cloneMonitorScope(scope) {
+    return {
+        status: getScopeList(scope?.status),
+        delivery: getScopeList(scope?.delivery),
+        payment: getScopeList(scope?.payment)
+    };
+}
+
+function areMonitorScopesEqual(a, b) {
+    return JSON.stringify(cloneMonitorScope(a)) === JSON.stringify(cloneMonitorScope(b));
 }
 
 function getScopeList(values) {
@@ -397,6 +449,143 @@ function bindNotificationTriggersEditor() {
     }
 }
 
+function getScopeOptionInputId(group, index) {
+    return `${group.elementPrefix}${index}`;
+}
+
+function getScopeOptionLabel(option) {
+    return String(option?.label || option?.name || option?.id || '').trim();
+}
+
+function renderScopeGroup(group, options, selectedIds) {
+    const normalizedOptions = Array.isArray(options) ? options : [];
+    const selectedSet = new Set(getScopeList(selectedIds));
+
+    if (!normalizedOptions.length) {
+        setHtml(group.listId, '<p class="muted">Справочник не загружен.</p>');
+        return;
+    }
+
+    const html = normalizedOptions
+        .map((option, index) => {
+            const inputId = getScopeOptionInputId(group, index);
+            const label = getScopeOptionLabel(option) || `Значение ${index + 1}`;
+
+            return [
+                '<label class="checkbox-row">',
+                `<input type="checkbox" id="${inputId}">`,
+                label,
+                '</label>'
+            ].join('');
+        })
+        .join('');
+
+    setHtml(group.listId, html);
+
+    normalizedOptions.forEach((option, index) => {
+        const inputId = getScopeOptionInputId(group, index);
+        const optionId = String(option.id);
+        const input = document.getElementById(inputId);
+
+        setChecked(inputId, selectedSet.has(optionId));
+
+        if (input) {
+            input.addEventListener('change', () => {
+                updateMonitorScopeDraftFromGroup(group);
+            });
+        }
+    });
+}
+
+function updateMonitorScopeDraftFromGroup(group) {
+    const options = Array.isArray(currentDictionaries[group.key])
+        ? currentDictionaries[group.key]
+        : [];
+
+    draftMonitorScope[group.key] = options
+        .filter((option, index) => getChecked(getScopeOptionInputId(group, index)))
+        .map((option) => String(option.id));
+
+    updateMonitorScopeDirtyState();
+}
+
+function renderMonitorScopeEditor(config = {}, dictionaries = {}) {
+    draftMonitorScope = cloneMonitorScope(getMonitorScope(config));
+
+    for (const group of OPTIONS_SCOPE_GROUPS) {
+        renderScopeGroup(
+            group,
+            dictionaries[group.key] || [],
+            draftMonitorScope[group.key]
+        );
+    }
+
+    setText('optionsMonitorScopeEditStatus', 'Изменений нет.');
+}
+
+function updateMonitorScopeDirtyState() {
+    const currentScope = getMonitorScope(currentConfig);
+
+    if (areMonitorScopesEqual(draftMonitorScope, currentScope)) {
+        setText('optionsMonitorScopeEditStatus', 'Изменений нет.');
+        return;
+    }
+
+    setText('optionsMonitorScopeEditStatus', 'Есть несохранённые изменения области мониторинга.');
+}
+
+function applyMonitorScope() {
+    const currentScope = getMonitorScope(currentConfig);
+
+    if (areMonitorScopesEqual(draftMonitorScope, currentScope)) {
+        setText('optionsMonitorScopeEditStatus', 'Изменений нет.');
+        return;
+    }
+
+    const nextConfig = {
+        ...currentConfig,
+        monitorScope: {
+            ...(currentConfig.monitorScope || {}),
+            status: getScopeList(draftMonitorScope.status),
+            delivery: getScopeList(draftMonitorScope.delivery),
+            payment: getScopeList(draftMonitorScope.payment)
+        }
+    };
+
+    send({ type: 'UPDATE_CONFIG', config: nextConfig }, (res) => {
+        if (!res?.ok) {
+            setText('optionsMonitorScopeEditStatus', 'Не удалось сохранить область мониторинга.');
+            return;
+        }
+
+        currentConfig = nextConfig;
+        renderConfigSummary(currentConfig, currentDictionaries);
+        renderMonitorScopeEditor(currentConfig, currentDictionaries);
+        setText('optionsMonitorScopeEditStatus', 'Область мониторинга сохранена.');
+    });
+}
+
+function resetMonitorScopeDraft() {
+    renderMonitorScopeEditor(currentConfig, currentDictionaries);
+}
+
+function bindMonitorScopeEditor() {
+    const applyBtn = document.getElementById('optionsApplyMonitorScope');
+    const resetBtn = document.getElementById('optionsResetMonitorScope');
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            applyMonitorScope();
+        });
+    }
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            resetMonitorScopeDraft();
+        });
+    }
+}
+
 function loadConfigSummary() {
     setText('optionsLoadStatus', 'Загрузка текущих настроек...');
 
@@ -413,11 +602,13 @@ function loadConfigSummary() {
         renderScopeDictionaries(currentDictionaries);
         renderMonitorModeEditor(currentConfig);
         renderNotificationTriggersEditor(currentConfig);
+        renderMonitorScopeEditor(currentConfig, currentDictionaries);
     });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     bindMonitorModeEditor();
     bindNotificationTriggersEditor();
+    bindMonitorScopeEditor();
     loadConfigSummary();
 });

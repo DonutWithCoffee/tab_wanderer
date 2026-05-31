@@ -31,7 +31,8 @@ class FakeElement extends FakeEventTarget {
         super();
         this.id = id;
         this.innerText = '';
-        this.textContent = '';
+                this.textContent = '';
+        this.innerHTML = '';
         this.value = '';
         this.checked = false;
         this.disabled = false;
@@ -88,7 +89,17 @@ function createOptionsDom() {
         'optionsNotificationEditStatus',
         'optionsScopeDictionaryStatus',
         'optionsScopeDictionaryDelivery',
-        'optionsScopeDictionaryPayment'
+        'optionsScopeDictionaryPayment',
+        'optionsScopeDictionaryPayment',
+        'optionsScopeStatusList',
+        'optionsScopeDeliveryList',
+        'optionsScopePaymentList',
+        'optionsScopeStatus0',
+        'optionsScopeDelivery0',
+        'optionsScopePayment0',
+        'optionsApplyMonitorScope',
+        'optionsResetMonitorScope',
+        'optionsMonitorScopeEditStatus'
     ]) {
         document.registerElement(id);
     }
@@ -218,6 +229,12 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsScopeDictionaryStatus"/);
     assert.match(html, /id="optionsScopeDictionaryDelivery"/);
     assert.match(html, /id="optionsScopeDictionaryPayment"/);
+    assert.match(html, /id="optionsScopeStatusList"/);
+    assert.match(html, /id="optionsScopeDeliveryList"/);
+    assert.match(html, /id="optionsScopePaymentList"/);
+    assert.match(html, /id="optionsApplyMonitorScope"/);
+    assert.match(html, /id="optionsResetMonitorScope"/);
+    assert.match(html, /id="optionsMonitorScopeEditStatus"/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
 
@@ -282,6 +299,22 @@ test('options page loads current config summary without updating config', () => 
     assert.equal(
         document.getElementById('optionsScopeDictionaryPayment').innerText,
         'Оплата: Наличными в офисе'
+    );
+        assert.equal(
+        document.getElementById('optionsScopeStatus0').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsScopeDelivery0').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsScopePayment0').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsMonitorScopeEditStatus').innerText,
+        'Изменений нет.'
     );
     assert.equal(
         document.getElementById('optionsNotificationSummary').innerText,
@@ -524,6 +557,95 @@ test('options page resets notification trigger draft without updating config', (
     assert.equal(statusField.disabled, false);
     assert.equal(
         document.getElementById('optionsNotificationEditStatus').innerText,
+        'Изменений нет.'
+    );
+});
+
+test('options page changes monitor scope draft without live UPDATE_CONFIG', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const status = document.getElementById('optionsScopeStatus0');
+
+    status.checked = false;
+    status.dispatchEvent({
+        type: 'change',
+        target: status
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(
+        document.getElementById('optionsMonitorScopeEditStatus').innerText,
+        'Есть несохранённые изменения области мониторинга.'
+    );
+});
+
+test('options page applies monitor scope settings', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const status = document.getElementById('optionsScopeStatus0');
+    const payment = document.getElementById('optionsScopePayment0');
+    const applyBtn = document.getElementById('optionsApplyMonitorScope');
+
+    status.checked = false;
+    status.dispatchEvent({
+        type: 'change',
+        target: status
+    });
+    payment.checked = false;
+    payment.dispatchEvent({
+        type: 'change',
+        target: payment
+    });
+    applyBtn.dispatchEvent({
+        type: 'click',
+        target: applyBtn
+    });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].config.monitorMode, 'windowed');
+    assert.equal(updateMessages[0].config.notificationTriggers.newOrders, true);
+    assert.deepEqual(updateMessages[0].config.monitorScope.status, []);
+    assert.deepEqual(updateMessages[0].config.monitorScope.delivery, ['9797']);
+    assert.deepEqual(updateMessages[0].config.monitorScope.payment, []);
+    assert.equal(
+        document.getElementById('optionsScopeSummary').innerText,
+        'Статус: все; Доставка: Самовывоз; Оплата: все'
+    );
+    assert.equal(
+        document.getElementById('optionsMonitorScopeEditStatus').innerText,
+        'Область мониторинга сохранена.'
+    );
+});
+
+test('options page resets monitor scope draft without updating config', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const status = document.getElementById('optionsScopeStatus0');
+    const delivery = document.getElementById('optionsScopeDelivery0');
+    const resetBtn = document.getElementById('optionsResetMonitorScope');
+
+    status.checked = false;
+    status.dispatchEvent({
+        type: 'change',
+        target: status
+    });
+    delivery.checked = false;
+    delivery.dispatchEvent({
+        type: 'change',
+        target: delivery
+    });
+    resetBtn.dispatchEvent({
+        type: 'click',
+        target: resetBtn
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(status.checked, true);
+    assert.equal(delivery.checked, true);
+    assert.equal(
+        document.getElementById('optionsMonitorScopeEditStatus').innerText,
         'Изменений нет.'
     );
 });
