@@ -56,6 +56,13 @@
             gap: 6px;
         }
 
+        .hint {
+            margin: 4px 0 8px;
+            color: #555;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
         #configStatus {
             font-weight: bold;
         }
@@ -95,9 +102,12 @@
 
 <hr>
 
-<div class="section-title">Monitor Scope</div>
+<div class="section-title">Область мониторинга</div>
 
-<br>
+<p id="monitorScopeHelp" class="hint">
+    Область мониторинга ограничивает входящий поток заказов: в наблюдение попадают только заказы, подходящие под выбранные фильтры.
+    Пустой выбор означает «все значения». После Apply изменение области запускает rebaseline без уведомлений.
+</p>
 
 <details>
     <summary id="scopeStatusSummary">Статус</summary>
@@ -116,9 +126,12 @@
 
 <hr>
 
-<div class="section-title">Notification Triggers</div>
+<div class="section-title">Уведомления</div>
 
-<br>
+<p id="notificationTriggersHelp" class="hint">
+    Notification triggers управляют только уведомлениями и не меняют сбор данных.
+    Состояние заказа обновляется даже если уведомление подавлено.
+</p>
 
 <div class="trigger-group">
     <label>

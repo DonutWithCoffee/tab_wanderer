@@ -366,6 +366,22 @@ function getScopeCheckboxes(context, groupName) {
     });
 }
 
+function readPopupHtml() {
+    return fs.readFileSync(
+        path.join(__dirname, '..', 'popup.html'),
+        'utf8'
+    );
+}
+
+test('popup explains monitor scope and notification trigger boundaries', () => {
+    const html = readPopupHtml();
+
+    assert.match(html, /Область мониторинга ограничивает входящий поток заказов/);
+    assert.match(html, /После Apply изменение области запускает rebaseline без уведомлений/);
+    assert.match(html, /Notification triggers управляют только уведомлениями/);
+    assert.match(html, /Состояние заказа обновляется даже если уведомление подавлено/);
+});
+
 test('popup initializes from GET_CONFIG and renders dictionaries', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
