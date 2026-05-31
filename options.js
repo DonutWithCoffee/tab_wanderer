@@ -14,9 +14,20 @@ const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
     }
 };
 
+const OPTIONS_VISIBLE_CHANGED_FIELDS = [
+    { key: 'status', id: 'optionsNotifyFieldStatus' },
+    { key: 'delivery', id: 'optionsNotifyFieldDelivery' },
+    { key: 'payment', id: 'optionsNotifyFieldPayment' },
+    { key: 'shipmentDateText', id: 'optionsNotifyFieldShipmentDateText' },
+    { key: 'hasOrderFlag', id: 'optionsNotifyFieldHasOrderFlag' },
+    { key: 'hasAutoreserve', id: 'optionsNotifyFieldHasAutoreserve' },
+    { key: 'tags', id: 'optionsNotifyFieldTags' }
+];
+
 let currentConfig = {};
 let currentDictionaries = {};
 let draftMonitorMode = 'windowed';
+let draftNotificationTriggers = getNotificationTriggers({});
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -45,6 +56,36 @@ function getValue(id) {
     const el = document.getElementById(id);
 
     return el ? String(el.value || '') : '';
+}
+
+function setChecked(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.checked = Boolean(value);
+    }
+}
+
+function getChecked(id) {
+    const el = document.getElementById(id);
+
+    return el ? Boolean(el.checked) : false;
+}
+
+function setDisabled(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.disabled = Boolean(value);
+    }
+}
+
+function cloneNotificationTriggers(triggers) {
+    return JSON.parse(JSON.stringify(triggers));
+}
+
+function areNotificationTriggersEqual(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function getScopeList(values) {
@@ -213,6 +254,112 @@ function bindMonitorModeEditor() {
     }
 }
 
+function setNotificationFieldControlsDisabled(disabled) {
+    for (const field of OPTIONS_VISIBLE_CHANGED_FIELDS) {
+        setDisabled(field.id, disabled);
+    }
+}
+
+function renderNotificationTriggersEditor(config = {}) {
+    draftNotificationTriggers = cloneNotificationTriggers(getNotificationTriggers(config));
+
+    setChecked('optionsNotifyNewOrders', draftNotificationTriggers.newOrders);
+    setChecked('optionsNotifyChangedOrders', draftNotificationTriggers.changedOrders);
+
+    for (const field of OPTIONS_VISIBLE_CHANGED_FIELDS) {
+        setChecked(field.id, draftNotificationTriggers.changedFields[field.key]);
+    }
+
+    setNotificationFieldControlsDisabled(!draftNotificationTriggers.changedOrders);
+    setText('optionsNotificationEditStatus', 'Изменений нет.');
+}
+
+function updateNotificationTriggersDirtyState() {
+    const currentTriggers = getNotificationTriggers(currentConfig);
+
+    if (areNotificationTriggersEqual(draftNotificationTriggers, currentTriggers)) {
+        setText('optionsNotificationEditStatus', 'Изменений нет.');
+        return;
+    }
+
+    setText('optionsNotificationEditStatus', 'Есть несохранённые изменения уведомлений.');
+}
+
+function applyNotificationTriggers() {
+    const currentTriggers = getNotificationTriggers(currentConfig);
+
+    if (areNotificationTriggersEqual(draftNotificationTriggers, currentTriggers)) {
+        setText('optionsNotificationEditStatus', 'Изменений нет.');
+        return;
+    }
+
+    const nextConfig = {
+        ...currentConfig,
+        notificationTriggers: cloneNotificationTriggers(draftNotificationTriggers)
+    };
+
+    send({ type: 'UPDATE_CONFIG', config: nextConfig }, (res) => {
+        if (!res?.ok) {
+            setText('optionsNotificationEditStatus', 'Не удалось сохранить настройки уведомлений.');
+            return;
+        }
+
+        currentConfig = nextConfig;
+        renderConfigSummary(currentConfig, currentDictionaries);
+        renderNotificationTriggersEditor(currentConfig);
+        setText('optionsNotificationEditStatus', 'Настройки уведомлений сохранены.');
+    });
+}
+
+function resetNotificationTriggersDraft() {
+    renderNotificationTriggersEditor(currentConfig);
+}
+
+function bindNotificationTriggersEditor() {
+    const newOrders = document.getElementById('optionsNotifyNewOrders');
+    const changedOrders = document.getElementById('optionsNotifyChangedOrders');
+    const applyBtn = document.getElementById('optionsApplyNotificationTriggers');
+    const resetBtn = document.getElementById('optionsResetNotificationTriggers');
+
+    if (newOrders) {
+        newOrders.addEventListener('change', () => {
+            draftNotificationTriggers.newOrders = getChecked('optionsNotifyNewOrders');
+            updateNotificationTriggersDirtyState();
+        });
+    }
+
+    if (changedOrders) {
+        changedOrders.addEventListener('change', () => {
+            draftNotificationTriggers.changedOrders = getChecked('optionsNotifyChangedOrders');
+            setNotificationFieldControlsDisabled(!draftNotificationTriggers.changedOrders);
+            updateNotificationTriggersDirtyState();
+        });
+    }
+
+    for (const field of OPTIONS_VISIBLE_CHANGED_FIELDS) {
+        const el = document.getElementById(field.id);
+
+        if (el) {
+            el.addEventListener('change', () => {
+                draftNotificationTriggers.changedFields[field.key] = getChecked(field.id);
+                updateNotificationTriggersDirtyState();
+            });
+        }
+    }
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            applyNotificationTriggers();
+        });
+    }
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            resetNotificationTriggersDraft();
+        });
+    }
+}
+
 function loadConfigSummary() {
     setText('optionsLoadStatus', 'Загрузка текущих настроек...');
 
@@ -227,10 +374,12 @@ function loadConfigSummary() {
 
         renderConfigSummary(currentConfig, currentDictionaries);
         renderMonitorModeEditor(currentConfig);
+        renderNotificationTriggersEditor(currentConfig);
     });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     bindMonitorModeEditor();
+    bindNotificationTriggersEditor();
     loadConfigSummary();
 });

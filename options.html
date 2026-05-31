@@ -110,6 +110,27 @@
             padding: 8px 12px;
             cursor: pointer;
         }
+
+        .checkbox-list {
+            display: grid;
+            gap: 8px;
+            margin: 12px 0;
+        }
+
+        .field-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            font-weight: 400;
+        }
     </style>
 </head>
 <body>
@@ -156,6 +177,62 @@
                 <button id="optionsResetMonitorMode">Reset</button>
             </div>
             <p id="optionsMonitorModeEditStatus" class="muted">Загрузка текущего режима...</p>
+        </section>
+
+                <section class="card">
+            <h2>Уведомления</h2>
+            <p class="muted">
+                Notification triggers управляют только уведомлениями. Состояние заказа обновляется даже если уведомление подавлено.
+            </p>
+
+            <div class="checkbox-list">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyNewOrders">
+                    Уведомлять о новых заказах
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyChangedOrders">
+                    Уведомлять об изменениях заказов
+                </label>
+            </div>
+
+            <h3>Поля изменений</h3>
+            <div class="field-grid">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldStatus">
+                    Статус
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldDelivery">
+                    Доставка
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldPayment">
+                    Оплата
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldShipmentDateText">
+                    Дата отгрузки
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldHasOrderFlag">
+                    Флаг заказа
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldHasAutoreserve">
+                    Авторезерв
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="optionsNotifyFieldTags">
+                    Теги
+                </label>
+            </div>
+
+            <div class="actions-row">
+                <button id="optionsApplyNotificationTriggers">Apply</button>
+                <button id="optionsResetNotificationTriggers">Reset</button>
+            </div>
+            <p id="optionsNotificationEditStatus" class="muted">Загрузка настроек уведомлений...</p>
         </section>
 
         <section class="card">

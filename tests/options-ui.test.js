@@ -33,6 +33,8 @@ class FakeElement extends FakeEventTarget {
         this.innerText = '';
         this.textContent = '';
         this.value = '';
+        this.checked = false;
+        this.disabled = false;
     }
 }
 
@@ -71,7 +73,19 @@ function createOptionsDom() {
         'optionsMonitorModeSelect',
         'optionsApplyMonitorMode',
         'optionsResetMonitorMode',
-        'optionsMonitorModeEditStatus'
+        'optionsMonitorModeEditStatus',
+        'optionsNotifyNewOrders',
+        'optionsNotifyChangedOrders',
+        'optionsNotifyFieldStatus',
+        'optionsNotifyFieldDelivery',
+        'optionsNotifyFieldPayment',
+        'optionsNotifyFieldShipmentDateText',
+        'optionsNotifyFieldHasOrderFlag',
+        'optionsNotifyFieldHasAutoreserve',
+        'optionsNotifyFieldTags',
+        'optionsApplyNotificationTriggers',
+        'optionsResetNotificationTriggers',
+        'optionsNotificationEditStatus'
     ]) {
         document.registerElement(id);
     }
@@ -186,6 +200,18 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsApplyMonitorMode"/);
     assert.match(html, /id="optionsResetMonitorMode"/);
     assert.match(html, /id="optionsMonitorModeEditStatus"/);
+    assert.match(html, /id="optionsNotifyNewOrders"/);
+    assert.match(html, /id="optionsNotifyChangedOrders"/);
+    assert.match(html, /id="optionsNotifyFieldStatus"/);
+    assert.match(html, /id="optionsNotifyFieldDelivery"/);
+    assert.match(html, /id="optionsNotifyFieldPayment"/);
+    assert.match(html, /id="optionsNotifyFieldShipmentDateText"/);
+    assert.match(html, /id="optionsNotifyFieldHasOrderFlag"/);
+    assert.match(html, /id="optionsNotifyFieldHasAutoreserve"/);
+    assert.match(html, /id="optionsNotifyFieldTags"/);
+    assert.match(html, /id="optionsApplyNotificationTriggers"/);
+    assert.match(html, /id="optionsResetNotificationTriggers"/);
+    assert.match(html, /id="optionsNotificationEditStatus"/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
 
@@ -201,6 +227,30 @@ test('options page loads current config summary without updating config', () => 
     );
     assert.equal(
         document.getElementById('optionsMonitorModeEditStatus').innerText,
+        'Изменений нет.'
+    );
+        assert.equal(
+        document.getElementById('optionsNotifyNewOrders').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsNotifyChangedOrders').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsNotifyFieldStatus').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsNotifyFieldPayment').checked,
+        true
+    );
+    assert.equal(
+        document.getElementById('optionsNotifyFieldStatus').disabled,
+        false
+    );
+    assert.equal(
+        document.getElementById('optionsNotificationEditStatus').innerText,
         'Изменений нет.'
     );
     assert.equal(
@@ -290,6 +340,122 @@ test('options page resets monitor mode draft without updating config', () => {
     assert.equal(select.value, 'windowed');
     assert.equal(
         document.getElementById('optionsMonitorModeEditStatus').innerText,
+        'Изменений нет.'
+    );
+});
+
+test('options page changes notification trigger draft without live UPDATE_CONFIG', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const newOrders = document.getElementById('optionsNotifyNewOrders');
+
+    newOrders.checked = false;
+    newOrders.dispatchEvent({
+        type: 'change',
+        target: newOrders
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(
+        document.getElementById('optionsNotificationEditStatus').innerText,
+        'Есть несохранённые изменения уведомлений.'
+    );
+});
+
+test('options page disables changed field controls when changed order trigger is off', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const changedOrders = document.getElementById('optionsNotifyChangedOrders');
+    const statusField = document.getElementById('optionsNotifyFieldStatus');
+
+    changedOrders.checked = false;
+    changedOrders.dispatchEvent({
+        type: 'change',
+        target: changedOrders
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(statusField.disabled, true);
+    assert.equal(statusField.checked, true);
+
+    changedOrders.checked = true;
+    changedOrders.dispatchEvent({
+        type: 'change',
+        target: changedOrders
+    });
+
+    assert.equal(statusField.disabled, false);
+});
+
+test('options page applies notification trigger settings', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const newOrders = document.getElementById('optionsNotifyNewOrders');
+    const paymentField = document.getElementById('optionsNotifyFieldPayment');
+    const applyBtn = document.getElementById('optionsApplyNotificationTriggers');
+
+    newOrders.checked = false;
+    newOrders.dispatchEvent({
+        type: 'change',
+        target: newOrders
+    });
+    paymentField.checked = false;
+    paymentField.dispatchEvent({
+        type: 'change',
+        target: paymentField
+    });
+    applyBtn.dispatchEvent({
+        type: 'click',
+        target: applyBtn
+    });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].config.monitorMode, 'windowed');
+    assert.deepEqual(updateMessages[0].config.monitorScope.status, ['6806']);
+    assert.equal(updateMessages[0].config.notificationTriggers.newOrders, false);
+    assert.equal(updateMessages[0].config.notificationTriggers.changedOrders, true);
+    assert.equal(updateMessages[0].config.notificationTriggers.changedFields.payment, false);
+    assert.equal(
+        document.getElementById('optionsNotificationSummary').innerText,
+        'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 6 включено'
+    );
+    assert.equal(
+        document.getElementById('optionsNotificationEditStatus').innerText,
+        'Настройки уведомлений сохранены.'
+    );
+});
+
+test('options page resets notification trigger draft without updating config', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const newOrders = document.getElementById('optionsNotifyNewOrders');
+    const changedOrders = document.getElementById('optionsNotifyChangedOrders');
+    const statusField = document.getElementById('optionsNotifyFieldStatus');
+    const resetBtn = document.getElementById('optionsResetNotificationTriggers');
+
+    newOrders.checked = false;
+    newOrders.dispatchEvent({
+        type: 'change',
+        target: newOrders
+    });
+    changedOrders.checked = false;
+    changedOrders.dispatchEvent({
+        type: 'change',
+        target: changedOrders
+    });
+    resetBtn.dispatchEvent({
+        type: 'click',
+        target: resetBtn
+    });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(newOrders.checked, true);
+    assert.equal(changedOrders.checked, true);
+    assert.equal(statusField.disabled, false);
+    assert.equal(
+        document.getElementById('optionsNotificationEditStatus').innerText,
         'Изменений нет.'
     );
 });
