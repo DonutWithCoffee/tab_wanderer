@@ -921,13 +921,19 @@ function processOrders(orders, options = {}) {
             knownOrdersDB[order.id] ||
             null;
 
+        const isNewOrder = !knownOrdersDB[order.id];
+        const eventType = isNewOrder ? 'new-order' : 'order-changed';
+        const changedFields = isNewOrder
+            ? []
+            : getChangedFields(prevOrder, order);
+
         log('INFO', 'CHANGE', {
             id: order.id,
+            eventType,
+            changedFields,
             prev: prevHash,
             next: newHash
         });
-
-        const isNewOrder = !knownOrdersDB[order.id];
 
         const decision = evaluateNotification(
             order,
@@ -935,7 +941,9 @@ function processOrders(orders, options = {}) {
                 prevOrder,
                 prevHash,
                 newHash,
-                isNewOrder
+                isNewOrder,
+                eventType,
+                changedFields
             },
             userConfig
         );
@@ -952,7 +960,9 @@ function processOrders(orders, options = {}) {
                 action: decision.action,
                 ruleId: decision.ruleId,
                 reason: decision.reason,
-                isNewOrder
+                isNewOrder,
+                eventType,
+                changedFields
             });
         } else {
             notifyOrder(order);

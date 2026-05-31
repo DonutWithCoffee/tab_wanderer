@@ -67,6 +67,24 @@ function getHashForOrder(context, order) {
     return hash;
 }
 
+function installEvaluateNotificationSpy(context) {
+    runExpression(context, `
+        __testDecisionContexts = [];
+        __testOriginalEvaluateNotification = evaluateNotification;
+
+        evaluateNotification = function(order, eventContext, config) {
+            __testDecisionContexts.push(JSON.parse(JSON.stringify(eventContext)));
+            return __testOriginalEvaluateNotification(order, eventContext, config);
+        };
+    `);
+}
+
+function getDecisionContexts(context) {
+    const payload = runExpression(context, 'JSON.stringify(__testDecisionContexts || [])');
+
+    return JSON.parse(payload);
+}
+
 test('processOrders adds new order, sends notification and updates state', () => {
     const context = loadBackgroundContext();
 
@@ -133,6 +151,71 @@ test('processOrders sends notification on status change and updates hash', () =>
         state.windowOrdersHashDB[prevOrder.id],
         getHashForOrder(context, nextOrder)
     );
+});
+
+test('processOrders passes order-changed event context to notification decision', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        status: 'Новый'
+    });
+
+    const nextOrder = createOrder({
+        status: 'Оплачен'
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
+
+    installEvaluateNotificationSpy(context);
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const decisionContexts = getDecisionContexts(context);
+
+    assert.equal(decisionContexts.length, 1);
+    assert.equal(decisionContexts[0].isNewOrder, false);
+    assert.equal(decisionContexts[0].eventType, 'order-changed');
+    assert.deepEqual(decisionContexts[0].changedFields, ['status']);
+    assert.equal(decisionContexts[0].prevOrder.status, 'Новый');
+    assert.equal(decisionContexts[0].prevHash, getHashForOrder(context, prevOrder));
+    assert.equal(decisionContexts[0].newHash, getHashForOrder(context, nextOrder));
+});
+
+test('processOrders passes new-order event context to notification decision', () => {
+    const context = loadBackgroundContext();
+
+    const existingOrder = createOrder();
+
+    const newOrder = createOrder({
+        id: '1001-300326',
+        orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, existingOrder)
+    );
+
+    installEvaluateNotificationSpy(context);
+
+    context.__testOrders = [newOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const decisionContexts = getDecisionContexts(context);
+
+    assert.equal(decisionContexts.length, 1);
+    assert.equal(decisionContexts[0].isNewOrder, true);
+    assert.equal(decisionContexts[0].eventType, 'new-order');
+    assert.deepEqual(decisionContexts[0].changedFields, []);
+    assert.equal(decisionContexts[0].prevOrder, null);
+    assert.equal(decisionContexts[0].prevHash, null);
+    assert.equal(decisionContexts[0].newHash, getHashForOrder(context, newOrder));
 });
 
 test('processOrders applies ignore rule without notification but still updates state', () => {
