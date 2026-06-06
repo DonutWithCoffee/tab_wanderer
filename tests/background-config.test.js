@@ -1206,3 +1206,52 @@ test('active deep sync rebuilds window snapshot after emitting events', async ()
     assert.equal(state.knownOrdersDB[oldWindowOrder.id].id, oldWindowOrder.id);
     assert.equal(state.knownOrdersDB[currentDeepOrder.id].id, currentDeepOrder.id);
 });
+
+test('GET_EVENT_JOURNAL returns newest journal entries with filters', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        eventJournal: [
+            {
+                id: '1',
+                orderId: '1000-300326',
+                eventType: 'new-order',
+                eventKind: 'live'
+            },
+            {
+                id: '2',
+                orderId: '2000-300326',
+                eventType: 'order-changed',
+                eventKind: 'catch-up'
+            },
+            {
+                id: '3',
+                orderId: '1000-300326',
+                eventType: 'order-changed',
+                eventKind: 'live'
+            }
+        ]
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'GET_EVENT_JOURNAL',
+        options: {
+            orderId: '1000-300326',
+            limit: 1
+        }
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.storedTotal, 3);
+    assert.equal(response.total, 2);
+    assert.equal(response.returned, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(response.entries)), [
+        {
+            id: '3',
+            orderId: '1000-300326',
+            eventType: 'order-changed',
+            eventKind: 'live'
+        }
+    ]);
+});

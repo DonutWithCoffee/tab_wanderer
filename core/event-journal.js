@@ -5,6 +5,7 @@ const JOURNAL_EVENT_KINDS = {
 };
 
 const DEFAULT_EVENT_JOURNAL_LIMIT = 500;
+const DEFAULT_EVENT_JOURNAL_READ_LIMIT = 100;
 
 const EVENT_JOURNAL_CONTEXT_FIELDS = [
     'id',
@@ -146,6 +147,66 @@ function createEventJournalEntry({
     };
 }
 
+
+function normalizeJournalLimit(value, fallback = DEFAULT_EVENT_JOURNAL_READ_LIMIT) {
+    const numeric = Number(value);
+    const safeFallback = Math.max(1, Number(fallback) || DEFAULT_EVENT_JOURNAL_READ_LIMIT);
+
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return Math.min(safeFallback, DEFAULT_EVENT_JOURNAL_LIMIT);
+    }
+
+    return Math.min(Math.floor(numeric), DEFAULT_EVENT_JOURNAL_LIMIT);
+}
+
+function normalizeEventJournal(journal, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
+    const safeJournal = Array.isArray(journal) ? journal.filter(Boolean) : [];
+    const safeLimit = normalizeJournalLimit(limit, DEFAULT_EVENT_JOURNAL_LIMIT);
+
+    if (safeJournal.length <= safeLimit) {
+        return safeJournal.map(entry => cloneJournalValue(entry));
+    }
+
+    return safeJournal
+        .slice(safeJournal.length - safeLimit)
+        .map(entry => cloneJournalValue(entry));
+}
+
+function matchesJournalFilter(entry, filters = {}) {
+    if (filters.orderId !== undefined && String(entry.orderId || '') !== String(filters.orderId)) {
+        return false;
+    }
+
+    if (filters.eventType !== undefined && String(entry.eventType || '') !== String(filters.eventType)) {
+        return false;
+    }
+
+    if (filters.eventKind !== undefined && String(entry.eventKind || '') !== String(filters.eventKind)) {
+        return false;
+    }
+
+    return true;
+}
+
+function getEventJournalSnapshot(journal, options = {}) {
+    const safeOptions = options || {};
+    const safeJournal = normalizeEventJournal(journal, DEFAULT_EVENT_JOURNAL_LIMIT);
+    const filtered = safeJournal.filter(entry => matchesJournalFilter(entry, safeOptions));
+    const limit = normalizeJournalLimit(safeOptions.limit, DEFAULT_EVENT_JOURNAL_READ_LIMIT);
+    const entries = filtered
+        .slice(Math.max(0, filtered.length - limit))
+        .reverse()
+        .map(entry => cloneJournalValue(entry));
+
+    return {
+        storedTotal: safeJournal.length,
+        total: filtered.length,
+        returned: entries.length,
+        limit,
+        entries
+    };
+}
+
 function appendEventJournalEntry(journal, entry, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
     const safeLimit = Math.max(1, Number(limit) || DEFAULT_EVENT_JOURNAL_LIMIT);
     const nextJournal = Array.isArray(journal) ? journal.slice() : [];
@@ -161,6 +222,7 @@ function appendEventJournalEntry(journal, entry, limit = DEFAULT_EVENT_JOURNAL_L
 
 globalThis.JOURNAL_EVENT_KINDS = JOURNAL_EVENT_KINDS;
 globalThis.DEFAULT_EVENT_JOURNAL_LIMIT = DEFAULT_EVENT_JOURNAL_LIMIT;
+globalThis.DEFAULT_EVENT_JOURNAL_READ_LIMIT = DEFAULT_EVENT_JOURNAL_READ_LIMIT;
 globalThis.EVENT_JOURNAL_CONTEXT_FIELDS = EVENT_JOURNAL_CONTEXT_FIELDS;
 globalThis.getJournalEventKind = getJournalEventKind;
 globalThis.pickOrderContext = pickOrderContext;
@@ -168,4 +230,8 @@ globalThis.buildChangedFieldDiff = buildChangedFieldDiff;
 globalThis.buildEventJournalEntryId = buildEventJournalEntryId;
 globalThis.createNotificationJournalSnapshot = createNotificationJournalSnapshot;
 globalThis.createEventJournalEntry = createEventJournalEntry;
+globalThis.normalizeJournalLimit = normalizeJournalLimit;
+globalThis.normalizeEventJournal = normalizeEventJournal;
+globalThis.matchesJournalFilter = matchesJournalFilter;
+globalThis.getEventJournalSnapshot = getEventJournalSnapshot;
 globalThis.appendEventJournalEntry = appendEventJournalEntry;

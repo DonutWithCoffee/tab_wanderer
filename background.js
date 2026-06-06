@@ -541,7 +541,7 @@ async function load() {
     collectionSession = d.collectionSession || null;
     monitorDictionaries = d.monitorDictionaries || null;
     lastCollectionMetadata = d.lastCollectionMetadata || null;
-    eventJournal = Array.isArray(d.eventJournal) ? d.eventJournal : [];
+    eventJournal = normalizeEventJournal(d.eventJournal);
 
     workerTabId = null;
 
@@ -1029,6 +1029,14 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     ok: true,
                     userConfig,
                     monitorDictionaries
+                });
+                return;
+            }
+
+            if (msg.type === 'GET_EVENT_JOURNAL') {
+                send({
+                    ok: true,
+                    ...getEventJournalSnapshot(eventJournal, msg.options || {})
                 });
                 return;
             }

@@ -377,3 +377,47 @@ test('event journal append keeps newest entries within limit', () => {
         { id: '3' }
     ]);
 });
+
+
+test('event journal snapshot returns newest entries with filters and read limit', () => {
+    const context = loadBackgroundContext();
+
+    const snapshot = context.getEventJournalSnapshot(
+        [
+            { id: '1', orderId: '1000', eventType: 'new-order', eventKind: 'live' },
+            { id: '2', orderId: '2000', eventType: 'order-changed', eventKind: 'catch-up' },
+            { id: '3', orderId: '1000', eventType: 'order-changed', eventKind: 'live' }
+        ],
+        {
+            orderId: '1000',
+            limit: 1
+        }
+    );
+
+    assert.equal(snapshot.storedTotal, 3);
+    assert.equal(snapshot.total, 2);
+    assert.equal(snapshot.returned, 1);
+    assert.equal(snapshot.limit, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries)), [
+        { id: '3', orderId: '1000', eventType: 'order-changed', eventKind: 'live' }
+    ]);
+});
+
+test('event journal normalization trims old stored entries', () => {
+    const context = loadBackgroundContext();
+
+    const journal = context.normalizeEventJournal(
+        [
+            { id: 'old' },
+            null,
+            { id: 'middle' },
+            { id: 'new' }
+        ],
+        2
+    );
+
+    assert.deepEqual(JSON.parse(JSON.stringify(journal)), [
+        { id: 'middle' },
+        { id: 'new' }
+    ]);
+});
