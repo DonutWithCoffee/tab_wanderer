@@ -156,3 +156,120 @@ test('getChangedFields returns empty list when previous or next order is missing
         ...context.getChangedFields({ status: 'Новый' }, null)
     ], []);
 });
+
+test('sync reason helpers distinguish start recovery and config changes', () => {
+    const context = loadBackgroundContext();
+    const now = 1700000000000;
+
+    assert.equal(context.getStartSyncReason(false), 'initial');
+    assert.equal(context.getStartSyncReason(true), 'manual-start');
+
+    assert.equal(
+        context.getRecoverySyncReason({
+            hasKnownOrders: false,
+            now
+        }),
+        'initial'
+    );
+
+    assert.equal(
+        context.getRecoverySyncReason({
+            hasKnownOrders: true,
+            lastCollectionAt: now - 1000,
+            now
+        }),
+        'recovery'
+    );
+
+    assert.equal(
+        context.getRecoverySyncReason({
+            hasKnownOrders: true,
+            lastCollectionAt: now - context.DEFAULT_STALE_RESUME_THRESHOLD_MS - 1,
+            now
+        }),
+        'stale-resume'
+    );
+
+    assert.equal(
+        context.getConfigChangeSyncReason({
+            scopeChanged: true,
+            modeChanged: true
+        }),
+        'scope-change'
+    );
+
+    assert.equal(
+        context.getConfigChangeSyncReason({
+            scopeChanged: false,
+            modeChanged: true
+        }),
+        'mode-change'
+    );
+
+    assert.equal(
+        context.getConfigChangeSyncReason({
+            scopeChanged: false,
+            modeChanged: false
+        }),
+        null
+    );
+});
+
+test('collection coverage metadata contains stable scope signature', () => {
+    const context = loadBackgroundContext();
+
+    const metadataA = context.buildCollectionCoverageMetadata({
+        collectedAt: 1700000000000,
+        reason: 'scope-change',
+        monitorMode: 'windowed',
+        monitorScope: {
+            status: ['6810', '6806'],
+            delivery: ['9797'],
+            payment: [],
+            predicates: {
+                ozonOnly: true,
+                juridicalOnly: false
+            }
+        },
+        maxPages: 10,
+        ordersCount: 2,
+        session: {
+            mode: 'deep',
+            lastCollectedPage: 3,
+            completionReason: 'explicit-complete',
+            isComplete: true
+        }
+    });
+
+    const metadataB = context.buildCollectionCoverageMetadata({
+        collectedAt: 1700000000000,
+        reason: 'scope-change',
+        monitorMode: 'windowed',
+        monitorScope: {
+            status: ['6806', '6810'],
+            delivery: ['9797'],
+            payment: [],
+            predicates: {
+                juridicalOnly: false,
+                ozonOnly: true
+            }
+        },
+        maxPages: 10,
+        ordersCount: 2,
+        session: {
+            mode: 'deep',
+            lastCollectedPage: 3,
+            completionReason: 'explicit-complete',
+            isComplete: true
+        }
+    });
+
+    assert.equal(metadataA.syncReason, 'scope-change');
+    assert.equal(metadataA.sessionMode, 'deep');
+    assert.equal(metadataA.pagesCollected, 3);
+    assert.equal(metadataA.maxPages, 10);
+    assert.equal(metadataA.ordersCollected, 2);
+    assert.equal(metadataA.completionReason, 'explicit-complete');
+    assert.equal(metadataA.isComplete, true);
+    assert.equal(metadataA.monitorScopeSignature, metadataB.monitorScopeSignature);
+});

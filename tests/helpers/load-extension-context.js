@@ -168,6 +168,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('version.js', context);
     runScript('notification-rules.js', context);
     runScript('core/order-model.js', context);
+    runScript('core/sync-model.js', context);
     runScript('background.js', context);
     return context;
 }
@@ -193,8 +194,10 @@ function setBackgroundState(context, state = {}) {
         lastDeepSyncAt = __testState.lastDeepSyncAt ?? 0;
         userConfig = __testState.userConfig ?? getEffectiveUserConfig({});
         pendingRebaseline = __testState.pendingRebaseline ?? false;
+        pendingSyncReason = __testState.pendingSyncReason ?? null;
         collectionSession = __testState.collectionSession ?? null;
         monitorDictionaries = __testState.monitorDictionaries ?? null;
+        lastCollectionMetadata = __testState.lastCollectionMetadata ?? null;
     `);
 
     delete context.__testState;
@@ -214,8 +217,10 @@ function getBackgroundState(context) {
         lastDeepSyncAt,
         userConfig,
         pendingRebaseline,
+        pendingSyncReason,
         collectionSession,
-        monitorDictionaries
+        monitorDictionaries,
+        lastCollectionMetadata
     })`);
 
     return JSON.parse(snapshot);

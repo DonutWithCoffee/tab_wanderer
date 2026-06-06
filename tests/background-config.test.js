@@ -158,6 +158,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
     assert.equal(response.ok, true);
     assert.deepEqual(state.userConfig.monitorScope.status, ['6806']);
     assert.equal(state.pendingRebaseline, true);
+    assert.equal(state.pendingSyncReason, 'scope-change');
 });
 
 test('collection aborts when advance attempt limit is exceeded', async () => {
@@ -356,6 +357,7 @@ setBackgroundState(context, {
     monitorState: 'warming',
     workerTabId: 77,
     pendingRebaseline: true,
+    pendingSyncReason: 'scope-change',
     knownOrdersDB: {
         stale: createOrder({ id: 'stale' })
     },
@@ -417,7 +419,11 @@ setBackgroundState(context, {
     assert.equal(state.knownOrdersDB.stale.id, 'stale');
     assert.equal(state.windowOrdersDB.stale, undefined);
     assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.pendingSyncReason, null);
     assert.equal(state.monitorState, 'active');
+    assert.equal(state.lastCollectionMetadata.syncReason, 'scope-change');
+    assert.equal(state.lastCollectionMetadata.ordersCollected, 2);
+    assert.equal(state.lastCollectionMetadata.sessionMode, 'deep');
     assert.equal(context.__test.notifications.length, 0);
 });
 
@@ -721,6 +727,8 @@ test('START creates worker tab with URL from current monitorScope and enters war
     assert.equal(response.ok, true);
     assert.equal(state.isRunning, true);
     assert.equal(state.monitorState, 'warming');
+    assert.equal(state.pendingRebaseline, true);
+    assert.equal(state.pendingSyncReason, 'initial');
     assert.equal(context.__test.createdTabs.length, 1);
     assert.equal(
         context.__test.createdTabs[0].url,
@@ -898,6 +906,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when monitorMode changes', async () =
     assert.equal(response.ok, true);
     assert.equal(state.userConfig.monitorMode, 'active');
     assert.equal(state.pendingRebaseline, true);
+    assert.equal(state.pendingSyncReason, 'mode-change');
 });
 
 test('active mode never starts deep sync even when deepSync is due', async () => {

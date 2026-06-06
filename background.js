@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -12,8 +12,10 @@ let monitorState = 'uninitialized';
 let lastDeepSyncAt = 0;
 let userConfig = null;
 let pendingRebaseline = false;
+let pendingSyncReason = null;
 let collectionSession = null;
 let monitorDictionaries = null;
+let lastCollectionMetadata = null;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -343,6 +345,8 @@ function logState(scope = 'STATE') {
         lastDeepSyncAt,
         workerTabId,
         pendingRebaseline,
+        pendingSyncReason,
+        lastCollectionMetadata,
         collectionSession: collectionSession
             ? {
                 mode: collectionSession.mode,
@@ -365,6 +369,33 @@ function logState(scope = 'STATE') {
 // ---------- HELPERS ----------
 function todayKey() {
     return new Date().toDateString();
+}
+
+function hasKnownOrders() {
+    return Object.keys(knownOrdersDB || {}).length > 0;
+}
+
+function scheduleRebaseline(reason) {
+    pendingRebaseline = true;
+    pendingSyncReason = normalizeSyncReason(reason);
+}
+
+function clearPendingRebaseline() {
+    pendingRebaseline = false;
+    pendingSyncReason = null;
+}
+
+function recordCollectionMetadata(session, orders, reason = SYNC_REASONS.NORMAL) {
+    const policy = getCollectionPolicy();
+
+    lastCollectionMetadata = buildCollectionCoverageMetadata({
+        session,
+        reason,
+        monitorMode: userConfig?.monitorMode,
+        monitorScope: userConfig?.monitorScope,
+        maxPages: policy.maxPages,
+        ordersCount: Array.isArray(orders) ? orders.length : 0
+    });
 }
 
 function getEffectiveUserConfig(storedConfig) {
@@ -446,8 +477,10 @@ async function save() {
         lastDeepSyncAt,
         userConfig,
         pendingRebaseline,
+        pendingSyncReason,
         collectionSession,
-        monitorDictionaries
+        monitorDictionaries,
+        lastCollectionMetadata
     });
 
     logState('SAVE');
@@ -466,8 +499,10 @@ async function load() {
         'lastDeepSyncAt',
         'userConfig',
         'pendingRebaseline',
+        'pendingSyncReason',
         'collectionSession',
-        'monitorDictionaries'
+        'monitorDictionaries',
+        'lastCollectionMetadata'
     ]);
 
     knownOrdersDB = d.knownOrdersDB || {};
@@ -481,14 +516,19 @@ async function load() {
     lastDeepSyncAt = Number(d.lastDeepSyncAt) || 0;
     userConfig = getEffectiveUserConfig(d.userConfig);
     pendingRebaseline = d.pendingRebaseline === true;
+    pendingSyncReason = d.pendingSyncReason || null;
     collectionSession = d.collectionSession || null;
     monitorDictionaries = d.monitorDictionaries || null;
+    lastCollectionMetadata = d.lastCollectionMetadata || null;
 
     workerTabId = null;
 
     if (isRunning) {
         monitorState = 'warming';
-        pendingRebaseline = true;
+        scheduleRebaseline(getRecoverySyncReason({
+            hasKnownOrders: hasKnownOrders(),
+            lastCollectionAt: lastCollectionMetadata?.collectedAt
+        }));
         resetCollectionSession();
     }
 
@@ -740,6 +780,9 @@ chrome.notifications.onClosed.addListener(async (notificationId) => {
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
+    const syncReason = reason === 'auto'
+        ? (pendingSyncReason || SYNC_REASONS.NORMAL)
+        : normalizeSyncReason(reason);
     const nextWindowDB = {};
     const nextWindowHashDB = {};
 
@@ -759,11 +802,12 @@ function runBaseline(orders, reason = 'auto') {
     windowOrdersDB = nextWindowDB;
     windowOrdersHashDB = nextWindowHashDB;
     lastBaselineDate = todayKey();
-    pendingRebaseline = false;
+    recordCollectionMetadata(collectionSession, orders, syncReason);
+    clearPendingRebaseline();
     monitorState = 'active';
     resetCollectionSession();
 
-    log('INFO', 'BASELINE', `${reason} count=${orders.length}`);
+    log('INFO', 'BASELINE', `${syncReason} count=${orders.length}`);
     logState('BASELINE');
 
     save();
@@ -1001,8 +1045,11 @@ if (msg.type === 'UPDATE_CONFIG') {
     const nextMode = String(userConfig?.monitorMode || 'windowed');
     const modeChanged = prevMode !== nextMode;
 
-    if (scopeChanged || modeChanged) {
-        pendingRebaseline = true;
+    const syncReason = getConfigChangeSyncReason({ scopeChanged, modeChanged });
+
+    if (syncReason) {
+        scheduleRebaseline(syncReason);
+        resetCollectionSession();
 
         if (scopeChanged) {
             log('INFO', 'CONFIG', 'monitor scope changed', userConfig?.monitorScope || {});
@@ -1016,7 +1063,11 @@ if (msg.type === 'UPDATE_CONFIG') {
         }
 
         log('INFO', 'CONFIG', 'effective config', userConfig);
-        log('INFO', 'CONFIG', 'rebaseline scheduled');
+        log('INFO', 'CONFIG', 'rebaseline scheduled', { syncReason: pendingSyncReason });
+
+        if (isRunning && workerTabId) {
+            await goToCollectionPage(1);
+        }
     } else {
         log('DEBUG', 'CONFIG', 'no changes');
     }
@@ -1045,12 +1096,12 @@ if (msg.type === 'START') {
 
     isRunning = true;
     isStarting = true;
-    pendingRebaseline = true;
+    scheduleRebaseline(getStartSyncReason(hasKnownOrders()));
     monitorState = 'warming';
     resetCollectionSession();
 
     log('INFO', 'CONTROL', 'START');
-    log('INFO', 'CONTROL', 'rebaseline scheduled on start');
+    log('INFO', 'CONTROL', 'rebaseline scheduled on start', { syncReason: pendingSyncReason });
     log('INFO', 'CONTROL', 'monitor state -> warming');
     log('INFO', 'CONTROL', 'monitor scope on start', userConfig?.monitorScope || {});
 
@@ -1149,9 +1200,12 @@ if (!decision.complete) {
 const snapshot = completeCollectionSession(session, decision.reason);
 
 if (pendingRebaseline) {
-    runBaseline(snapshot, 'rebaseline');
+    runBaseline(snapshot, pendingSyncReason || SYNC_REASONS.INITIAL);
 } else if (isEmptyDB || !shouldEmitEvents()) {
-    runBaseline(snapshot, 'init');
+    runBaseline(
+        snapshot,
+        hasKnownOrders() ? SYNC_REASONS.WINDOW_SYNC : SYNC_REASONS.INITIAL
+    );
 } else {
     markDeepSyncCompleted(session);
     processOrders(snapshot);
@@ -1160,6 +1214,7 @@ if (pendingRebaseline) {
         applyWindowSnapshot(snapshot);
     }
 
+    recordCollectionMetadata(session, snapshot, SYNC_REASONS.NORMAL);
     resetCollectionSession();
     await save();
 }
