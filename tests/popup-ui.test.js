@@ -202,7 +202,8 @@ function createPopupDom() {
         'scopePaymentOptions',
         'configStatus',
         'applyConfig',
-        'resetConfig'
+        'resetConfig',
+        'openHistory'
     ];
 
     for (const id of ids) {
@@ -296,7 +297,15 @@ function loadPopupContext(overrides = {}) {
         window: {},
         HTMLInputElement: FakeInputElement,
         chrome: {
+            tabs: {
+                createdTabs: [],
+                create: (createInfo) => {
+                    context.chrome.tabs.createdTabs.push(createInfo);
+                }
+            },
             runtime: {
+                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
+                openOptionsPage: () => {},
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
@@ -373,6 +382,8 @@ test('popup explains monitor scope and notification trigger boundaries', () => {
     assert.match(html, /Notification triggers управляют только уведомлениями/);
     assert.match(html, /Состояние заказа обновляется даже если уведомление подавлено/);
     assert.match(html, /id="triggerFieldCity"/);
+    assert.match(html, /id="openHistory"/);
+    assert.match(html, /Черновая страница истории показывает последние зафиксированные события/);
     assert.doesNotMatch(html, /id="triggerFieldShipmentDateText"/);
     assert.doesNotMatch(html, /id="triggerFieldHasOrderFlag"/);
     assert.doesNotMatch(html, /id="triggerFieldHasAutoreserve"/);
@@ -593,7 +604,15 @@ test('popup handles empty monitorDictionaries without crashing', () => {
 
     const context = loadPopupContext({
         chrome: {
+            tabs: {
+                createdTabs: [],
+                create: (createInfo) => {
+                    context.chrome.tabs.createdTabs.push(createInfo);
+                }
+            },
             runtime: {
+                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
+                openOptionsPage: () => {},
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
@@ -674,7 +693,15 @@ test('popup keeps working when monitorScope contains unknown ids', () => {
 
     const context = loadPopupContext({
         chrome: {
+            tabs: {
+                createdTabs: [],
+                create: (createInfo) => {
+                    context.chrome.tabs.createdTabs.push(createInfo);
+                }
+            },
             runtime: {
+                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
+                openOptionsPage: () => {},
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
@@ -746,7 +773,15 @@ test('popup summary uses compact format for three or more selected values', () =
 
     const context = loadPopupContext({
         chrome: {
+            tabs: {
+                createdTabs: [],
+                create: (createInfo) => {
+                    context.chrome.tabs.createdTabs.push(createInfo);
+                }
+            },
             runtime: {
+                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
+                openOptionsPage: () => {},
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
@@ -836,4 +871,20 @@ test('popup Reset does nothing harmful when there are no changes', () => {
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
     assert.equal(document.getElementById('configStatus').innerText, 'No changes');
     assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
+});
+
+test('popup opens history page from navigation button', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+
+    document.getElementById('openHistory').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('openHistory')
+    });
+
+    assert.equal(context.chrome.tabs.createdTabs.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs[0])), {
+        url: 'chrome-extension://tab-wanderer/history.html',
+        active: true
+    });
 });

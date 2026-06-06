@@ -379,10 +379,20 @@ function bindConfigActions() {
 
 function bindNavigationActions() {
     const openOptionsBtn = document.getElementById('openOptions');
+    const openHistoryBtn = document.getElementById('openHistory');
 
     if (openOptionsBtn) {
         openOptionsBtn.addEventListener('click', () => {
             chrome.runtime.openOptionsPage();
+        });
+    }
+
+    if (openHistoryBtn) {
+        openHistoryBtn.addEventListener('click', () => {
+            chrome.tabs.create({
+                url: chrome.runtime.getURL('history.html'),
+                active: true
+            });
         });
     }
 }

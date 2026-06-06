@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>tab_wanderer history</title>
+    <style>
+        body {
+            max-width: 960px;
+            margin: 16px auto;
+            padding: 0 16px;
+            font-family: Arial, sans-serif;
+        }
+
+        .hint {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.35;
+        }
+
+        .toolbar {
+            margin: 12px 0;
+        }
+
+        #historyStatus {
+            margin: 8px 0 12px;
+            font-weight: bold;
+        }
+
+        .history-entry {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .history-entry-title {
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        .history-entry-meta,
+        .history-entry-context {
+            color: #555;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .history-diff {
+            margin-top: 8px;
+        }
+
+        .history-diff-row {
+            margin: 4px 0;
+        }
+
+        .history-field {
+            font-weight: bold;
+        }
+
+        .history-empty {
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+<h2>История изменений</h2>
+
+<p class="hint">
+    Это технический скелет страницы истории. Он нужен для проверки журнала событий.
+    Финальная читаемость, фильтры и визуальная полировка будут сделаны отдельно.
+</p>
+
+<div class="toolbar">
+    <button id="refreshHistory">Refresh</button>
+</div>
+
+<div id="historyStatus">Loading...</div>
+<div id="historyList"></div>
+
+<script src="history.js"></script>
+</body>
+</html>
