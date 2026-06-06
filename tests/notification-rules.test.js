@@ -81,15 +81,13 @@ test('getEffectiveConfig normalizes notification trigger defaults', () => {
 
     assert.equal(config.notificationTriggers.newOrders, true);
     assert.equal(config.notificationTriggers.changedOrders, true);
-    assert.equal(config.notificationTriggers.changedFields.status, true);
-    assert.equal(config.notificationTriggers.changedFields.delivery, true);
-    assert.equal(config.notificationTriggers.changedFields.payment, true);
-    assert.equal(config.notificationTriggers.changedFields.contractor, false);
-    assert.equal(config.notificationTriggers.changedFields.date, false);
-    assert.equal(config.notificationTriggers.changedFields.shipmentDateText, true);
-    assert.equal(config.notificationTriggers.changedFields.hasOrderFlag, true);
-    assert.equal(config.notificationTriggers.changedFields.hasAutoreserve, true);
-    assert.equal(config.notificationTriggers.changedFields.tags, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(config.notificationTriggers.changedFields)), {
+        status: true,
+        delivery: true,
+        payment: true,
+        city: true,
+        tags: true
+    });
 });
 
 test('getEffectiveConfig merges incoming notification triggers with defaults', () => {
@@ -100,6 +98,7 @@ test('getEffectiveConfig merges incoming notification triggers with defaults', (
             newOrders: false,
             changedFields: {
                 status: false,
+                city: false,
                 contractor: true
             }
         }
@@ -109,8 +108,10 @@ test('getEffectiveConfig merges incoming notification triggers with defaults', (
     assert.equal(config.notificationTriggers.changedOrders, true);
     assert.equal(config.notificationTriggers.changedFields.status, false);
     assert.equal(config.notificationTriggers.changedFields.delivery, true);
-    assert.equal(config.notificationTriggers.changedFields.contractor, true);
-    assert.equal(config.notificationTriggers.changedFields.date, false);
+    assert.equal(config.notificationTriggers.changedFields.city, false);
+    assert.equal(config.notificationTriggers.changedFields.tags, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(config.notificationTriggers.changedFields, 'contractor'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(config.notificationTriggers.changedFields, 'date'), false);
 });
 
 test('evaluateNotification suppresses new orders when new order trigger is disabled', () => {
@@ -165,7 +166,7 @@ test('evaluateNotification suppresses changed orders when changed fields are dis
         {
             eventType: 'order-changed',
             isNewOrder: false,
-            changedFields: ['date']
+            changedFields: ['contractor']
         },
         {}
     );

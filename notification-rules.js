@@ -7,11 +7,7 @@ const DEFAULT_CONFIG = {
             status: true,
             delivery: true,
             payment: true,
-            contractor: false,
-            date: false,
-            shipmentDateText: true,
-            hasOrderFlag: true,
-            hasAutoreserve: true,
+            city: true,
             tags: true
         }
     },
@@ -74,21 +70,9 @@ function normalizeNotificationTriggers(triggers = {}) {
             payment: safeChangedFields.payment === undefined
                 ? defaultChangedFields.payment
                 : Boolean(safeChangedFields.payment),
-            contractor: safeChangedFields.contractor === undefined
-                ? defaultChangedFields.contractor
-                : Boolean(safeChangedFields.contractor),
-            date: safeChangedFields.date === undefined
-                ? defaultChangedFields.date
-                : Boolean(safeChangedFields.date),
-            shipmentDateText: safeChangedFields.shipmentDateText === undefined
-                ? defaultChangedFields.shipmentDateText
-                : Boolean(safeChangedFields.shipmentDateText),
-            hasOrderFlag: safeChangedFields.hasOrderFlag === undefined
-                ? defaultChangedFields.hasOrderFlag
-                : Boolean(safeChangedFields.hasOrderFlag),
-            hasAutoreserve: safeChangedFields.hasAutoreserve === undefined
-                ? defaultChangedFields.hasAutoreserve
-                : Boolean(safeChangedFields.hasAutoreserve),
+            city: safeChangedFields.city === undefined
+                ? defaultChangedFields.city
+                : Boolean(safeChangedFields.city),
             tags: safeChangedFields.tags === undefined
                 ? defaultChangedFields.tags
                 : Boolean(safeChangedFields.tags)

@@ -167,6 +167,7 @@ function loadBackgroundContext(overrides = {}) {
     const context = createBaseContext(overrides);
     runScript('version.js', context);
     runScript('notification-rules.js', context);
+    runScript('core/order-model.js', context);
     runScript('background.js', context);
     return context;
 }

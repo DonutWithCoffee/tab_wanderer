@@ -412,9 +412,9 @@ setBackgroundState(context, {
     const state = getBackgroundState(context);
 
     assert.equal(response.ok, true);
-    assert.equal(Object.keys(state.knownOrdersDB).length, 2);
+    assert.equal(Object.keys(state.knownOrdersDB).length, 3);
     assert.equal(Object.keys(state.windowOrdersDB).length, 2);
-    assert.equal(state.knownOrdersDB.stale, undefined);
+    assert.equal(state.knownOrdersDB.stale.id, 'stale');
     assert.equal(state.windowOrdersDB.stale, undefined);
     assert.equal(state.pendingRebaseline, false);
     assert.equal(state.monitorState, 'active');

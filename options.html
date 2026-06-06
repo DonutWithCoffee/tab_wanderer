@@ -142,18 +142,6 @@
             margin: 0;
             color: #333;
         }
-
-                .scope-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-        }
-
-        .scope-list {
-            display: grid;
-            gap: 8px;
-            margin-top: 8px;
-        }
     </style>
 </head>
 <body>
@@ -234,16 +222,8 @@
                     Оплата
                 </label>
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldShipmentDateText">
-                    Дата отгрузки
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldHasOrderFlag">
-                    Флаг заказа
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldHasAutoreserve">
-                    Авторезерв
+                    <input type="checkbox" id="optionsNotifyFieldCity">
+                    Город
                 </label>
                 <label class="checkbox-row">
                     <input type="checkbox" id="optionsNotifyFieldTags">
@@ -277,35 +257,6 @@
                     <p id="optionsScopeDictionaryPayment" class="dictionary-value">—</p>
                 </div>
             </div>
-        </section>
-
-                <section class="card">
-            <h2>Область мониторинга</h2>
-            <p class="muted">
-                Monitor scope ограничивает входящий поток заказов. Изменение области мониторинга вызывает rebaseline.
-                Пустой выбор в группе означает: отслеживать все значения этой группы.
-            </p>
-
-            <div class="scope-grid">
-                <div>
-                    <h3>Статус</h3>
-                    <div id="optionsScopeStatusList" class="scope-list"></div>
-                </div>
-                <div>
-                    <h3>Доставка</h3>
-                    <div id="optionsScopeDeliveryList" class="scope-list"></div>
-                </div>
-                <div>
-                    <h3>Оплата</h3>
-                    <div id="optionsScopePaymentList" class="scope-list"></div>
-                </div>
-            </div>
-
-            <div class="actions-row">
-                <button id="optionsApplyMonitorScope">Apply</button>
-                <button id="optionsResetMonitorScope">Reset</button>
-            </div>
-            <p id="optionsMonitorScopeEditStatus" class="muted">Загрузка области мониторинга...</p>
         </section>
 
         <section class="card">

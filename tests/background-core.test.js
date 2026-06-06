@@ -35,7 +35,7 @@ test('buildOrdersUrl omits page parameter for first page', () => {
     );
 });
 
-test('normalizeDateForHash keeps only the first date line', () => {
+test('normalizeDateForHash keeps only the first date line for context normalization', () => {
     const context = loadBackgroundContext();
 
     const normalizedDate = context.normalizeDateForHash('30 мар. 2026 10:00\nобновлено 10:01');
@@ -43,7 +43,7 @@ test('normalizeDateForHash keeps only the first date line', () => {
     assert.equal(normalizedDate, '30 мар. 2026 10:00');
 });
 
-test('getHash ignores noise outside the primary date line', () => {
+test('getHash ignores context-only date and contractor fields', () => {
     const context = loadBackgroundContext();
 
     const hashA = context.getHash({
@@ -51,8 +51,10 @@ test('getHash ignores noise outside the primary date line', () => {
         status: 'Новый',
         delivery: 'Самовывоз',
         payment: 'Наличными в офисе',
-        contractor: '',
-        date: '30 мар. 2026 10:00\nобновлено 10:01'
+        city: 'Москва',
+        contractor: 'ООО Ромашка',
+        date: '30 мар. 2026 10:00\nобновлено 10:01',
+        tags: ['VIP', 'Склад']
     });
 
     const hashB = context.getHash({
@@ -60,8 +62,10 @@ test('getHash ignores noise outside the primary date line', () => {
         status: 'Новый',
         delivery: 'Самовывоз',
         payment: 'Наличными в офисе',
-        contractor: '',
-        date: '30 мар. 2026 10:00\nобновлено 10:15'
+        city: 'Москва',
+        contractor: 'ООО Василек',
+        date: '31 мар. 2026 11:00\nобновлено 10:15',
+        tags: ['склад', 'vip']
     });
 
     assert.equal(hashA, hashB);
@@ -76,6 +80,7 @@ test('getChangedFields returns deterministic field list for normalized order cha
                 status: 'Новый',
                 delivery: 'Самовывоз',
                 payment: 'Наличными в офисе',
+                city: 'Москва',
                 contractor: 'ООО Ёж',
                 date: '30 мар. 2026 10:00',
                 shipmentDateText: 'Отгр.: 31 мар.',
@@ -87,8 +92,9 @@ test('getChangedFields returns deterministic field list for normalized order cha
                 status: 'Оплачен',
                 delivery: 'Пункт выдачи СДЭК',
                 payment: 'Оплата онлайн',
+                city: 'Санкт-Петербург',
                 contractor: 'ООО Ежик',
-                date: '30 мар. 2026 10:00',
+                date: '31 мар. 2026 11:00',
                 shipmentDateText: 'Отгр.: 1 апр.',
                 hasOrderFlag: true,
                 hasAutoreserve: true,
@@ -101,25 +107,36 @@ test('getChangedFields returns deterministic field list for normalized order cha
         'status',
         'delivery',
         'payment',
-        'contractor',
-        'shipmentDateText',
-        'hasOrderFlag',
-        'hasAutoreserve',
+        'city',
         'tags'
     ]);
 });
 
-test('getChangedFields ignores date noise and tag order', () => {
+test('getChangedFields ignores context-only fields and tag order', () => {
     const context = loadBackgroundContext();
 
     const changedFields = [
         ...context.getChangedFields(
             {
                 date: '30 мар. 2026 10:00\nобновлено 10:01',
+                phoneNormalized: '79213241566',
+                totalAmount: 350,
+                productsDone: 0,
+                productsTotal: 10,
+                manager: 'Иванов',
+                contractor: 'ООО Ромашка',
+                hasAutoreserve: false,
                 tags: ['VIP', 'Склад']
             },
             {
                 date: '30 мар. 2026 10:00\nобновлено 10:15',
+                phoneNormalized: '79213240000',
+                totalAmount: 900,
+                productsDone: 10,
+                productsTotal: 10,
+                manager: 'Петров',
+                contractor: 'ООО Василек',
+                hasAutoreserve: true,
                 tags: ['склад', 'vip']
             }
         )

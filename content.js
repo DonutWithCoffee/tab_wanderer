@@ -66,33 +66,40 @@ function extractPrimaryDateFromCell(cell) {
     return extractPrimaryDate(cell?.innerText || '');
 }
 
-function extractShipmentDate(text) {
-    const raw = String(text || '');
-    const lines = raw.split('\n')
-        .map(line => normalizeCellText(line))
-        .filter(Boolean);
+function normalizePhone(text) {
+    const digits = String(text || '').replace(/\D/g, '');
 
-    for (let i = 0; i < lines.length; i += 1) {
-        const line = lines[i];
-
-        if (!line.startsWith('Отгр')) continue;
-
-        const inlineValue = line.replace(/^Отгр\.?\s*:?\s*/i, '').trim();
-
-        if (inlineValue) {
-            return `Отгр.: ${inlineValue}`;
-        }
-
-        const nextLine = lines[i + 1] || '';
-
-        if (nextLine && !nextLine.startsWith('(')) {
-            return `Отгр.: ${nextLine}`;
-        }
-
-        return 'Отгр.:';
+    if (digits.length === 11 && digits.startsWith('8')) {
+        return `7${digits.slice(1)}`;
     }
 
-    return '';
+    if (digits.length === 10) {
+        return `7${digits}`;
+    }
+
+    return digits;
+}
+
+function parseIntegerValue(text) {
+    const digits = String(text || '').replace(/\D/g, '');
+
+    return digits ? Number(digits) : null;
+}
+
+function parseProductsProgress(text) {
+    const match = String(text || '').match(/(\d+)\s*\/\s*(\d+)/);
+
+    if (!match) {
+        return {
+            productsDone: null,
+            productsTotal: null
+        };
+    }
+
+    return {
+        productsDone: Number(match[1]),
+        productsTotal: Number(match[2])
+    };
 }
 
 // ---------- COLUMN MAP ----------
@@ -107,6 +114,11 @@ function getColumnMap() {
         if (text.includes('доставка')) map.delivery = index;
         if (text.includes('оплата')) map.payment = index;
         if (text.includes('дата')) map.date = index;
+        if (text.includes('телефон')) map.phone = index;
+        if (text.includes('товаров')) map.products = index;
+        if (text.includes('сумма')) map.totalAmount = index;
+        if (text.includes('менеджер')) map.manager = index;
+        if (text.includes('город')) map.city = index;
         if (text.includes('контрагент')) map.contractor = index;
     });
 
@@ -154,15 +166,25 @@ function parseOrders() {
         const date = map.date !== undefined
             ? extractPrimaryDateFromCell(cells[map.date])
             : '';
+        const phoneNormalized = map.phone !== undefined
+            ? normalizePhone(cells[map.phone]?.innerText || '')
+            : '';
+        const totalAmount = map.totalAmount !== undefined
+            ? parseIntegerValue(cells[map.totalAmount]?.innerText || '')
+            : null;
+        const productsProgress = map.products !== undefined
+            ? parseProductsProgress(cells[map.products]?.innerText || '')
+            : { productsDone: null, productsTotal: null };
+        const manager = map.manager !== undefined
+            ? (cells[map.manager]?.innerText?.trim() || '')
+            : '';
+        const city = map.city !== undefined
+            ? (cells[map.city]?.innerText?.trim() || '')
+            : '';
         const contractor = map.contractor !== undefined
             ? (cells[map.contractor]?.innerText?.trim() || '')
             : '';
 
-        const shipmentDateText = map.date !== undefined
-            ? extractShipmentDate(cells[map.date]?.innerText || '')
-            : '';
-
-        const hasOrderFlag = !!r.querySelector('.fa-flag');
         const hasAutoreserve = !!r.querySelector('.fa-lock');
 
         const tags = Array.from(r.querySelectorAll('.label, .badge'))
@@ -176,10 +198,14 @@ function parseOrders() {
             delivery,
             payment,
             date,
+            phoneNormalized,
+            totalAmount,
+            productsDone: productsProgress.productsDone,
+            productsTotal: productsProgress.productsTotal,
+            manager,
+            city,
             contractor,
             orderUrl,
-            shipmentDateText,
-            hasOrderFlag,
             hasAutoreserve,
             tags
         });

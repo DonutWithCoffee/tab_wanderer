@@ -185,6 +185,110 @@ test('processOrders passes order-changed event context to notification decision'
     assert.equal(decisionContexts[0].newHash, getHashForOrder(context, nextOrder));
 });
 
+test('processOrders detects only tracked event fields', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        status: 'Новый',
+        delivery: 'Самовывоз',
+        payment: 'Наличными в офисе',
+        city: 'Москва',
+        tags: ['VIP', 'Склад']
+    });
+
+    const nextOrder = createOrder({
+        status: 'Оплачен',
+        delivery: 'Пункт выдачи СДЭК',
+        payment: 'Оплата онлайн',
+        city: 'Санкт-Петербург',
+        tags: ['Склад', 'Ozon']
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
+
+    installEvaluateNotificationSpy(context);
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+    const decisionContexts = getDecisionContexts(context);
+
+    assert.equal(decisionContexts.length, 1);
+    assert.equal(decisionContexts[0].eventType, 'order-changed');
+    assert.deepEqual(decisionContexts[0].changedFields, [
+        'status',
+        'delivery',
+        'payment',
+        'city',
+        'tags'
+    ]);
+    assert.equal(state.knownOrdersDB[prevOrder.id].city, 'Санкт-Петербург');
+    assert.deepEqual(state.knownOrdersDB[prevOrder.id].tags, ['Склад', 'Ozon']);
+    assert.equal(
+        state.knownOrdersHashDB[prevOrder.id],
+        getHashForOrder(context, nextOrder)
+    );
+});
+
+test('processOrders updates context-only fields without creating change event', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        date: '30 мар. 2026 10:00',
+        phoneNormalized: '79213241566',
+        totalAmount: 350,
+        productsDone: 0,
+        productsTotal: 10,
+        manager: 'Иванов',
+        contractor: 'ООО Ромашка',
+        hasAutoreserve: false
+    });
+
+    const nextOrder = createOrder({
+        date: '31 мар. 2026 11:00',
+        phoneNormalized: '79213240000',
+        totalAmount: 900,
+        productsDone: 10,
+        productsTotal: 10,
+        manager: 'Петров',
+        contractor: 'ООО Василек',
+        hasAutoreserve: true
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
+
+    installEvaluateNotificationSpy(context);
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+    const decisionContexts = getDecisionContexts(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(decisionContexts.length, 0);
+    assert.equal(state.knownOrdersDB[prevOrder.id].date, '31 мар. 2026 11:00');
+    assert.equal(state.knownOrdersDB[prevOrder.id].phoneNormalized, '79213240000');
+    assert.equal(state.knownOrdersDB[prevOrder.id].totalAmount, 900);
+    assert.equal(state.knownOrdersDB[prevOrder.id].productsDone, 10);
+    assert.equal(state.knownOrdersDB[prevOrder.id].manager, 'Петров');
+    assert.equal(state.knownOrdersDB[prevOrder.id].contractor, 'ООО Василек');
+    assert.equal(state.knownOrdersDB[prevOrder.id].hasAutoreserve, true);
+    assert.equal(
+        state.knownOrdersHashDB[prevOrder.id],
+        getHashForOrder(context, prevOrder)
+    );
+});
+
 test('processOrders passes new-order event context to notification decision', () => {
     const context = loadBackgroundContext();
 
@@ -362,4 +466,73 @@ test('runBaseline initializes known and window state without sending notificatio
     assert.equal(Object.keys(state.windowOrdersHashDB).length, 2);
     assert.equal(state.pendingRebaseline, false);
     assert.equal(typeof state.lastBaselineDate, 'string');
+});
+
+test('runBaseline preserves known state outside current window snapshot', () => {
+    const context = loadBackgroundContext();
+
+    const archivedOrder = createOrder({
+        id: '0999-290326',
+        status: 'Архивный',
+        orderUrl: 'https://amperkot.ru/admin/orders/0999-290326/'
+    });
+
+    const prevVisibleOrder = createOrder({
+        status: 'Новый'
+    });
+
+    const nextVisibleOrder = createOrder({
+        status: 'Оплачен'
+    });
+
+    setBackgroundState(context, {
+        knownOrdersDB: {
+            [archivedOrder.id]: archivedOrder,
+            [prevVisibleOrder.id]: prevVisibleOrder
+        },
+        knownOrdersHashDB: {
+            [archivedOrder.id]: getHashForOrder(context, archivedOrder),
+            [prevVisibleOrder.id]: getHashForOrder(context, prevVisibleOrder)
+        },
+        windowOrdersDB: {
+            [archivedOrder.id]: archivedOrder,
+            [prevVisibleOrder.id]: prevVisibleOrder
+        },
+        windowOrdersHashDB: {
+            [archivedOrder.id]: getHashForOrder(context, archivedOrder),
+            [prevVisibleOrder.id]: getHashForOrder(context, prevVisibleOrder)
+        },
+        userConfig: {
+            monitorScope: createDefaultMonitorScope()
+        },
+        pendingRebaseline: true
+    });
+
+    context.__testOrders = [nextVisibleOrder];
+    runExpression(context, 'runBaseline(__testOrders, "test")');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+
+    assert.equal(Object.keys(state.knownOrdersDB).length, 2);
+    assert.equal(Object.keys(state.knownOrdersHashDB).length, 2);
+    assert.equal(state.knownOrdersDB[archivedOrder.id].status, 'Архивный');
+    assert.equal(state.knownOrdersDB[nextVisibleOrder.id].status, 'Оплачен');
+
+    assert.equal(Object.keys(state.windowOrdersDB).length, 1);
+    assert.equal(Object.keys(state.windowOrdersHashDB).length, 1);
+    assert.equal(state.windowOrdersDB[archivedOrder.id], undefined);
+    assert.equal(state.windowOrdersDB[nextVisibleOrder.id].status, 'Оплачен');
+
+    assert.equal(
+        state.knownOrdersHashDB[archivedOrder.id],
+        getHashForOrder(context, archivedOrder)
+    );
+    assert.equal(
+        state.knownOrdersHashDB[nextVisibleOrder.id],
+        getHashForOrder(context, nextVisibleOrder)
+    );
+    assert.equal(state.pendingRebaseline, false);
 });

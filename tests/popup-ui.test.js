@@ -192,9 +192,7 @@ function createPopupDom() {
         'triggerFieldStatus',
         'triggerFieldDelivery',
         'triggerFieldPayment',
-        'triggerFieldShipmentDateText',
-        'triggerFieldHasOrderFlag',
-        'triggerFieldHasAutoreserve',
+        'triggerFieldCity',
         'triggerFieldTags',
         'scopeStatusSummary',
         'scopeStatusOptions',
@@ -204,8 +202,7 @@ function createPopupDom() {
         'scopePaymentOptions',
         'configStatus',
         'applyConfig',
-        'resetConfig',
-        'openOptions'
+        'resetConfig'
     ];
 
     for (const id of ids) {
@@ -217,9 +214,7 @@ function createPopupDom() {
             'triggerFieldStatus',
             'triggerFieldDelivery',
             'triggerFieldPayment',
-            'triggerFieldShipmentDateText',
-            'triggerFieldHasOrderFlag',
-            'triggerFieldHasAutoreserve',
+            'triggerFieldCity',
             'triggerFieldTags'
         ].includes(id);
         const element = isInput ? new FakeInputElement(document, id) : new FakeElement('div', document, id);
@@ -243,7 +238,6 @@ function loadPopupContext(overrides = {}) {
     );
 
     const sentMessages = [];
-     let optionsPageOpenCount = 0;
     const manifest = { version: '0.9.7-test' };
 
     const defaultConfig = {
@@ -255,11 +249,7 @@ function loadPopupContext(overrides = {}) {
                 status: true,
                 delivery: true,
                 payment: true,
-                contractor: false,
-                date: false,
-                shipmentDateText: true,
-                hasOrderFlag: true,
-                hasAutoreserve: true,
+                city: true,
                 tags: true
             }
         },
@@ -335,18 +325,14 @@ function loadPopupContext(overrides = {}) {
                         callback(response);
                     }
                 },
-                                getManifest: () => manifest,
-                openOptionsPage: () => {
-                    optionsPageOpenCount += 1;
-                }
+                getManifest: () => manifest
             }
         },
         __test: {
             sentMessages,
             document,
             defaultConfig,
-            defaultDictionaries,
-             getOptionsPageOpenCount: () => optionsPageOpenCount
+            defaultDictionaries
         },
         ...overrides
     };
@@ -379,58 +365,17 @@ function readPopupHtml() {
     );
 }
 
-function readOptionsHtml() {
-    return fs.readFileSync(
-        path.join(__dirname, '..', 'options.html'),
-        'utf8'
-    );
-}
-
-function readManifest() {
-    return JSON.parse(
-        fs.readFileSync(
-            path.join(__dirname, '..', 'manifest.json'),
-            'utf8'
-        )
-    );
-}
-
 test('popup explains monitor scope and notification trigger boundaries', () => {
     const html = readPopupHtml();
 
     assert.match(html, /Область мониторинга ограничивает входящий поток заказов/);
-    assert.match(html, /После Apply изменение области запускает rebaseline без уведомлений/);
+    assert.match(html, /Заказы вне выбранной области не отслеживаются/);
     assert.match(html, /Notification triggers управляют только уведомлениями/);
     assert.match(html, /Состояние заказа обновляется даже если уведомление подавлено/);
-});
-
-test('extension declares options page skeleton', () => {
-    const manifest = readManifest();
-    const popupHtml = readPopupHtml();
-    const optionsHtml = readOptionsHtml();
-
-    assert.equal(manifest.options_page, 'options.html');
-    assert.match(popupHtml, /id="openOptions"/);
-    assert.match(popupHtml, /Настройки/);
-    assert.match(optionsHtml, /Настройки tab_wanderer/);
-    assert.match(optionsHtml, /Расширенные настройки будут перенесены сюда/);
-    assert.match(optionsHtml, /Popup останется быстрым контролом START \/ STOP/);
-    assert.match(optionsHtml, /Пока это только каркас/);
-    assert.match(optionsHtml, /Runtime-логика, monitorScope и notificationTriggers не изменены/);
-});
-
-test('popup opens options page from settings button', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-    const openOptionsBtn = document.getElementById('openOptions');
-
-    openOptionsBtn.dispatchEvent({
-        type: 'click',
-        target: openOptionsBtn
-    });
-
-    assert.equal(context.__test.getOptionsPageOpenCount(), 1);
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.match(html, /id="triggerFieldCity"/);
+    assert.doesNotMatch(html, /id="triggerFieldShipmentDateText"/);
+    assert.doesNotMatch(html, /id="triggerFieldHasOrderFlag"/);
+    assert.doesNotMatch(html, /id="triggerFieldHasAutoreserve"/);
 });
 
 test('popup initializes from GET_CONFIG and renders dictionaries', () => {
@@ -452,9 +397,7 @@ test('popup initializes from GET_CONFIG and renders dictionaries', () => {
     assert.equal(document.getElementById('triggerFieldStatus').checked, true);
     assert.equal(document.getElementById('triggerFieldDelivery').checked, true);
     assert.equal(document.getElementById('triggerFieldPayment').checked, true);
-    assert.equal(document.getElementById('triggerFieldShipmentDateText').checked, true);
-    assert.equal(document.getElementById('triggerFieldHasOrderFlag').checked, true);
-    assert.equal(document.getElementById('triggerFieldHasAutoreserve').checked, true);
+    assert.equal(document.getElementById('triggerFieldCity').checked, true);
     assert.equal(document.getElementById('triggerFieldTags').checked, true);
 
     assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
@@ -599,8 +542,13 @@ test('popup Apply sends notification trigger settings', () => {
     assert.equal(updateCalls[0].userConfig.notificationTriggers.newOrders, false);
     assert.equal(updateCalls[0].userConfig.notificationTriggers.changedOrders, true);
     assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.status, false);
+    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.city, true);
     assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.tags, false);
-    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.contractor, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'contractor'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'date'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'shipmentDateText'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'hasOrderFlag'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'hasAutoreserve'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig, 'rules'), false);
     assert.equal(document.getElementById('configStatus').innerText, 'No changes');
 });

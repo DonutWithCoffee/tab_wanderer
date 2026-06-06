@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -363,107 +363,6 @@ function logState(scope = 'STATE') {
 }
 
 // ---------- HELPERS ----------
-function normalize(v) {
-    return (v || '')
-        .toLowerCase()
-        .replace(/ё/g, 'е')
-        .replace(/[–-]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-function normalizeDateForHash(v) {
-    const raw = String(v || '');
-    const firstLine = raw.split('\n')[0] || '';
-
-    return normalize(firstLine);
-}
-
-function getHash(o) {
-    return [
-        o.id,
-        normalize(o.status),
-        normalize(o.delivery),
-        normalize(o.payment),
-        normalize(o.contractor),
-        normalizeDateForHash(o.date)
-    ].join('|');
-}
-
-function normalizeBooleanForDiff(value) {
-    return value === true ? 'true' : 'false';
-}
-
-function normalizeTagsForDiff(tags) {
-    if (!Array.isArray(tags)) {
-        return '';
-    }
-
-    return tags
-        .map(tag => normalize(tag))
-        .filter(Boolean)
-        .sort()
-        .join('|');
-}
-
-function getChangedFields(prevOrder, nextOrder) {
-    if (!prevOrder || !nextOrder) {
-        return [];
-    }
-
-    const fields = [
-        {
-            name: 'status',
-            prev: normalize(prevOrder.status),
-            next: normalize(nextOrder.status)
-        },
-        {
-            name: 'delivery',
-            prev: normalize(prevOrder.delivery),
-            next: normalize(nextOrder.delivery)
-        },
-        {
-            name: 'payment',
-            prev: normalize(prevOrder.payment),
-            next: normalize(nextOrder.payment)
-        },
-        {
-            name: 'contractor',
-            prev: normalize(prevOrder.contractor),
-            next: normalize(nextOrder.contractor)
-        },
-        {
-            name: 'date',
-            prev: normalizeDateForHash(prevOrder.date),
-            next: normalizeDateForHash(nextOrder.date)
-        },
-        {
-            name: 'shipmentDateText',
-            prev: normalize(prevOrder.shipmentDateText),
-            next: normalize(nextOrder.shipmentDateText)
-        },
-        {
-            name: 'hasOrderFlag',
-            prev: normalizeBooleanForDiff(prevOrder.hasOrderFlag),
-            next: normalizeBooleanForDiff(nextOrder.hasOrderFlag)
-        },
-        {
-            name: 'hasAutoreserve',
-            prev: normalizeBooleanForDiff(prevOrder.hasAutoreserve),
-            next: normalizeBooleanForDiff(nextOrder.hasAutoreserve)
-        },
-        {
-            name: 'tags',
-            prev: normalizeTagsForDiff(prevOrder.tags),
-            next: normalizeTagsForDiff(nextOrder.tags)
-        }
-    ];
-
-    return fields
-        .filter(field => field.prev !== field.next)
-        .map(field => field.name);
-}
-
 function todayKey() {
     return new Date().toDateString();
 }
@@ -841,8 +740,6 @@ chrome.notifications.onClosed.addListener(async (notificationId) => {
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
-    const nextKnownDB = {};
-    const nextKnownHashDB = {};
     const nextWindowDB = {};
     const nextWindowHashDB = {};
 
@@ -853,14 +750,12 @@ function runBaseline(orders, reason = 'auto') {
 
         const hash = getHash(order);
 
-        nextKnownDB[order.id] = order;
-        nextKnownHashDB[order.id] = hash;
+        knownOrdersDB[order.id] = order;
+        knownOrdersHashDB[order.id] = hash;
         nextWindowDB[order.id] = order;
         nextWindowHashDB[order.id] = hash;
     });
 
-    knownOrdersDB = nextKnownDB;
-    knownOrdersHashDB = nextKnownHashDB;
     windowOrdersDB = nextWindowDB;
     windowOrdersHashDB = nextWindowHashDB;
     lastBaselineDate = todayKey();
@@ -903,6 +798,7 @@ function processOrders(orders, options = {}) {
     const { testMode = false } = options;
 
     let hasChanges = false;
+    let hasStateUpdates = false;
 
     log('INFO', 'PROCESS', `orders=${orders.length} testMode=${testMode}`);
 
@@ -915,16 +811,24 @@ function processOrders(orders, options = {}) {
             knownOrdersHashDB[order.id] ||
             null;
 
-        if (newHash === prevHash) {
-            continue;
-        }
-
-        hasChanges = true;
-
         const prevOrder =
             windowOrdersDB[order.id] ||
             knownOrdersDB[order.id] ||
             null;
+
+        if (newHash === prevHash) {
+            if (!testMode && !areStoredOrdersEqual(prevOrder, order)) {
+                knownOrdersDB[order.id] = order;
+                knownOrdersHashDB[order.id] = newHash;
+                windowOrdersDB[order.id] = order;
+                windowOrdersHashDB[order.id] = newHash;
+                hasStateUpdates = true;
+            }
+
+            continue;
+        }
+
+        hasChanges = true;
 
         const isNewOrder = !knownOrdersDB[order.id];
         const eventType = isNewOrder ? 'new-order' : 'order-changed';
@@ -981,7 +885,7 @@ function processOrders(orders, options = {}) {
         }
     }
 
-    if (!testMode && hasChanges) {
+    if (!testMode && (hasChanges || hasStateUpdates)) {
         logState('PROCESS');
         save();
     }

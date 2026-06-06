@@ -106,7 +106,7 @@
 
 <p id="monitorScopeHelp" class="hint">
     Область мониторинга ограничивает входящий поток заказов: в наблюдение попадают только заказы, подходящие под выбранные фильтры.
-    Пустой выбор означает «все значения». После Apply изменение области запускает rebaseline без уведомлений.
+    Заказы вне выбранной области не отслеживаются. Пустой выбор означает «все значения».
 </p>
 
 <details>
@@ -167,18 +167,8 @@
         </label>
 
         <label>
-            <input type="checkbox" id="triggerFieldShipmentDateText">
-            Дата отгрузки
-        </label>
-
-        <label>
-            <input type="checkbox" id="triggerFieldHasOrderFlag">
-            Флаг заказа
-        </label>
-
-        <label>
-            <input type="checkbox" id="triggerFieldHasAutoreserve">
-            Авторезерв
+            <input type="checkbox" id="triggerFieldCity">
+            Город
         </label>
 
         <label>
@@ -197,7 +187,6 @@
 <div class="actions-group">
     <button id="applyConfig">Apply</button>
     <button id="resetConfig">Reset</button>
-    <button id="openOptions">Настройки</button>
 </div>
 
 <script src="popup.js"></script>

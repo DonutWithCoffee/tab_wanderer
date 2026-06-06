@@ -10,11 +10,7 @@ const POPUP_DEFAULT_NOTIFICATION_TRIGGERS = {
         status: true,
         delivery: true,
         payment: true,
-        contractor: false,
-        date: false,
-        shipmentDateText: true,
-        hasOrderFlag: true,
-        hasAutoreserve: true,
+        city: true,
         tags: true
     }
 };
@@ -23,9 +19,7 @@ const TRIGGER_FIELD_CONTROLS = [
     { field: 'status', id: 'triggerFieldStatus' },
     { field: 'delivery', id: 'triggerFieldDelivery' },
     { field: 'payment', id: 'triggerFieldPayment' },
-    { field: 'shipmentDateText', id: 'triggerFieldShipmentDateText' },
-    { field: 'hasOrderFlag', id: 'triggerFieldHasOrderFlag' },
-    { field: 'hasAutoreserve', id: 'triggerFieldHasAutoreserve' },
+    { field: 'city', id: 'triggerFieldCity' },
     { field: 'tags', id: 'triggerFieldTags' }
 ];
 
@@ -85,11 +79,7 @@ function getNotificationTriggers(config = {}) {
             status: getBooleanConfigValue(changedFields.status, defaultChangedFields.status),
             delivery: getBooleanConfigValue(changedFields.delivery, defaultChangedFields.delivery),
             payment: getBooleanConfigValue(changedFields.payment, defaultChangedFields.payment),
-            contractor: getBooleanConfigValue(changedFields.contractor, defaultChangedFields.contractor),
-            date: getBooleanConfigValue(changedFields.date, defaultChangedFields.date),
-            shipmentDateText: getBooleanConfigValue(changedFields.shipmentDateText, defaultChangedFields.shipmentDateText),
-            hasOrderFlag: getBooleanConfigValue(changedFields.hasOrderFlag, defaultChangedFields.hasOrderFlag),
-            hasAutoreserve: getBooleanConfigValue(changedFields.hasAutoreserve, defaultChangedFields.hasAutoreserve),
+            city: getBooleanConfigValue(changedFields.city, defaultChangedFields.city),
             tags: getBooleanConfigValue(changedFields.tags, defaultChangedFields.tags)
         }
     };
