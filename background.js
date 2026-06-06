@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -16,6 +16,7 @@ let pendingSyncReason = null;
 let collectionSession = null;
 let monitorDictionaries = null;
 let lastCollectionMetadata = null;
+let eventJournal = [];
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -347,6 +348,10 @@ function logState(scope = 'STATE') {
         pendingRebaseline,
         pendingSyncReason,
         lastCollectionMetadata,
+        totalEventJournalEntries: Array.isArray(eventJournal) ? eventJournal.length : 0,
+        lastEventJournalEntry: Array.isArray(eventJournal) && eventJournal.length
+            ? eventJournal[eventJournal.length - 1]
+            : null,
         collectionSession: collectionSession
             ? {
                 mode: collectionSession.mode,
@@ -396,6 +401,20 @@ function recordCollectionMetadata(session, orders, reason = SYNC_REASONS.NORMAL)
         maxPages: policy.maxPages,
         ordersCount: Array.isArray(orders) ? orders.length : 0
     });
+}
+
+function appendOrderEventToJournal(order, eventContext, notificationDecision, syncReason = SYNC_REASONS.NORMAL) {
+    const entry = createEventJournalEntry({
+        order,
+        eventContext,
+        notificationDecision,
+        syncReason,
+        monitorMode: userConfig?.monitorMode,
+        monitorScope: userConfig?.monitorScope,
+        coverageMetadata: lastCollectionMetadata
+    });
+
+    eventJournal = appendEventJournalEntry(eventJournal, entry);
 }
 
 function getEffectiveUserConfig(storedConfig) {
@@ -480,7 +499,8 @@ async function save() {
         pendingSyncReason,
         collectionSession,
         monitorDictionaries,
-        lastCollectionMetadata
+        lastCollectionMetadata,
+        eventJournal
     });
 
     logState('SAVE');
@@ -502,7 +522,8 @@ async function load() {
         'pendingSyncReason',
         'collectionSession',
         'monitorDictionaries',
-        'lastCollectionMetadata'
+        'lastCollectionMetadata',
+        'eventJournal'
     ]);
 
     knownOrdersDB = d.knownOrdersDB || {};
@@ -520,6 +541,7 @@ async function load() {
     collectionSession = d.collectionSession || null;
     monitorDictionaries = d.monitorDictionaries || null;
     lastCollectionMetadata = d.lastCollectionMetadata || null;
+    eventJournal = Array.isArray(d.eventJournal) ? d.eventJournal : [];
 
     workerTabId = null;
 
@@ -839,7 +861,7 @@ function applyWindowSnapshot(orders) {
 
 // ---------- CORE ----------
 function processOrders(orders, options = {}) {
-    const { testMode = false } = options;
+    const { testMode = false, syncReason = SYNC_REASONS.NORMAL } = options;
 
     let hasChanges = false;
     let hasStateUpdates = false;
@@ -888,18 +910,24 @@ function processOrders(orders, options = {}) {
             next: newHash
         });
 
+        const eventContext = {
+            prevOrder,
+            prevHash,
+            newHash,
+            isNewOrder,
+            eventType,
+            changedFields
+        };
+
         const decision = evaluateNotification(
             order,
-            {
-                prevOrder,
-                prevHash,
-                newHash,
-                isNewOrder,
-                eventType,
-                changedFields
-            },
+            eventContext,
             userConfig
         );
+
+        if (!testMode) {
+            appendOrderEventToJournal(order, eventContext, decision, syncReason);
+        }
 
         if (isNewOrder) {
             log('INFO', 'NEW_ORDER', {
@@ -1207,14 +1235,16 @@ if (pendingRebaseline) {
         hasKnownOrders() ? SYNC_REASONS.WINDOW_SYNC : SYNC_REASONS.INITIAL
     );
 } else {
+    const syncReason = SYNC_REASONS.NORMAL;
+
     markDeepSyncCompleted(session);
-    processOrders(snapshot);
+    recordCollectionMetadata(session, snapshot, syncReason);
+    processOrders(snapshot, { syncReason });
 
     if (session?.mode === 'deep') {
         applyWindowSnapshot(snapshot);
     }
 
-    recordCollectionMetadata(session, snapshot, SYNC_REASONS.NORMAL);
     resetCollectionSession();
     await save();
 }

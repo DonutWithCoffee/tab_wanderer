@@ -115,6 +115,11 @@ test('processOrders adds new order, sends notification and updates state', () =>
         state.windowOrdersHashDB['1001-300326'],
         getHashForOrder(context, newOrder)
     );
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].orderId, '1001-300326');
+    assert.equal(state.eventJournal[0].eventType, 'new-order');
+    assert.equal(state.eventJournal[0].eventKind, 'live');
+    assert.equal(state.eventJournal[0].notification.notify, true);
 });
 
 test('processOrders sends notification on status change and updates hash', () => {
@@ -283,6 +288,7 @@ test('processOrders updates context-only fields without creating change event', 
     assert.equal(state.knownOrdersDB[prevOrder.id].manager, 'Петров');
     assert.equal(state.knownOrdersDB[prevOrder.id].contractor, 'ООО Василек');
     assert.equal(state.knownOrdersDB[prevOrder.id].hasAutoreserve, true);
+    assert.equal(state.eventJournal.length, 0);
     assert.equal(
         state.knownOrdersHashDB[prevOrder.id],
         getHashForOrder(context, prevOrder)
@@ -398,6 +404,11 @@ test('processOrders applies disabled changed-field trigger without notification 
         state.windowOrdersHashDB[prevOrder.id],
         getHashForOrder(context, nextOrder)
     );
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].eventType, 'order-changed');
+    assert.deepEqual(state.eventJournal[0].changedFields, ['status']);
+    assert.equal(state.eventJournal[0].notification.notify, false);
+    assert.equal(state.eventJournal[0].notification.ruleId, 'notification-trigger-no-enabled-changed-fields');
 });
 
 test('processOrders in testMode does not mutate state', () => {

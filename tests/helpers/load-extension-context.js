@@ -169,6 +169,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('notification-rules.js', context);
     runScript('core/order-model.js', context);
     runScript('core/sync-model.js', context);
+    runScript('core/event-journal.js', context);
     runScript('background.js', context);
     return context;
 }
@@ -198,6 +199,7 @@ function setBackgroundState(context, state = {}) {
         collectionSession = __testState.collectionSession ?? null;
         monitorDictionaries = __testState.monitorDictionaries ?? null;
         lastCollectionMetadata = __testState.lastCollectionMetadata ?? null;
+        eventJournal = Array.isArray(__testState.eventJournal) ? __testState.eventJournal : [];
     `);
 
     delete context.__testState;
@@ -220,7 +222,8 @@ function getBackgroundState(context) {
         pendingSyncReason,
         collectionSession,
         monitorDictionaries,
-        lastCollectionMetadata
+        lastCollectionMetadata,
+        eventJournal
     })`);
 
     return JSON.parse(snapshot);

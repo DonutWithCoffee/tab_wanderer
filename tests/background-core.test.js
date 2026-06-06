@@ -273,3 +273,107 @@ test('collection coverage metadata contains stable scope signature', () => {
     assert.equal(metadataA.isComplete, true);
     assert.equal(metadataA.monitorScopeSignature, metadataB.monitorScopeSignature);
 });
+
+test('event journal helpers build compact before-after entries', () => {
+    const context = loadBackgroundContext();
+
+    const entry = context.createEventJournalEntry({
+        createdAt: 1700000000000,
+        syncReason: 'normal',
+        monitorMode: 'windowed',
+        monitorScope: {
+            status: ['6806'],
+            delivery: [],
+            payment: [],
+            predicates: {
+                ozonOnly: false,
+                juridicalOnly: false
+            }
+        },
+        coverageMetadata: {
+            collectedAt: 1700000000000,
+            syncReason: 'normal',
+            pagesCollected: 1
+        },
+        order: {
+            id: '1000-300326',
+            orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/',
+            status: 'Оплачен',
+            delivery: 'Самовывоз',
+            payment: 'Оплата онлайн',
+            city: 'Москва',
+            tags: ['VIP'],
+            phoneNormalized: '79213241566',
+            contractor: 'ООО Ромашка'
+        },
+        eventContext: {
+            eventType: 'order-changed',
+            changedFields: ['status', 'tags'],
+            prevHash: 'old-hash',
+            newHash: 'new-hash',
+            prevOrder: {
+                status: 'Новый',
+                tags: []
+            }
+        },
+        notificationDecision: {
+            notify: false,
+            action: 'suppress',
+            ruleId: 'notification-trigger-no-enabled-changed-fields',
+            reason: 'No enabled changed fields matched: status'
+        }
+    });
+
+    assert.equal(entry.orderId, '1000-300326');
+    assert.equal(entry.eventType, 'order-changed');
+    assert.equal(entry.eventKind, 'live');
+    assert.equal(entry.syncReason, 'normal');
+    assert.deepEqual(entry.changedFields, ['status', 'tags']);
+    assert.deepEqual(JSON.parse(JSON.stringify(entry.diff)), [
+        {
+            field: 'status',
+            before: 'Новый',
+            after: 'Оплачен'
+        },
+        {
+            field: 'tags',
+            before: [],
+            after: ['VIP']
+        }
+    ]);
+    assert.equal(entry.context.phoneNormalized, '79213241566');
+    assert.equal(entry.context.contractor, 'ООО Ромашка');
+    assert.equal(entry.notification.notify, false);
+    assert.equal(entry.notification.ruleId, 'notification-trigger-no-enabled-changed-fields');
+    assert.equal(entry.coverage.pagesCollected, 1);
+});
+
+test('event journal classifies catch-up and scope catch-up events', () => {
+    const context = loadBackgroundContext();
+
+    assert.equal(context.getJournalEventKind('normal'), 'live');
+    assert.equal(context.getJournalEventKind('window-sync'), 'live');
+    assert.equal(context.getJournalEventKind('manual-start'), 'catch-up');
+    assert.equal(context.getJournalEventKind('recovery'), 'catch-up');
+    assert.equal(context.getJournalEventKind('stale-resume'), 'catch-up');
+    assert.equal(context.getJournalEventKind('scope-change'), 'scope-catch-up');
+    assert.equal(context.getJournalEventKind('mode-change'), 'scope-catch-up');
+});
+
+test('event journal append keeps newest entries within limit', () => {
+    const context = loadBackgroundContext();
+
+    const journal = context.appendEventJournalEntry(
+        [
+            { id: '1' },
+            { id: '2' }
+        ],
+        { id: '3' },
+        2
+    );
+
+    assert.deepEqual(JSON.parse(JSON.stringify(journal)), [
+        { id: '2' },
+        { id: '3' }
+    ]);
+});
