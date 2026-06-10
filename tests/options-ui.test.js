@@ -83,7 +83,15 @@ function createOptionsDom() {
         'optionsNotifyFieldTags',
         'optionsApplyNotificationTriggers',
         'optionsResetNotificationTriggers',
-        'optionsNotificationEditStatus'
+        'optionsNotificationEditStatus',
+        'optionsDiagnosticsRuntime',
+        'optionsDiagnosticsWorker',
+        'optionsDiagnosticsOrders',
+        'optionsDiagnosticsJournal',
+        'optionsDiagnosticsSync',
+        'optionsDiagnosticsCollection',
+        'optionsRefreshDiagnostics',
+        'optionsDiagnosticsStatus'
     ]) {
         document.registerElement(id);
     }
@@ -128,11 +136,46 @@ function loadOptionsContext(overrides = {}) {
             { id: '9791', label: 'Наличными в офисе' }
         ]
     };
+    const defaultMonitorStatus = {
+        isRunning: true,
+        monitorState: 'active',
+        monitorMode: 'windowed',
+        workerTabId: 77,
+        hasWorkerTab: true,
+        pendingRebaseline: false,
+        pendingSyncReason: null,
+        knownOrdersCount: 12,
+        knownHashesCount: 12,
+        windowOrdersCount: 10,
+        windowHashesCount: 10,
+        notificationTargetsCount: 1,
+        eventJournalCount: 4,
+        lastBaselineDate: 'Wed Jun 10 2026',
+        lastDeepSyncAt: 1700000000000,
+        lastCollectionMetadata: {
+            syncReason: 'normal',
+            pagesCollected: 2,
+            ordersCollected: 10,
+            isComplete: true
+        },
+        collectionSession: {
+            mode: 'deep',
+            ordersCount: 3,
+            currentPage: 2,
+            lastCollectedPage: 2,
+            nextPage: 3,
+            advanceAttempts: 1
+        }
+    };
     const document = createOptionsDom();
     const getConfigResponse = overrides.getConfigResponse || (() => ({
         ok: true,
         userConfig: JSON.parse(JSON.stringify(defaultConfig)),
         monitorDictionaries: JSON.parse(JSON.stringify(defaultDictionaries))
+    }));
+    const getMonitorStatusResponse = overrides.getMonitorStatusResponse || (() => ({
+        ok: true,
+        status: JSON.parse(JSON.stringify(defaultMonitorStatus))
     }));
 
     const context = {
@@ -154,6 +197,10 @@ function loadOptionsContext(overrides = {}) {
                         response = getConfigResponse(msg);
                     }
 
+                    if (msg.type === 'GET_MONITOR_STATUS') {
+                        response = getMonitorStatusResponse(msg);
+                    }
+
                     if (typeof callback === 'function') {
                         callback(response);
                     }
@@ -164,7 +211,8 @@ function loadOptionsContext(overrides = {}) {
             sentMessages,
             document,
             defaultConfig,
-            defaultDictionaries
+            defaultDictionaries,
+            defaultMonitorStatus
         }
     };
 
@@ -207,6 +255,15 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsApplyNotificationTriggers"/);
     assert.match(html, /id="optionsResetNotificationTriggers"/);
     assert.match(html, /id="optionsNotificationEditStatus"/);
+    assert.match(html, /id="optionsDiagnosticsRuntime"/);
+    assert.match(html, /id="optionsDiagnosticsWorker"/);
+    assert.match(html, /id="optionsDiagnosticsOrders"/);
+    assert.match(html, /id="optionsDiagnosticsJournal"/);
+    assert.match(html, /id="optionsDiagnosticsSync"/);
+    assert.match(html, /id="optionsDiagnosticsCollection"/);
+    assert.match(html, /id="optionsRefreshDiagnostics"/);
+    assert.match(html, /id="optionsDiagnosticsStatus"/);
+    assert.match(html, /Read-only snapshot текущего состояния расширения/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
 
@@ -215,6 +272,7 @@ test('options page loads current config summary without updating config', () => 
     const document = context.__test.document;
 
     assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
         assert.equal(
         document.getElementById('optionsMonitorModeSelect').value,
@@ -267,6 +325,34 @@ test('options page loads current config summary without updating config', () => 
     assert.equal(
         document.getElementById('optionsNotificationSummary').innerText,
         'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 5 включено'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsRuntime').innerText,
+        'running: да; state: active; mode: windowed'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsWorker').innerText,
+        'worker: да; tabId: 77'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsOrders').innerText,
+        'known: 12; window: 10; hashes: 12 / 10; notifications: 1'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsJournal').innerText,
+        'entries: 4'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsSync').innerText,
+        'pending rebaseline: нет; reason: —; last baseline: Wed Jun 10 2026; last deep sync: 1700000000000'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsCollection').innerText,
+        'session: deep; orders: 3; current page: 2; last page: 2; next: 3; attempts: 1; last collection: normal; pages: 2; orders: 10; complete: да'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticsStatus').innerText,
+        'Диагностика загружена.'
     );
 });
 
@@ -456,6 +542,38 @@ test('options page resets notification trigger draft without updating config', (
     assert.equal(
         document.getElementById('optionsNotificationEditStatus').innerText,
         'Изменений нет.'
+    );
+});
+
+
+test('options page refreshes monitor diagnostics on demand', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const refreshBtn = document.getElementById('optionsRefreshDiagnostics');
+
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
+
+    refreshBtn.dispatchEvent({
+        type: 'click',
+        target: refreshBtn
+    });
+
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
+    assert.equal(
+        document.getElementById('optionsDiagnosticsStatus').innerText,
+        'Диагностика загружена.'
+    );
+});
+
+test('options page shows diagnostics load error when GET_MONITOR_STATUS fails', () => {
+    const context = loadOptionsContext({
+        getMonitorStatusResponse: () => ({ ok: false })
+    });
+
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
+    assert.equal(
+        context.__test.document.getElementById('optionsDiagnosticsStatus').innerText,
+        'Не удалось загрузить диагностику.'
     );
 });
 

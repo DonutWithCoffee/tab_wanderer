@@ -142,6 +142,18 @@
             margin: 0;
             color: #333;
         }
+
+        .diagnostics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .diagnostics-value {
+            margin: 0;
+            color: #333;
+            line-height: 1.45;
+        }
     </style>
 </head>
 <body>
@@ -257,6 +269,43 @@
                     <p id="optionsScopeDictionaryPayment" class="dictionary-value">—</p>
                 </div>
             </div>
+        </section>
+
+        <section class="card">
+            <h2>Диагностика монитора</h2>
+            <p class="muted">
+                Read-only snapshot текущего состояния расширения. Блок не запускает мониторинг и не меняет настройки.
+            </p>
+            <div class="diagnostics-grid">
+                <div>
+                    <h3>Runtime</h3>
+                    <p id="optionsDiagnosticsRuntime" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Worker</h3>
+                    <p id="optionsDiagnosticsWorker" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Orders</h3>
+                    <p id="optionsDiagnosticsOrders" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>History</h3>
+                    <p id="optionsDiagnosticsJournal" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Sync</h3>
+                    <p id="optionsDiagnosticsSync" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Collection</h3>
+                    <p id="optionsDiagnosticsCollection" class="diagnostics-value">—</p>
+                </div>
+            </div>
+            <div class="actions-row">
+                <button id="optionsRefreshDiagnostics">Refresh diagnostics</button>
+            </div>
+            <p id="optionsDiagnosticsStatus" class="muted">Загрузка диагностики...</p>
         </section>
 
         <section class="card">

@@ -387,6 +387,130 @@ function bindNotificationTriggersEditor() {
     }
 }
 
+
+function getNumber(value, fallback = 0) {
+    const numeric = Number(value);
+
+    return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function getTextValue(value, fallback = '—') {
+    if (value === undefined || value === null || value === '') {
+        return fallback;
+    }
+
+    return String(value);
+}
+
+function getYesNo(value) {
+    return value ? 'да' : 'нет';
+}
+
+function buildLastCollectionMetadataText(metadata) {
+    if (!metadata) {
+        return 'last collection: —';
+    }
+
+    return [
+        `last collection: ${getTextValue(metadata.syncReason || metadata.reason)}`,
+        `pages: ${getNumber(metadata.pagesCollected)}`,
+        `orders: ${getNumber(metadata.ordersCollected)}`,
+        `complete: ${getYesNo(metadata.isComplete === true)}`
+    ].join('; ');
+}
+
+function buildCollectionSessionText(session) {
+    if (!session) {
+        return 'session: нет';
+    }
+
+    return [
+        `session: ${getTextValue(session.mode)}`,
+        `orders: ${getNumber(session.ordersCount)}`,
+        `current page: ${getNumber(session.currentPage, 1)}`,
+        `last page: ${getNumber(session.lastCollectedPage)}`,
+        `next: ${getNumber(session.nextPage, 1)}`,
+        `attempts: ${getNumber(session.advanceAttempts)}`
+    ].join('; ');
+}
+
+function renderMonitorDiagnostics(status = {}) {
+    setText(
+        'optionsDiagnosticsRuntime',
+        [
+            `running: ${getYesNo(status.isRunning === true)}`,
+            `state: ${getTextValue(status.monitorState, 'uninitialized')}`,
+            `mode: ${getTextValue(status.monitorMode, 'windowed')}`
+        ].join('; ')
+    );
+
+    setText(
+        'optionsDiagnosticsWorker',
+        [
+            `worker: ${getYesNo(status.hasWorkerTab === true)}`,
+            `tabId: ${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`
+        ].join('; ')
+    );
+
+    setText(
+        'optionsDiagnosticsOrders',
+        [
+            `known: ${getNumber(status.knownOrdersCount)}`,
+            `window: ${getNumber(status.windowOrdersCount)}`,
+            `hashes: ${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}`,
+            `notifications: ${getNumber(status.notificationTargetsCount)}`
+        ].join('; ')
+    );
+
+    setText(
+        'optionsDiagnosticsJournal',
+        `entries: ${getNumber(status.eventJournalCount)}`
+    );
+
+    setText(
+        'optionsDiagnosticsSync',
+        [
+            `pending rebaseline: ${getYesNo(status.pendingRebaseline === true)}`,
+            `reason: ${getTextValue(status.pendingSyncReason)}`,
+            `last baseline: ${getTextValue(status.lastBaselineDate)}`,
+            `last deep sync: ${getNumber(status.lastDeepSyncAt)}`
+        ].join('; ')
+    );
+
+    setText(
+        'optionsDiagnosticsCollection',
+        [
+            buildCollectionSessionText(status.collectionSession),
+            buildLastCollectionMetadataText(status.lastCollectionMetadata)
+        ].join('; ')
+    );
+
+    setText('optionsDiagnosticsStatus', 'Диагностика загружена.');
+}
+
+function loadMonitorDiagnostics() {
+    setText('optionsDiagnosticsStatus', 'Загрузка диагностики...');
+
+    send({ type: 'GET_MONITOR_STATUS' }, (res) => {
+        if (!res?.ok) {
+            setText('optionsDiagnosticsStatus', 'Не удалось загрузить диагностику.');
+            return;
+        }
+
+        renderMonitorDiagnostics(res.status || {});
+    });
+}
+
+function bindDiagnosticsActions() {
+    const refreshBtn = document.getElementById('optionsRefreshDiagnostics');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadMonitorDiagnostics();
+        });
+    }
+}
+
 function loadConfigSummary() {
     setText('optionsLoadStatus', 'Загрузка текущих настроек...');
 
@@ -409,5 +533,7 @@ function loadConfigSummary() {
 document.addEventListener('DOMContentLoaded', () => {
     bindMonitorModeEditor();
     bindNotificationTriggersEditor();
+    bindDiagnosticsActions();
     loadConfigSummary();
+    loadMonitorDiagnostics();
 });
