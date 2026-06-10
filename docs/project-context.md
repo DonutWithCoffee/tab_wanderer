@@ -1,50 +1,48 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: после `0.9.7 history skeleton` и перед входом в `0.9.8 Observability + Refactor`.
+Актуально на момент: 0.9.8 observability/settings/notification checkpoint.
 
-Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами.
-
-В новом чате использовать этот файл как основной контракт проекта. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
+Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
 ---
 
 ## 1. Project Status
 
-Проект: `tab_wanderer`
+```text
+Проект: tab_wanderer
+Назначение: Chrome extension для мониторинга заказов в админке Amperkot
+Текущая стадия: 0.9.8 Observability + Refactor
+Manifest version: 0.9.6 до отдельного release/version bump
+```
 
-Назначение: Chrome extension для мониторинга заказов в админке Amperkot.
-
-Текущая стадия:
+Roadmap:
 
 ```text
 0.9.5 — Stabilization + Test Hardening ✅
 0.9.6 — Deep Collection ✅
-0.9.7 — Scope UX + Event/History Foundation ✅ / checkpoint stage
-0.9.8 — Observability + Refactor ⏭ next
+0.9.7 — Scope UX + Event/History Foundation ✅
+0.9.8 — Observability + Refactor 🔥 current
+Pre-1.0 — UI/UX polish with user ⏳
 1.0 — Stable Monitoring Release ⏳
+Post-1.0 — centralized collector / priority follow-up / Ozon automation / Firefox fork
 ```
 
-Текущая точка:
+Последние важные behavior slices:
 
 ```text
-0.9.7 late stage / transition to 0.9.8
+feat(core): expose monitor status snapshot
+feat(options): show monitor diagnostics snapshot
+fix(core): return worker to first page after deep sync
+feat(diagnostics): add persistent diagnostic log export
+fix(diagnostics): reduce log noise and record deep collection completion
+feat(settings): simplify settings UX and configure deep sync depth
+feat(notifications): show order change diff
 ```
 
-Последние завершённые slices:
+Текущий тестовый checkpoint:
 
 ```text
-fix(core): align tracked order state fields
-feat(core): add sync reason and coverage metadata foundation
-feat(core): add event journal foundation
-feat(core): expose event journal for history
-feat(history): add history page skeleton
-chore(repo): normalize text file line endings
-```
-
-Последний подтверждённый тестовый результат:
-
-```text
-91 pass 0 fail
+105 pass 0 fail
 ```
 
 ---
@@ -61,8 +59,9 @@ chore(repo): normalize text file line endings
 5. Позволять сотруднику управлять тем, какие заказы отслеживать
 6. Позволять сотруднику управлять тем, какие изменения должны уведомлять
 7. Сохранять историю изменения заказов
-8. Сохранять стабильность при reload/restart браузера
-9. В будущем — централизовать сбор событий и добавить отдельные automation/action features
+8. Давать диагностический лог для удалённой поддержки
+9. Сохранять стабильность при reload/restart браузера
+10. В будущем — централизовать сбор событий и добавить отдельные automation/action features
 ```
 
 Ключевое разделение:
@@ -72,10 +71,10 @@ monitorScope
 → какие заказы физически попадают в наблюдение
 
 order event model
-→ какие изменения считаются событием
+→ какие изменения считаются событием и пишутся в историю
 
 notificationTriggers
-→ какие события/изменения создают уведомления
+→ какие события/изменения создают пользовательские уведомления
 ```
 
 Эти модели нельзя смешивать.
@@ -94,6 +93,7 @@ monitorScope
 collection policy
 sync model
 event journal
+diagnostic log
 popup/options/history UI
 Chrome runtime edge
 ```
@@ -104,6 +104,7 @@ Chrome runtime edge
 UI не источник логики
 rules не влияют на сбор данных
 notificationTriggers не влияют на state update
+notificationTriggers не влияют на eventJournal/history
 scope не смешивается с notificationTriggers
 config не содержит runtime state
 worker определяется marker + tabId
@@ -134,6 +135,8 @@ Worker tab:
 
 Причина: менеджер может работать в другой admin-tab с таким же URL, и это не worker.
 
+После deep sync worker обязан вернуться на page 1, иначе fast cycle может смотреть старую глубокую страницу вместо свежих заказов.
+
 ---
 
 ## 5. Trusted Snapshot / State Model
@@ -154,7 +157,7 @@ windowOrdersDB
 knownOrdersDB не очищается при baseline/rebaseline
 windowOrdersDB может перестраиваться из нового snapshot
 partial snapshot не используется для diff
-scope/mode change не должен стирать глобальную память известных заказов
+scope/mode/depth change не должен стирать глобальную память известных заказов
 ```
 
 Baseline/rebaseline:
@@ -201,9 +204,17 @@ Deep sync:
 
 ```text
 pagination через ?page=N
-до 10 страниц
 каждые 5 минут
-синхронизирует рабочее окно заказов глубже первой страницы
+настраиваемый лимит deepSyncMaxPages
+safe range: 1–50 страниц
+default: 50 страниц / около 1500 заказов
+```
+
+Ручная проверка показала:
+
+```text
+30 страниц / 900 заказов ≈ 18 секунд
+50 страниц / 1500 заказов ≈ 30–35 секунд
 ```
 
 Monitor modes:
@@ -222,6 +233,7 @@ Important:
 ```text
 empty page не является обычным stop condition
 не останавливаться только из-за встречи известного заказа
+после deep session всегда возвращать worker на page 1
 ```
 
 ---
@@ -238,13 +250,32 @@ city
 tags
 ```
 
-Только эти поля участвуют в:
+Эти поля участвуют в:
 
 ```text
 event fingerprint
 changedFields
 history diff
-notificationTriggers.changedFields
+eventJournal
+future search/filtering
+```
+
+Notification fields:
+
+```text
+status
+delivery
+payment
+city
+```
+
+Важно:
+
+```text
+tags остаются event/history/search data
+tags не показываются в уведомлениях
+tag-only changes не создают уведомления
+если изменились status + tags, уведомление показывает только status
 ```
 
 Context/search fields:
@@ -273,14 +304,6 @@ hasOrderFlag
 user column
 ```
 
-Причины:
-
-```text
-shipmentDateText содержит countdown/noise
-hasOrderFlag не нужен текущему поведению
-user column не идентифицирует клиента
-```
-
 ---
 
 ## 9. Sync Reason Model
@@ -303,14 +326,14 @@ normal
 ```text
 отличать первый запуск от ручного старта
 отличать обычное recovery от stale resume
-отличать scope/mode changes
+отличать scope/mode/depth changes
 строить корректную историю и diagnostics
 готовить будущий catch-up behavior
 ```
 
 ---
 
-## 10. Event Journal
+## 10. Event Journal / History
 
 Core file:
 
@@ -335,41 +358,13 @@ coverage metadata
 notification decision
 ```
 
-Event kinds:
-
-```text
-live
-catch-up
-scope-catch-up
-```
-
-Storage/read limits:
-
-```text
-stored journal limit: 500
-read default limit: 100
-```
-
 Runtime access:
 
 ```text
 GET_EVENT_JOURNAL
 ```
 
-Фильтры чтения:
-
-```text
-orderId
-eventType
-eventKind
-limit
-```
-
----
-
-## 11. History Page
-
-Добавлена минимальная history page skeleton:
+History page:
 
 ```text
 history.html
@@ -385,16 +380,11 @@ tests/history-ui.test.js
 показать простой diff было → стало
 ```
 
-Важно:
-
-```text
-не разгонять UI/UX сейчас
-детальную полировку history page делать совместно с пользователем в pre-1.0 stage
-```
+History UI пока skeleton. Полировка переносится в pre-1.0 UI/UX stage.
 
 ---
 
-## 12. Notification Decision Model
+## 11. Notification Decision / Message Model
 
 Точка входа:
 
@@ -402,7 +392,7 @@ tests/history-ui.test.js
 evaluateNotification(order, eventContext, config)
 ```
 
-Текущая модель:
+Config:
 
 ```js
 notificationTriggers: {
@@ -412,8 +402,7 @@ notificationTriggers: {
         status: true,
         delivery: true,
         payment: true,
-        city: true,
-        tags: true
+        city: true
     }
 }
 ```
@@ -426,7 +415,75 @@ DB/hash/window state всегда обновляются
 eventJournal пишет события независимо от подавления уведомления
 ```
 
-Hardcoded production rules for Ozon/Jurics were temporary and should not be preserved as product architecture.
+Уведомления:
+
+```text
+new-order → компактное текущее состояние
+order-changed → diff было → стало по notification fields
+```
+
+Пример:
+
+```text
+Статус: Новый → Ожидает оплаты
+Доставка: Самовывоз → Курьер СДЭК
+```
+
+Tags не попадают в notification surface.
+
+---
+
+## 12. Diagnostic Log
+
+Core file:
+
+```text
+core/diagnostic-log.js
+```
+
+Назначение:
+
+```text
+удалённая поддержка без DevTools
+работник скачивает .txt и отправляет разработчику
+```
+
+Runtime access:
+
+```text
+GET_DIAGNOSTIC_LOG
+CLEAR_DIAGNOSTIC_LOG
+```
+
+UI:
+
+```text
+popup → Download diagnostic log
+options → diagnostic log details/dropdown внизу страницы
+```
+
+Persistent log пишет INFO/WARN/ERROR, но не пишет шумный fast PROCESS каждые 15 секунд.
+
+В лог пишутся:
+
+```text
+START / STOP
+worker created/adopted/restarted
+baseline/rebaseline/recovery
+deep collection completed
+state changes
+notification decisions
+WARN/ERROR
+```
+
+В лог не должны попадать:
+
+```text
+телефоны
+полный payload заказа
+HTML/DOM
+cookie/token/auth данные
+```
 
 ---
 
@@ -470,47 +527,37 @@ monitorScope должен быть похож на фильтры админки
 
 ## 14. Popup / Options UX
 
-Popup использует draft/apply/reset модель.
-
-Правила:
+Popup — quick-control only:
 
 ```text
-изменения UI не отправляют UPDATE_CONFIG сразу
-Apply отправляет UPDATE_CONFIG
-Reset возвращает current config
-dirty state отображается в UI
+Start / Stop одной кнопкой
+Open settings
+Open history
+Download diagnostic log
 ```
 
-Актуальные UI-блоки:
+Popup не должен быть тяжёлой формой настроек.
+
+Options — settings editor + diagnostics:
 
 ```text
-Monitor Mode
-Monitor Scope
-Notification Triggers
-History navigation
-Actions
+monitorMode autosave
+deepSyncMaxPages autosave
+notificationTriggers autosave
+monitor diagnostics read-only
+diagnostic log tools under details/dropdown
 ```
 
-Notification Triggers UI:
+Save status:
 
 ```text
-Уведомлять о новых заказах
-Уведомлять об изменениях заказов
-Поля изменений:
-  Статус
-  Доставка
-  Оплата
-  Город
-  Теги
+Загрузка настроек...
+Сохраняем...
+Сохранено
+Ошибка сохранения
 ```
 
-Если `changedOrders = false`:
-
-```text
-field controls disabled
-checked values сохраняются
-при повторном включении changedOrders поля снова enabled
-```
+Текущий UI функциональный, но не финальный. Пользователь не удовлетворён текущей читаемостью/красотой. Полировка popup/options/diagnostics/history — отдельный pre-1.0 stage.
 
 ---
 
@@ -573,8 +620,6 @@ N pass 0 fail
 
 Перед commit достаточно одного зелёного `npm test` после финальной версии файлов.
 
-Повторный `npm test` нужен только если после зелёного теста были новые правки, merge/rebase/conflict или сомнение в состоянии файлов.
-
 ---
 
 ## 17. Git Workflow
@@ -588,6 +633,7 @@ N pass 0 fail
 добавлять файлы явно
 коммит = логический behavior/docs slice
 не делать микрокоммиты без необходимости
+группировать core + API + UI + tests, если это одна пользовательская возможность
 ```
 
 Перед commit checkpoint при необходимости:
@@ -634,6 +680,7 @@ git push origin main
 ```text
 готовые полные файлы вместо мелких patch snippets
 малые безопасные implementation steps
+но без микрокоммитов
 архитектурные решения от ассистента
 русский язык для документации и project contracts
 ```
@@ -641,69 +688,27 @@ git push origin main
 Если актуальный код неизвестен:
 
 ```text
-спросить нужные файлы списком
+спросить нужные файлы списком или свежий архив
 не угадывать реализацию
 ```
 
 ---
 
-## 19. Roadmap
+## 19. Current Next Step
 
-Основной roadmap вынесен в отдельный файл:
+После этого checkpoint:
 
 ```text
-docs/roadmap.md
+0.9.8 support diagnostics / state cleanup / docs-smoke checkpoint
 ```
 
-Кратко:
+Вероятные следующие работы:
 
 ```text
-0.9.7 checkpoint docs/smoke test
-0.9.8 Observability + Refactor
-pre-1.0 UI/UX polish with user
-1.0 Stable Monitoring Release
-post-1.0 centralized collector / priority direct follow-up / Ozon barcode binding / Firefox fork
-```
-
----
-
-## 20. Current Next Step
-
-После обновления документации:
-
-```text
-0.9.8 Step 1 — GET_MONITOR_STATUS / diagnostic snapshot
-```
-
-Цель:
-
-```text
-read-only monitor status endpoint for diagnostics and smoke tests
-```
-
-Ожидаемые поля:
-
-```text
-isRunning
-monitorState
-hasWorkerTab
-pendingRebaseline
-pendingSyncReason
-monitorMode
-knownOrdersCount
-windowOrdersCount
-eventJournalCount
-lastBaselineDate
-lastDeepSyncAt
-lastCollectionMetadata
-collectionSession summary
-```
-
-Правила:
-
-```text
-только чтение
-не запускать worker
-не менять state
-не создавать notifications
+manual smoke test for 50-page deep sync after default change
+status/log wording consistency
+background.js organization cleanup
+storage/state migration sanity check
+pre-1.0 UI/UX polish planning
+manifest/version/release bump planning
 ```

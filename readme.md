@@ -9,15 +9,21 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 0.9.7 late stage / переход к 0.9.8
-Manifest version: 0.9.6 до следующего release bump
-Следующий этап: 0.9.8 Observability + Refactor
+Стадия разработки: 0.9.8 Observability + Refactor / pre-release hardening
+Manifest version: 0.9.6 до отдельного release/version bump
+Текущий фокус: диагностика, настройки, качество уведомлений, подготовка к 1.0
 ```
 
-Roadmap вынесен в отдельный файл:
+Roadmap:
 
 ```text
 docs/roadmap.md
+```
+
+Project contract:
+
+```text
+docs/project-context.md
 ```
 
 ---
@@ -30,7 +36,8 @@ docs/roadmap.md
 - изменения известных заказов;
 - изменения в рабочем окне заказов глубже первой страницы;
 - историю событий заказа в локальном журнале;
-- уведомления только по выбранным notification triggers.
+- уведомления только по выбранным notification triggers;
+- диагностическое состояние и локальный диагностический лог для поддержки.
 
 ---
 
@@ -43,13 +50,13 @@ monitorScope
 → какие заказы физически попадают в наблюдение
 
 order event model
-→ какие изменения считаются событием
+→ какие изменения считаются событием и пишутся в историю
 
 notificationTriggers
-→ какие события создают уведомление
+→ какие события создают пользовательское уведомление
 ```
 
-Важно: `notificationTriggers` не блокируют обновление состояния и запись истории. Они управляют только показом уведомлений.
+`notificationTriggers` не блокируют обновление состояния и запись истории. Они управляют только показом уведомлений.
 
 ---
 
@@ -71,7 +78,7 @@ URL reuse запрещён
 
 ## Collection model
 
-Система использует два контура сбора:
+Система использует два контура сбора.
 
 ### Fast poll
 
@@ -85,10 +92,12 @@ URL reuse запрещён
 
 ```text
 каждые 5 минут
-до 10 страниц
 pagination через ?page=N
-синхронизирует рабочее окно заказов глубже первой страницы
+по умолчанию до 50 страниц / около 1500 заказов
+настраиваемый безопасный диапазон: 1–50 страниц
 ```
+
+По ручной проверке 50 страниц собираются примерно за 30–35 секунд и после deep session worker возвращается на page 1.
 
 Empty page не используется как обычное условие остановки, потому что валидные страницы админки заказов должны содержать хотя бы один заказ.
 
@@ -118,7 +127,7 @@ windowOrdersDB
 → текущее наблюдаемое окно заказов
 ```
 
-`knownOrdersDB` не должен очищаться при baseline/rebaseline. Scope/mode changes перестраивают текущее окно сравнения, но не стирают глобальную память известных заказов.
+`knownOrdersDB` не очищается при baseline/rebaseline. Scope/mode/depth changes перестраивают текущее окно сравнения, но не стирают глобальную память известных заказов.
 
 ---
 
@@ -134,7 +143,7 @@ city
 tags
 ```
 
-Только эти поля участвуют в event fingerprint, `changedFields`, history и notification triggers.
+Эти поля участвуют в event fingerprint, `changedFields`, history и eventJournal.
 
 Context/search fields:
 
@@ -153,6 +162,15 @@ hasAutoreserve
 ```
 
 Эти поля могут храниться для контекста, поиска и отображения, но не создают события и уведомления.
+
+Важно про tags:
+
+```text
+tags парсятся и хранятся для history/search
+изменения tags пишутся в eventJournal/history
+tags не показываются в пользовательских уведомлениях
+tag-only changes не создают уведомления
+```
 
 ---
 
@@ -177,9 +195,7 @@ normal
 
 ## Event journal / History
 
-В проект добавлен локальный event journal.
-
-Он хранит:
+Локальный event journal хранит:
 
 ```text
 orderId
@@ -199,7 +215,7 @@ coverage metadata
 GET_EVENT_JOURNAL
 ```
 
-Также добавлена минимальная `history.html` skeleton page. Это технический скелет без финальной UI/UX-полировки.
+Добавлена минимальная `history.html` skeleton page. Это технический скелет без финальной UI/UX-полировки.
 
 ---
 
@@ -217,26 +233,101 @@ changedFields:
   delivery
   payment
   city
-  tags
 ```
+
+`tags` не входят в notification triggers.
+
+Для новых заказов уведомление показывает компактное текущее состояние:
+
+```text
+Статус: Новый
+Доставка: Самовывоз
+Оплата: ...
+```
+
+Для изменений уведомление показывает diff `было → стало`:
+
+```text
+Статус: Новый → Ожидает оплаты
+Доставка: Самовывоз → Курьер СДЭК
+```
+
+Context-only поля и чувствительные данные в уведомления не попадают.
 
 При клике на уведомление открывается карточка заказа.
 
 ---
 
-## Настройки
+## Diagnostic log
 
-В popup/options доступны:
+В 0.9.8 добавлен локальный диагностический лог.
+
+Назначение:
+
+```text
+удалённая поддержка без DevTools
+работник может скачать .txt и отправить лог разработчику
+```
+
+Доступ:
+
+```text
+GET_DIAGNOSTIC_LOG
+CLEAR_DIAGNOSTIC_LOG
+```
+
+В UI:
+
+```text
+popup → быстрая кнопка Download diagnostic log
+options → подробный блок диагностического лога внизу страницы под details/dropdown
+```
+
+В лог пишутся технические события:
 
 ```text
 START / STOP
-monitorMode
-monitorScope
-notificationTriggers
-history skeleton access
+worker created/adopted/restarted
+baseline/rebaseline/recovery
+deep collection completed
+state changes
+notification decisions
+WARN/ERROR
 ```
 
-`monitorScope` должен быть похож на фильтры админки, чтобы сотрудникам не приходилось учить отдельную модель.
+В лог не должны попадать:
+
+```text
+телефоны
+полный payload заказа
+HTML/DOM
+cookie/token/auth данные
+```
+
+---
+
+## UI model
+
+Popup — быстрый пульт:
+
+```text
+Start / Stop одной кнопкой
+Open settings
+Open history
+Download diagnostic log
+```
+
+Options — страница настроек и диагностики:
+
+```text
+monitorMode autosave
+deepSyncMaxPages autosave
+notificationTriggers autosave
+monitor diagnostics read-only
+diagnostic log tools
+```
+
+Текущий UI — функциональный скелет. Финальная читаемость, группировка, wording и внешний вид переносятся в pre-1.0 UI/UX polish stage.
 
 ---
 
@@ -248,31 +339,28 @@ history skeleton access
 npm test
 ```
 
-Test runner печатает итоговую строку:
+Runner печатает итог:
 
 ```text
 N pass 0 fail
 ```
 
-Текущий последний подтверждённый результат после history skeleton:
+Текущий checkpoint после обновления defaults/docs:
 
 ```text
-91 pass 0 fail
+105 pass 0 fail
 ```
 
 ---
 
-## Документация
+## Release direction
 
-Основные документы проекта:
+Перед 1.0 нужно:
 
 ```text
-readme.md
-→ краткое описание текущей версии
-
-docs/project-context.md
-→ living contract / замена старых Message 51
-
-docs/roadmap.md
-→ roadmap от текущего состояния до 1.0 и post-1.0
+закрыть 0.9.8 observability/refactor
+обновить manifest/version/release notes отдельным release bump
+провести manual smoke test
+сделать pre-1.0 UI/UX polish вместе с пользователем
+подготовить stable local-first Chrome extension release
 ```

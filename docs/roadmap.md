@@ -1,6 +1,6 @@
 # tab_wanderer — Roadmap
 
-Документ фиксирует текущий путь разработки от состояния 0.9.7 late stage до 1.0 и post-1.0.
+Документ фиксирует путь разработки от текущего состояния 0.9.8 до 1.0 и post-1.0.
 
 ---
 
@@ -9,24 +9,23 @@
 ```text
 0.9.5 — Stabilization + Test Hardening ✅
 0.9.6 — Deep Collection ✅
-0.9.7 — Scope UX + Event/History Foundation ✅ / checkpoint stage
-0.9.8 — Observability + Refactor ⏭ next
+0.9.7 — Scope UX + Event/History Foundation ✅
+0.9.8 — Observability + Refactor 🔥 current
+Pre-1.0 — UI/UX polish with user ⏳
 1.0 — Stable Monitoring Release ⏳
 ```
 
 Текущая точка:
 
 ```text
-0.9.7 late stage / transition to 0.9.8
+0.9.8 in progress / support diagnostics + settings hardening
 ```
 
-0.9.7 уже вышел за рамки простого Scope UX: в него вошли event model, sync reasons, coverage metadata, event journal и history skeleton. Это нормально. Перед 0.9.8 нужно зафиксировать документацию и сделать checkpoint.
+Manifest/version пока остаётся `0.9.6` до отдельного release/version bump.
 
 ---
 
 ## 0.9.5 — Stabilization + Test Hardening ✅
-
-Статус: завершено.
 
 Сделано:
 
@@ -42,13 +41,9 @@ background process/config tests
 popup draft tests
 ```
 
-Цель этапа была заложить стабильное ядро перед расширением функциональности.
-
 ---
 
 ## 0.9.6 — Deep Collection ✅
-
-Статус: завершено.
 
 Сделано:
 
@@ -57,13 +52,11 @@ monitorState
 collectionSession
 fast/deep collection policy
 URL-driven pagination через ?page=N
-deep sync до 10 страниц
-duplicate page protection
-collection timeout protection
-retry-limit protection
+deep sync base
 known/window state split
 monitorMode active/windowed
 trusted snapshot flow
+duplicate page / timeout / retry-limit protection
 ```
 
 Важное правило:
@@ -74,19 +67,13 @@ empty page не является нормальным stop condition для admi
 
 ---
 
-## 0.9.7 — Scope UX + Event/History Foundation ✅ checkpoint stage
+## 0.9.7 — Scope UX + Event/History Foundation ✅
 
-Статус: почти закрыт, требуется documentation/checkpoint.
-
-Изначальная цель:
+Сделано:
 
 ```text
-сделать monitorScope и notificationTriggers понятными для пользователя
-```
-
-Фактически дополнительно сделано:
-
-```text
+monitorScope UX foundation
+notificationTriggers foundation
 event field contract
 known/window model correction
 core/order-model.js
@@ -96,156 +83,102 @@ sync reasons
 coverage metadata
 GET_EVENT_JOURNAL
 history page skeleton
-notificationTriggers cleanup
+line endings hygiene
 ```
 
-### Завершённые slices
-
-```text
-Parser / order model alignment ✅
-Notification trigger settings ✅
-Notification trigger UI cleanup ✅
-Scope wording / explanation ✅
-Known state preservation on baseline/rebaseline ✅
-Event fields reduced to status/delivery/payment/city/tags ✅
-Context-only fields separated ✅
-Sync reason foundation ✅
-Coverage metadata foundation ✅
-Event journal foundation ✅
-Event journal read access ✅
-History page skeleton ✅
-```
-
-### Остаток для 0.9.7 checkpoint
-
-```text
-update readme.md ✅ current task
-update docs/project-context.md ✅ current task
-add docs/roadmap.md ✅ current task
-manual smoke test
-possible small fixes after browser check
-optional tag/checkpoint v0.9.7
-```
-
-### Не делать в 0.9.7
-
-```text
-не полировать history UI
-не строить dashboard
-не делать centralized collector
-не делать Ozon barcode binding
-не делать priority direct follow-up
-```
-
-History page сейчас должна оставаться skeleton.
+History page на этом этапе — только технический skeleton.
 
 ---
 
-## 0.9.8 — Observability + Refactor ⏭
-
-Статус: следующий этап.
+## 0.9.8 — Observability + Refactor 🔥
 
 Цель:
 
 ```text
-сделать систему объяснимой, диагностируемой и пригодной к pre-release стабилизации
+сделать систему объяснимой, диагностируемой, поддерживаемой удалённо и готовой к pre-release QA
 ```
 
-### Step 1 — Monitor status snapshot
-
-Добавить read-only runtime endpoint:
+### Уже сделано
 
 ```text
-GET_MONITOR_STATUS
+GET_MONITOR_STATUS / monitor diagnostics snapshot ✅
+options diagnostics panel skeleton ✅
+worker return-to-page-1 after deep sync fix ✅
+persistent diagnostic log ✅
+diagnostic log .txt export from options/popup ✅
+diagnostic log noise reduction ✅
+settings UX simplification ✅
+popup quick-control model ✅
+options autosave model ✅
+deepSyncMaxPages setting ✅
+deep sync max validated at 50 pages / ~1500 orders ✅
+notification diff было → стало ✅
+tags removed from notification surface ✅
 ```
 
-Он должен возвращать:
+### Current checkpoint decisions
 
 ```text
-isRunning
-monitorState
-hasWorkerTab
-pendingRebaseline
-pendingSyncReason
-monitorMode
-knownOrdersCount
-windowOrdersCount
-eventJournalCount
-lastBaselineDate
-lastDeepSyncAt
-lastCollectionMetadata
-collectionSession summary
+deepSyncMaxPages default = 50
+safe range = 1–50
+50 pages ≈ 1500 orders
+worker must return to page 1 after every deep session
+tags are parsed/stored/history/search data, not notification data
+tag-only changes do not notify
 ```
 
-Правила:
+### Remaining 0.9.8 work
 
 ```text
-только чтение
-не запускать worker
-не менять state
-не создавать notifications
-не делать baseline/rebaseline
+small background.js organization cleanup
+status/log wording consistency
+storage/state migration sanity check
+manual browser smoke test checklist
+support diagnostics final pass
+release/version bump planning
 ```
 
-### Observability work
+Ограничение:
 
 ```text
-status snapshot for popup/options diagnostics
-collection metadata visibility
-journal summary visibility
-sync reason visibility
-smoke-test friendly diagnostics
-better logs around phase/event/suppress reason
-```
-
-### Refactor work
-
-```text
-разгрузить background.js маленькими безопасными шагами
-держать Chrome APIs на краях
-оставлять core/domain logic переиспользуемым
-не делать большой опасный refactor
+без большого опасного refactor
 не переписывать runtime целиком
-```
-
-### Expected output
-
-```text
-диагностируемый extension
-понятное состояние monitor lifecycle
-меньше скрытых причин поведения
-готовность к pre-release QA
+Chrome APIs держать на краях
+core/domain logic постепенно отделять от background.js
 ```
 
 ---
 
-## Pre-1.0 — UI/UX polish with user
-
-Статус: после 0.9.8, перед 1.0.
+## Pre-1.0 — UI/UX polish with user ⏳
 
 Цель:
 
 ```text
-довести пользовательский интерфейс до понятного и читаемого состояния вместе с пользователем
+довести интерфейс до понятного, читаемого и красивого состояния вместе с пользователем
 ```
 
 Входит:
 
 ```text
+popup UI/UX polish
+options page UI/UX polish
+diagnostics panel polish
+diagnostic log block polish
 history page UI/UX polish
-readable before/after diff
-event grouping
-basic filters
+wording pass
 visual hierarchy
 empty/loading/error states
-popup/options wording pass
-manual browser QA
+event grouping
+basic filters
+readable before/after diff
+manual browser QA with user
 ```
 
 Правило:
 
 ```text
-history page сейчас только skeleton; финальную UI/UX-полировку делать совместно с пользователем
+до этого этапа UI может быть функциональным скелетом
+финальную полировку не делать без пользователя
 ```
 
 ---
@@ -268,19 +201,21 @@ trusted snapshot model
 knownOrdersDB preserved across rebaseline
 windowOrdersDB rebuilt safely
 fast poll works
-deep sync works
+deep sync works up to configured safe limit
 monitorMode works
 monitorScope works
 notificationTriggers work
+notification diff было → стало works
+tags do not create user notification noise
 eventJournal works
 history page minimally usable
+diagnostic log export works
 notifications open order page
 baseline/rebaseline/recovery do not flood notifications
 manual browser smoke test passed
 README/project-context/roadmap updated
+manifest/version/release notes prepared
 tests green
-release notes prepared
-manifest/version bump done
 tag v1.0
 ```
 
@@ -289,8 +224,6 @@ tag v1.0
 ## Post-1.0 Roadmap
 
 ### Centralized collector / dashboard
-
-Future direction:
 
 ```text
 collect parsed events from multiple plugin instances
@@ -302,11 +235,7 @@ possible Raspberry Pi or user VPS deployment
 
 Not part of current local-first Chrome extension release.
 
----
-
 ### Priority direct follow-up
-
-Future direction:
 
 ```text
 user-managed list of priority order IDs/direct URLs
@@ -321,13 +250,7 @@ Important:
 this is not notificationTriggers override for visible snapshot orders
 ```
 
-The user rejected the pre-1.0 watchlist override as unnecessary complexity. Keep only future direct follow-up mechanism.
-
----
-
 ### Ozon barcode binding
-
-Future direction:
 
 ```text
 detect Ozon orders
@@ -341,11 +264,7 @@ respect configurable minimum/base product price threshold
 
 This must be a separate automation/action layer, not mixed into monitor worker logic.
 
----
-
 ### Firefox fork
-
-Future direction after stable Chrome release:
 
 ```text
 evaluate browser API differences

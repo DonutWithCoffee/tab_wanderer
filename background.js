@@ -545,6 +545,55 @@ function appendOrderEventToJournal(order, eventContext, notificationDecision, sy
     eventJournal = appendEventJournalEntry(eventJournal, entry);
 }
 
+function getArrayCount(value) {
+    return Array.isArray(value) ? value.length : 0;
+}
+
+function getMonitorScopeLogSummary(monitorScope = {}) {
+    const safeScope = monitorScope || {};
+    const summary = {
+        statusCount: getArrayCount(safeScope.status),
+        deliveryCount: getArrayCount(safeScope.delivery),
+        paymentCount: getArrayCount(safeScope.payment),
+        orderFlagsCount: getArrayCount(safeScope.orderFlags),
+        storeCount: getArrayCount(safeScope.store),
+        reserveCount: getArrayCount(safeScope.reserve),
+        assemblyStatusCount: getArrayCount(safeScope.assemblyStatus)
+    };
+
+    const selectedTotal = Object.values(summary).reduce((total, count) => total + count, 0);
+
+    return {
+        scope: selectedTotal > 0 ? 'filtered' : 'all',
+        ...summary
+    };
+}
+
+function getNotificationTriggerLogSummary(notificationTriggers = {}) {
+    const triggers = normalizeNotificationTriggers(notificationTriggers);
+    const enabledChangedFields = Object.entries(triggers.changedFields || {})
+        .filter(([, enabled]) => enabled === true)
+        .map(([field]) => field);
+
+    return {
+        newOrders: triggers.newOrders === true,
+        changedOrders: triggers.changedOrders === true,
+        enabledChangedFieldsCount: enabledChangedFields.length,
+        enabledChangedFields
+    };
+}
+
+function getConfigLogSummary(config = {}) {
+    const safeConfig = config || {};
+
+    return {
+        monitorMode: safeConfig.monitorMode === 'active' ? 'active' : 'windowed',
+        deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
+        monitorScope: getMonitorScopeLogSummary(safeConfig.monitorScope),
+        notificationTriggers: getNotificationTriggerLogSummary(safeConfig.notificationTriggers)
+    };
+}
+
 function getMonitorStatusSnapshot() {
     return createMonitorStatusSnapshot({
         knownOrdersDB,
@@ -862,16 +911,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // ---------- NOTIFY ----------
-function notifyOrder(order, eventContext = {}) {
-    const content = createOrderNotificationContent(order, eventContext);
+function notifyOrder(o, eventContext = {}) {
+    const content = createOrderNotificationContent(o, eventContext);
 
     log('INFO', 'NOTIFY', 'creating notification', {
-        orderId: order.id,
-        orderUrl: order.orderUrl || '',
+        orderId: o.id,
+        orderUrl: o.orderUrl || '',
         tag: content.tag,
         decision: 'notify',
         eventType: eventContext.eventType || null,
-        changedFields: Array.isArray(eventContext.changedFields) ? eventContext.changedFields : [],
+        changedFields: Array.isArray(eventContext.changedFields)
+            ? eventContext.changedFields.map(field => String(field))
+            : [],
         message: content.message
     });
 
@@ -886,10 +937,10 @@ function notifyOrder(order, eventContext = {}) {
             return;
         }
 
-        if (order.orderUrl) {
+        if (o.orderUrl) {
             notificationTargets[notificationId] = {
-                orderId: order.id,
-                orderUrl: order.orderUrl
+                orderId: o.id,
+                orderUrl: o.orderUrl
             };
 
             await save();
@@ -1263,7 +1314,7 @@ if (msg.type === 'UPDATE_CONFIG') {
         resetCollectionSession();
 
         if (scopeChanged) {
-            log('INFO', 'CONFIG', 'monitor scope changed', userConfig?.monitorScope || {});
+            log('INFO', 'CONFIG', 'monitor scope changed', getMonitorScopeLogSummary(userConfig?.monitorScope));
         }
 
         if (modeChanged) {
@@ -1273,7 +1324,7 @@ if (msg.type === 'UPDATE_CONFIG') {
             });
         }
 
-        log('INFO', 'CONFIG', 'effective config', userConfig);
+        log('INFO', 'CONFIG', 'effective config summary', getConfigLogSummary(userConfig));
         log('INFO', 'CONFIG', 'rebaseline scheduled', { syncReason: pendingSyncReason });
 
         if (isRunning && workerTabId) {
@@ -1314,7 +1365,7 @@ if (msg.type === 'START') {
     log('INFO', 'CONTROL', 'START');
     log('INFO', 'CONTROL', 'rebaseline scheduled on start', { syncReason: pendingSyncReason });
     log('INFO', 'CONTROL', 'monitor state -> warming');
-    log('INFO', 'CONTROL', 'monitor scope on start', userConfig?.monitorScope || {});
+    log('INFO', 'CONTROL', 'monitor scope on start', getMonitorScopeLogSummary(userConfig?.monitorScope));
 
     const oldTabId = workerTabId;
     workerTabId = null;

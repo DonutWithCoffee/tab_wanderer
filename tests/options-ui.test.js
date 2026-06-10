@@ -134,7 +134,7 @@ function loadOptionsContext(overrides = {}) {
     const sentMessages = [];
     const defaultConfig = {
         monitorMode: 'windowed',
-        deepSyncMaxPages: 30,
+        deepSyncMaxPages: 50,
         notificationTriggers: {
             newOrders: true,
             changedOrders: true,
@@ -166,7 +166,7 @@ function loadOptionsContext(overrides = {}) {
         isRunning: true,
         monitorState: 'active',
         monitorMode: 'windowed',
-        deepSyncMaxPages: 30,
+        deepSyncMaxPages: 50,
         workerTabId: 77,
         hasWorkerTab: true,
         pendingRebaseline: false,
@@ -184,7 +184,7 @@ function loadOptionsContext(overrides = {}) {
             syncReason: 'normal',
             pagesCollected: 2,
             ordersCollected: 10,
-            maxPages: 30,
+            maxPages: 50,
             isComplete: true
         },
         collectionSession: {
@@ -335,15 +335,15 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
     assert.equal(document.getElementById('optionsMonitorModeSelect').value, 'windowed');
-    assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '30');
+    assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
     assert.equal(document.getElementById('optionsNotifyNewOrders').checked, true);
     assert.equal(document.getElementById('optionsNotifyFieldStatus').checked, true);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Windowed: первая страница + deep sync');
-    assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '30 страниц');
+    assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено');
-    assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 30/);
+    assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 50/);
 });
 
 test('options page autosaves monitor mode changes', () => {
@@ -358,7 +358,7 @@ test('options page autosaves monitor mode changes', () => {
 
     assert.equal(updateMessages.length, 1);
     assert.equal(updateMessages[0].userConfig.monitorMode, 'active');
-    assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 30);
+    assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 50);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), ['6806']);
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Active: только первая страница');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Режим мониторинга сохранён.');
@@ -425,7 +425,7 @@ test('options page refreshes monitor diagnostics on demand', () => {
 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
     assert.equal(document.getElementById('optionsDiagnosticsStatus').innerText, 'Диагностика загружена.');
-    assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /max pages: 30/);
+    assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /max pages: 50/);
 });
 
 test('options page shows diagnostics load error when GET_MONITOR_STATUS fails', () => {

@@ -33,7 +33,7 @@ function normalizeMonitorStatusDeepSyncMaxPages(userConfig = {}) {
 
     const numeric = Number(userConfig?.deepSyncMaxPages);
 
-    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 30;
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 50;
 }
 
 function createCollectionSessionStatusSnapshot(session) {

@@ -1639,3 +1639,77 @@ test('CLEAR_DIAGNOSTIC_LOG clears persistent diagnostic log', async () => {
     assert.deepEqual(JSON.parse(JSON.stringify(state.diagnosticLog)), []);
     assert.deepEqual(JSON.parse(JSON.stringify(lastStorageSet.diagnosticLog)), []);
 });
+
+test('UPDATE_CONFIG diagnostic log stores sanitized config summaries', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 50,
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        }),
+        diagnosticLog: []
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 50,
+            monitorScope: {
+                status: ['6806'],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: true,
+                    juridicalOnly: true
+                }
+            }
+        }
+    });
+
+    const logResponse = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            scope: 'CONFIG',
+            order: 'oldest-first',
+            limit: 20
+        }
+    });
+
+    const entries = JSON.parse(JSON.stringify(logResponse.entries));
+    const scopeEntry = entries.find((entry) => entry.message === 'monitor scope changed');
+    const configEntry = entries.find((entry) => entry.message === 'effective config summary');
+
+    assert.equal(response.ok, true);
+    assert.equal(logResponse.ok, true);
+    assert.ok(scopeEntry);
+    assert.ok(configEntry);
+    assert.equal(scopeEntry.details.scope, 'filtered');
+    assert.equal(scopeEntry.details.statusCount, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(scopeEntry.details, 'predicates'), false);
+    assert.equal(configEntry.details.monitorMode, 'windowed');
+    assert.equal(configEntry.details.deepSyncMaxPages, 50);
+    assert.equal(configEntry.details.monitorScope.scope, 'filtered');
+    assert.equal(configEntry.details.monitorScope.statusCount, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(configEntry.details.monitorScope, 'predicates'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(configEntry.details, 'monitorScopeSignature'), false);
+});
