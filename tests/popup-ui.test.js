@@ -104,16 +104,27 @@ class FakeDocument extends FakeEventTarget {
 
         this.elements = new Map();
         this.scopeInputs = [];
+        this.createdElements = [];
 
         this.body = new FakeElement('body', this, 'body');
+        this.body.appendChild = () => {};
+        this.body.removeChild = () => {};
     }
 
     createElement(tagName) {
-        if (String(tagName).toLowerCase() === 'input') {
-            return new FakeInputElement(this);
-        }
+        const element = String(tagName).toLowerCase() === 'input'
+            ? new FakeInputElement(this)
+            : new FakeElement(tagName, this);
 
-        return new FakeElement(tagName, this);
+        element.tagName = String(tagName || '').toUpperCase();
+        element.href = '';
+        element.download = '';
+        element.style = {};
+        element.clicked = false;
+
+        this.createdElements.push(element);
+
+        return element;
     }
 
     registerElement(id, element) {
@@ -203,7 +214,10 @@ function createPopupDom() {
         'configStatus',
         'applyConfig',
         'resetConfig',
-        'openHistory'
+        'openOptions',
+        'openHistory',
+        'downloadDiagnosticLog',
+        'diagnosticLogStatus'
     ];
 
     for (const id of ids) {
@@ -330,6 +344,39 @@ function loadPopupContext(overrides = {}) {
                         };
                     }
 
+                    if (msg.type === 'GET_MONITOR_STATUS') {
+                        response = {
+                            ok: true,
+                            status: {
+                                isRunning: true,
+                                monitorState: 'active',
+                                monitorMode: 'windowed',
+                                hasWorkerTab: true,
+                                workerTabId: 77,
+                                knownOrdersCount: 12,
+                                knownHashesCount: 12,
+                                windowOrdersCount: 10,
+                                windowHashesCount: 10,
+                                diagnosticLogCount: 2,
+                                eventJournalCount: 1
+                            }
+                        };
+                    }
+
+                    if (msg.type === 'GET_DIAGNOSTIC_LOG') {
+                        response = {
+                            ok: true,
+                            storedTotal: 2,
+                            total: 2,
+                            returned: 2,
+                            limit: 100,
+                            entries: [
+                                { createdAt: 1700000000000, level: 'INFO', scope: 'CONTROL', message: 'START', details: null },
+                                { createdAt: 1700000001000, level: 'WARN', scope: 'WATCHDOG', message: 'worker dead restarting', details: { tabId: 77 } }
+                            ]
+                        };
+                    }
+
                     if (typeof callback === 'function') {
                         callback(response);
                     }
@@ -383,7 +430,11 @@ test('popup explains monitor scope and notification trigger boundaries', () => {
     assert.match(html, /Состояние заказа обновляется даже если уведомление подавлено/);
     assert.match(html, /id="triggerFieldCity"/);
     assert.match(html, /id="openHistory"/);
+    assert.match(html, /id="openOptions"/);
+    assert.match(html, /id="downloadDiagnosticLog"/);
+    assert.match(html, /id="diagnosticLogStatus"/);
     assert.match(html, /Черновая страница истории показывает последние зафиксированные события/);
+    assert.match(html, /скачай диагностический лог/);
     assert.doesNotMatch(html, /id="triggerFieldShipmentDateText"/);
     assert.doesNotMatch(html, /id="triggerFieldHasOrderFlag"/);
     assert.doesNotMatch(html, /id="triggerFieldHasAutoreserve"/);
@@ -887,4 +938,26 @@ test('popup opens history page from navigation button', () => {
         url: 'chrome-extension://tab-wanderer/history.html',
         active: true
     });
+});
+
+
+test('popup downloads diagnostic log from support button', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+
+    document.getElementById('downloadDiagnosticLog').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('downloadDiagnosticLog')
+    });
+
+    const diagnosticLogCalls = getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG');
+    const createdLink = document.createdElements.find((element) => element.tagName === 'A');
+
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
+    assert.equal(diagnosticLogCalls.length, 1);
+    assert.equal(diagnosticLogCalls[0].options.order, 'oldest-first');
+    assert.ok(createdLink);
+    assert.match(createdLink.download, /^tab_wanderer-diagnostic-log-.*\.txt$/);
+    assert.match(decodeURIComponent(createdLink.href), /INFO CONTROL START[\s\S]*WARN WATCHDOG worker dead restarting/);
+    assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Diagnostic log prepared.');
 });

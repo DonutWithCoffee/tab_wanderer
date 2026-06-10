@@ -262,6 +262,20 @@ function completeCollectionSession(session, reason = 'legacy-single-page') {
     return finalizeSession(session);
 }
 
+function logCollectionSessionCompleted(session, orders = []) {
+    if (!session) {
+        return;
+    }
+
+    log('INFO', 'COLLECTION', 'session completed', {
+        mode: session.mode || null,
+        pagesCollected: Number(session.lastCollectedPage) || 0,
+        ordersCount: Array.isArray(orders) ? orders.length : 0,
+        completionReason: session.completionReason || null,
+        isComplete: session.isComplete === true
+    });
+}
+
 function normalizeOrdersMessageMeta(msg = {}) {
     const rawPage = Number(msg.page);
     const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
@@ -1402,6 +1416,7 @@ if (!decision.complete) {
 }
 
 const snapshot = completeCollectionSession(session, decision.reason);
+logCollectionSessionCompleted(session, snapshot);
 const shouldReturnToFirstPage = session?.mode === 'deep';
 
 if (pendingRebaseline) {

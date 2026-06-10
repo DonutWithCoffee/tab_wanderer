@@ -575,6 +575,31 @@ test('diagnostic log snapshot returns newest entries with filters and limit', ()
     ]);
 });
 
+
+
+test('diagnostic log snapshot can return entries in chronological order', () => {
+    const context = loadBackgroundContext();
+
+    const snapshot = context.getDiagnosticLogSnapshot(
+        [
+            { id: '1', createdAt: 1, level: 'INFO', scope: 'CONTROL', message: 'START' },
+            { id: '2', createdAt: 2, level: 'WARN', scope: 'COLLECTION', message: 'timeout' },
+            { id: '3', createdAt: 3, level: 'WARN', scope: 'WORKER', message: 'dead' }
+        ],
+        {
+            level: 'WARN',
+            limit: 2,
+            order: 'oldest-first'
+        }
+    );
+
+    assert.equal(snapshot.order, 'oldest-first');
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries)), [
+        { id: '2', createdAt: 2, level: 'WARN', scope: 'COLLECTION', message: 'timeout' },
+        { id: '3', createdAt: 3, level: 'WARN', scope: 'WORKER', message: 'dead' }
+    ]);
+});
+
 test('diagnostic log append keeps newest entries within limit', () => {
     const context = loadBackgroundContext();
 

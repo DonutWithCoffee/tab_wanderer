@@ -207,16 +207,18 @@ function getDiagnosticLogSnapshot(log, options = {}) {
     const safeLog = normalizeDiagnosticLog(log, DEFAULT_DIAGNOSTIC_LOG_LIMIT);
     const filtered = safeLog.filter(entry => matchesDiagnosticLogFilter(entry, safeOptions));
     const limit = normalizeDiagnosticLogLimit(safeOptions.limit, DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT);
-    const entries = filtered
-        .slice(Math.max(0, filtered.length - limit))
-        .reverse()
-        .map(entry => cloneDiagnosticLogValue(entry));
+    const limitedEntries = filtered.slice(Math.max(0, filtered.length - limit));
+    const orderedEntries = safeOptions.order === 'oldest-first'
+        ? limitedEntries
+        : limitedEntries.slice().reverse();
+    const entries = orderedEntries.map(entry => cloneDiagnosticLogValue(entry));
 
     return {
         storedTotal: safeLog.length,
         total: filtered.length,
         returned: entries.length,
         limit,
+        order: safeOptions.order === 'oldest-first' ? 'oldest-first' : 'newest-first',
         entries
     };
 }

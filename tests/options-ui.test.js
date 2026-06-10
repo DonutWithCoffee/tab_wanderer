@@ -348,7 +348,9 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsDiagnosticLogStatus"/);
     assert.match(html, /id="optionsDiagnosticLogPreview"/);
     assert.match(html, /Read-only snapshot текущего состояния расширения/);
+    assert.match(html, /id="optionsDiagnosticLogDetails"/);
     assert.match(html, /Persistent local log для удалённой поддержки/);
+    assert.match(html, /Файл \.txt экспортируется в хронологическом порядке/);
     assert.match(html, /Download \.txt/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
@@ -453,10 +455,12 @@ test('options page loads current config summary without updating config', () => 
         document.getElementById('optionsDiagnosticLogPreview').innerText,
         /Version: 0\.9\.8-test/
     );
-    assert.match(
-        document.getElementById('optionsDiagnosticLogPreview').innerText,
-        /WARN WATCHDOG worker dead restarting/
-    );
+    const logPreview = document.getElementById('optionsDiagnosticLogPreview').innerText;
+    const diagnosticLogCall = getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG')[0];
+
+    assert.match(logPreview, /WARN WATCHDOG worker dead restarting/);
+    assert.ok(logPreview.indexOf('INFO CONTROL START') < logPreview.indexOf('WARN WATCHDOG worker dead restarting'));
+    assert.equal(diagnosticLogCall.options.order, 'oldest-first');
 });
 
 test('options page changes monitor mode draft without live UPDATE_CONFIG', () => {

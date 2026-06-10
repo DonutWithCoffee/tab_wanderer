@@ -326,21 +326,6 @@
         </section>
 
         <section class="card">
-            <h2>Диагностический лог</h2>
-            <p class="muted">
-                Persistent local log для удалённой поддержки. Не содержит телефоны, HTML, cookies или полный payload заказов.
-            </p>
-            <div class="actions-row">
-                <button id="optionsRefreshDiagnosticLog">Refresh log</button>
-                <button id="optionsCopyDiagnosticLog">Copy log</button>
-                <button id="optionsDownloadDiagnosticLog">Download .txt</button>
-                <button id="optionsClearDiagnosticLog">Clear log</button>
-            </div>
-            <p id="optionsDiagnosticLogStatus" class="muted">Загрузка диагностического лога...</p>
-            <pre id="optionsDiagnosticLogPreview" class="log-preview">—</pre>
-        </section>
-
-        <section class="card">
             <h2>Текущие настройки</h2>
             <p id="optionsLoadStatus" class="muted">Загрузка текущих настроек...</p>
             <div class="summary-grid">
@@ -364,6 +349,24 @@
             <p>
                 Пока это только каркас. Runtime-логика, monitorScope и notificationTriggers не изменены.
             </p>
+        </section>
+
+        <section class="card">
+            <details id="optionsDiagnosticLogDetails">
+                <summary><strong>Диагностический лог</strong></summary>
+                <p class="muted">
+                    Persistent local log для удалённой поддержки. Не содержит телефоны, HTML, cookies или полный payload заказов.
+                    Файл .txt экспортируется в хронологическом порядке.
+                </p>
+                <div class="actions-row">
+                    <button id="optionsRefreshDiagnosticLog">Refresh log</button>
+                    <button id="optionsCopyDiagnosticLog">Copy log</button>
+                    <button id="optionsDownloadDiagnosticLog">Download .txt</button>
+                    <button id="optionsClearDiagnosticLog">Clear log</button>
+                </div>
+                <p id="optionsDiagnosticLogStatus" class="muted">Загрузка диагностического лога...</p>
+                <pre id="optionsDiagnosticLogPreview" class="log-preview">—</pre>
+            </details>
         </section>
     </main>
     <script src="options.js"></script>

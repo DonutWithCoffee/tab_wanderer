@@ -598,8 +598,14 @@ function buildMonitorStatusLogHeader(status = {}) {
     ];
 }
 
+function getChronologicalDiagnosticLogEntries(entries = []) {
+    return Array.isArray(entries)
+        ? entries.slice().sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0))
+        : [];
+}
+
 function buildDiagnosticLogText(snapshot = {}, status = currentMonitorStatus || {}) {
-    const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
+    const entries = getChronologicalDiagnosticLogEntries(snapshot.entries);
     const header = [
         'tab_wanderer diagnostic log',
         ...buildMonitorStatusLogHeader(status),
@@ -635,7 +641,8 @@ function loadDiagnosticLog() {
     send({
         type: 'GET_DIAGNOSTIC_LOG',
         options: {
-            limit: 100
+            limit: 100,
+            order: 'oldest-first'
         }
     }, (res) => {
         if (!res?.ok) {

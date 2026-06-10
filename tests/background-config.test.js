@@ -1431,6 +1431,74 @@ test('GET_EVENT_JOURNAL returns newest journal entries with filters', async () =
 });
 
 
+
+
+test('ORDERS writes collection completion entry to diagnostic log', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        pendingRebaseline: false,
+        lastDeepSyncAt: Date.now(),
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        }),
+        diagnosticLog: []
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            data: [createOrder({ id: 'fast-order' })]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const logResponse = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            scope: 'COLLECTION',
+            order: 'oldest-first',
+            limit: 20
+        }
+    });
+
+    const entries = JSON.parse(JSON.stringify(logResponse.entries));
+    const completedEntry = entries.find((entry) => entry.message === 'session completed');
+
+    assert.equal(response.ok, true);
+    assert.equal(logResponse.ok, true);
+    assert.ok(completedEntry);
+    assert.equal(completedEntry.details.mode, 'fast');
+    assert.equal(completedEntry.details.pagesCollected, 1);
+    assert.equal(completedEntry.details.ordersCount, 1);
+    assert.equal(completedEntry.details.completionReason, 'fast-page-1');
+    assert.equal(completedEntry.details.isComplete, true);
+});
+
 test('GET_MONITOR_STATUS returns readonly diagnostic snapshot', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
