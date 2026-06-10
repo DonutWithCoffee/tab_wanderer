@@ -9,8 +9,7 @@ const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
         status: true,
         delivery: true,
         payment: true,
-        city: true,
-        tags: true
+        city: true
     }
 };
 
@@ -18,8 +17,7 @@ const OPTIONS_VISIBLE_CHANGED_FIELDS = [
     { key: 'status', id: 'optionsNotifyFieldStatus' },
     { key: 'delivery', id: 'optionsNotifyFieldDelivery' },
     { key: 'payment', id: 'optionsNotifyFieldPayment' },
-    { key: 'city', id: 'optionsNotifyFieldCity' },
-    { key: 'tags', id: 'optionsNotifyFieldTags' }
+    { key: 'city', id: 'optionsNotifyFieldCity' }
 ];
 
 let currentConfig = {};
@@ -145,8 +143,7 @@ function getNotificationTriggers(config = {}) {
             status: getBooleanConfigValue(changedFields.status, defaultChangedFields.status),
             delivery: getBooleanConfigValue(changedFields.delivery, defaultChangedFields.delivery),
             payment: getBooleanConfigValue(changedFields.payment, defaultChangedFields.payment),
-            city: getBooleanConfigValue(changedFields.city, defaultChangedFields.city),
-            tags: getBooleanConfigValue(changedFields.tags, defaultChangedFields.tags)
+            city: getBooleanConfigValue(changedFields.city, defaultChangedFields.city)
         }
     };
 }

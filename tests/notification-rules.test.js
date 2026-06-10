@@ -85,8 +85,7 @@ test('getEffectiveConfig normalizes notification trigger defaults', () => {
         status: true,
         delivery: true,
         payment: true,
-        city: true,
-        tags: true
+        city: true
     });
 });
 
@@ -109,7 +108,7 @@ test('getEffectiveConfig merges incoming notification triggers with defaults', (
     assert.equal(config.notificationTriggers.changedFields.status, false);
     assert.equal(config.notificationTriggers.changedFields.delivery, true);
     assert.equal(config.notificationTriggers.changedFields.city, false);
-    assert.equal(config.notificationTriggers.changedFields.tags, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(config.notificationTriggers.changedFields, 'tags'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(config.notificationTriggers.changedFields, 'contractor'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(config.notificationTriggers.changedFields, 'date'), false);
 });
@@ -167,6 +166,24 @@ test('evaluateNotification suppresses changed orders when changed fields are dis
             eventType: 'order-changed',
             isNewOrder: false,
             changedFields: ['contractor']
+        },
+        {}
+    );
+
+    assert.equal(decision.notify, false);
+    assert.equal(decision.action, 'suppress');
+    assert.equal(decision.ruleId, 'notification-trigger-no-enabled-changed-fields');
+});
+
+test('evaluateNotification suppresses tag-only changes from user notifications', () => {
+    const context = loadRulesContext();
+
+    const decision = context.evaluateNotification(
+        createOrder({ tags: ['перепродажа ип'] }),
+        {
+            eventType: 'order-changed',
+            isNewOrder: false,
+            changedFields: ['tags']
         },
         {}
     );

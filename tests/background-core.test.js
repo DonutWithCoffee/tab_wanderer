@@ -617,3 +617,68 @@ test('diagnostic log append keeps newest entries within limit', () => {
         { id: '3' }
     ]);
 });
+
+test('notification content formats new orders without sensitive context fields', () => {
+    const context = loadBackgroundContext();
+
+    const content = context.createOrderNotificationContent(
+        {
+            id: '1000-300326',
+            status: 'Новый',
+            delivery: 'Самовывоз',
+            payment: 'Безналичный расчет для юридических лиц',
+            city: 'Москва',
+            phoneNormalized: '79213241566',
+            contractor: 'ООО Ромашка'
+        },
+        {
+            eventType: 'new-order',
+            changedFields: []
+        }
+    );
+
+    assert.equal(content.title, 'Заказ №1000-300326 (Юрик)');
+    assert.equal(
+        content.message,
+        'Статус: Новый\nДоставка: Самовывоз\nОплата: Безналичный расчет для юридических лиц'
+    );
+    assert.equal(content.message.includes('79213241566'), false);
+    assert.equal(content.message.includes('ООО Ромашка'), false);
+});
+
+test('notification content formats order changes as before-after diff', () => {
+    const context = loadBackgroundContext();
+
+    const content = context.createOrderNotificationContent(
+        {
+            id: '1000-300326',
+            status: 'Ожидает оплаты',
+            delivery: 'Курьер СДЭК',
+            payment: 'Оплата онлайн',
+            city: 'Санкт-Петербург',
+            tags: ['Ozon', 'VIP'],
+            phoneNormalized: '79213241566'
+        },
+        {
+            eventType: 'order-changed',
+            changedFields: ['status', 'delivery', 'city', 'tags', 'phoneNormalized'],
+            prevOrder: {
+                status: 'Новый',
+                delivery: 'Самовывоз',
+                payment: 'Оплата онлайн',
+                city: 'Москва',
+                tags: []
+            }
+        }
+    );
+
+    assert.equal(content.title, 'Заказ №1000-300326 изменён');
+    assert.equal(
+        content.message,
+        'Статус: Новый → Ожидает оплаты\nДоставка: Самовывоз → Курьер СДЭК\nГород: Москва → Санкт-Петербург'
+    );
+    assert.equal(content.message.includes('Теги'), false);
+    assert.equal(content.message.includes('Ozon'), false);
+    assert.equal(content.message.includes('phoneNormalized'), false);
+    assert.equal(content.message.includes('79213241566'), false);
+});

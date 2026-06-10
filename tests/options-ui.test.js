@@ -101,7 +101,6 @@ function createOptionsDom() {
         'optionsNotifyFieldDelivery',
         'optionsNotifyFieldPayment',
         'optionsNotifyFieldCity',
-        'optionsNotifyFieldTags',
         'optionsScopeDictionaryStatus',
         'optionsScopeDictionaryDelivery',
         'optionsScopeDictionaryPayment',
@@ -143,8 +142,7 @@ function loadOptionsContext(overrides = {}) {
                 status: true,
                 delivery: true,
                 payment: true,
-                city: true,
-                tags: true
+                city: true
             }
         },
         monitorScope: {
@@ -344,7 +342,7 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Windowed: первая страница + deep sync');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '30 страниц');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе');
-    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 5 включено');
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено');
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 30/);
 });
 
@@ -399,7 +397,7 @@ test('options page autosaves notification trigger settings', () => {
     assert.equal(updateMessages.length, 2);
     assert.equal(updateMessages[0].userConfig.notificationTriggers.newOrders, false);
     assert.equal(updateMessages[1].userConfig.notificationTriggers.changedFields.payment, false);
-    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 4 включено');
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 3 включено');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки уведомлений сохранены.');
 });
 

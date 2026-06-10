@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -862,49 +862,34 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // ---------- NOTIFY ----------
-function notifyOrder(o) {
-    const contractor = normalize(o.contractor);
-    const payment = normalize(o.payment);
+function notifyOrder(order, eventContext = {}) {
+    const content = createOrderNotificationContent(order, eventContext);
 
-    let tag = '';
-
-    if (contractor === 'ozon (озон)') {
-        tag = 'ОЗОН';
-    } else if (payment === 'безналичный расчет для юридических лиц') {
-        tag = 'Юрик';
-    }
-
-    const tagSuffix = tag ? ` (${tag})` : '';
-
-    const message = [
-        `Статус: ${o.status}`,
-        `Доставка: ${o.delivery}`,
-        `Оплата: ${o.payment}`
-    ].join('\n');
-
-log('INFO', 'NOTIFY', 'creating notification', {
-    orderId: o.id,
-    orderUrl: o.orderUrl || '',
-    tag,
-    decision: 'notify',
-    message
-});
+    log('INFO', 'NOTIFY', 'creating notification', {
+        orderId: order.id,
+        orderUrl: order.orderUrl || '',
+        tag: content.tag,
+        decision: 'notify',
+        eventType: eventContext.eventType || null,
+        changedFields: Array.isArray(eventContext.changedFields) ? eventContext.changedFields : [],
+        message: content.message
+    });
 
     chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icon.png',
-        title: `Заказ №${o.id}${tagSuffix}`,
-        message
+        title: content.title,
+        message: content.message
     }, async (notificationId) => {
         if (chrome.runtime.lastError) {
             log('ERROR', 'NOTIFY', chrome.runtime.lastError.message);
             return;
         }
 
-        if (o.orderUrl) {
+        if (order.orderUrl) {
             notificationTargets[notificationId] = {
-                orderId: o.id,
-                orderUrl: o.orderUrl
+                orderId: order.id,
+                orderUrl: order.orderUrl
             };
 
             await save();
@@ -1102,7 +1087,7 @@ function processOrders(orders, options = {}) {
                 changedFields
             });
         } else {
-            notifyOrder(order);
+            notifyOrder(order, eventContext);
         }
 
         if (!testMode) {

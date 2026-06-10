@@ -547,3 +547,103 @@ test('runBaseline preserves known state outside current window snapshot', () => 
     );
     assert.equal(state.pendingRebaseline, false);
 });
+test('processOrders notification for changed order uses before-after diff message', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        status: 'Новый',
+        delivery: 'Самовывоз',
+        payment: 'Оплата онлайн',
+        city: 'Москва',
+        tags: []
+    });
+
+    const nextOrder = createOrder({
+        status: 'Ожидает оплаты',
+        delivery: 'Курьер СДЭК',
+        payment: 'Оплата онлайн',
+        city: 'Санкт-Петербург',
+        tags: ['VIP']
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(
+        context.__test.notifications[0].title,
+        'Заказ №1000-300326 изменён'
+    );
+    assert.equal(
+        context.__test.notifications[0].message,
+        'Статус: Новый → Ожидает оплаты\nДоставка: Самовывоз → Курьер СДЭК\nГород: Москва → Санкт-Петербург'
+    );
+});
+
+test('processOrders stores tag-only changes without notifying user', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        tags: []
+    });
+
+    const nextOrder = createOrder({
+        tags: ['VIP']
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder)
+    );
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.knownOrdersDB[nextOrder.id].tags)), ['VIP']);
+    assert.equal(state.eventJournal.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['tags']);
+});
+
+test('processOrders notification for new order keeps compact current-state message', () => {
+    const context = loadBackgroundContext();
+
+    const existingOrder = createOrder();
+    const newOrder = createOrder({
+        id: '1001-300326',
+        status: 'Новый',
+        delivery: 'Самовывоз',
+        payment: 'Безналичный расчет для юридических лиц',
+        phoneNormalized: '79213241566',
+        orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, existingOrder)
+    );
+
+    context.__testOrders = [newOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(
+        context.__test.notifications[0].title,
+        'Заказ №1001-300326 (Юрик)'
+    );
+    assert.equal(
+        context.__test.notifications[0].message,
+        'Статус: Новый\nДоставка: Самовывоз\nОплата: Безналичный расчет для юридических лиц'
+    );
+    assert.equal(context.__test.notifications[0].message.includes('79213241566'), false);
+});

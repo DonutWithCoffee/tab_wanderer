@@ -172,6 +172,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/event-journal.js', context);
     runScript('core/monitor-status.js', context);
     runScript('core/diagnostic-log.js', context);
+    runScript('core/notification-message.js', context);
     runScript('background.js', context);
     return context;
 }

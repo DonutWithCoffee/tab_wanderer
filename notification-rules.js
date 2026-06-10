@@ -12,8 +12,7 @@ const DEFAULT_CONFIG = {
             status: true,
             delivery: true,
             payment: true,
-            city: true,
-            tags: true
+            city: true
         }
     },
     monitorScope: {
@@ -101,10 +100,7 @@ function normalizeNotificationTriggers(triggers = {}) {
                 : Boolean(safeChangedFields.payment),
             city: safeChangedFields.city === undefined
                 ? defaultChangedFields.city
-                : Boolean(safeChangedFields.city),
-            tags: safeChangedFields.tags === undefined
-                ? defaultChangedFields.tags
-                : Boolean(safeChangedFields.tags)
+                : Boolean(safeChangedFields.city)
         }
     };
 }
