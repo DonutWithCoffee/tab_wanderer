@@ -2059,3 +2059,125 @@ test('deep collection page navigation is console-only while completion stays per
     assert.equal(messages.includes('navigated to page 2'), false);
     assert.equal(messages.includes('session completed'), true);
 });
+
+test('deep sync completes early when pagination reports last page', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'manual-start',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 50,
+            monitorScope: createDefaultMonitorScope()
+        })
+    });
+
+    const sender = {
+        tab: {
+            id: 77,
+            url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+        }
+    };
+
+    const first = await sendRuntimeMessage(context, {
+        type: 'ORDERS',
+        page: 1,
+        isComplete: false,
+        completionReason: null,
+        data: [createOrder({ id: 'page-1' })]
+    }, sender);
+
+    const second = await sendRuntimeMessage(context, {
+        type: 'ORDERS',
+        page: 2,
+        isComplete: false,
+        completionReason: null,
+        data: [createOrder({ id: 'page-2' })]
+    }, sender);
+
+    const third = await sendRuntimeMessage(context, {
+        type: 'ORDERS',
+        page: 3,
+        isComplete: true,
+        completionReason: 'pagination-last-page',
+        data: [createOrder({ id: 'page-3' })]
+    }, sender);
+
+    const state = getBackgroundState(context);
+
+    assert.equal(first.collecting, true);
+    assert.equal(second.collecting, true);
+    assert.equal(third.ok, true);
+    assert.equal(state.monitorState, 'active');
+    assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.collectionSession, null);
+    assert.equal(Object.keys(state.windowOrdersDB).length, 3);
+    assert.equal(state.lastCollectionMetadata.pagesCollected, 3);
+    assert.equal(state.lastCollectionMetadata.ordersCollected, 3);
+    assert.equal(state.lastCollectionMetadata.completionReason, 'pagination-last-page');
+    assert.equal(context.__test.tabUpdates.length, 3);
+    assert.match(context.__test.tabUpdates[0].updateInfo.url, /page=2/);
+    assert.match(context.__test.tabUpdates[1].updateInfo.url, /page=3/);
+    assert.doesNotMatch(context.__test.tabUpdates[2].updateInfo.url, /page=/);
+});
+
+test('deep sync completes empty scoped first page without waiting for timeout', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'manual-start',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 50,
+            monitorScope: createDefaultMonitorScope()
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: true,
+            completionReason: 'empty-first-page',
+            data: []
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(state.monitorState, 'active');
+    assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.collectionSession, null);
+    assert.equal(Object.keys(state.windowOrdersDB).length, 0);
+    assert.equal(state.lastCollectionMetadata.pagesCollected, 1);
+    assert.equal(state.lastCollectionMetadata.ordersCollected, 0);
+    assert.equal(state.lastCollectionMetadata.completionReason, 'empty-first-page');
+});

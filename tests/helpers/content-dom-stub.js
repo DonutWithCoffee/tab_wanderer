@@ -40,6 +40,13 @@ function createLink({ text, href }) {
     };
 }
 
+function createPaginationLink(href) {
+    return createLink({
+        text: href,
+        href
+    });
+}
+
 function createTag(text) {
     return {
         innerText: text
@@ -97,7 +104,8 @@ function createRow({
 
 function createDocumentStub({
     headers = [],
-    rows = []
+    rows = [],
+    paginationHrefs = []
 }) {
     return {
         querySelectorAll(selector) {
@@ -107,6 +115,10 @@ function createDocumentStub({
 
             if (selector === 'tr[data-order-id]') {
                 return rows.map(createRow);
+            }
+
+            if (selector === 'a[href*="page="]') {
+                return paginationHrefs.map(createPaginationLink);
             }
 
             return [];

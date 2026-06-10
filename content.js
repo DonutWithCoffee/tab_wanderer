@@ -267,16 +267,76 @@ function sendDictionaries() {
 }
 
 // ---------- SEND ----------
+function parsePaginationState(currentPage = getCurrentPageFromUrl()) {
+    const page = Number.isInteger(Number(currentPage)) && Number(currentPage) > 0
+        ? Number(currentPage)
+        : 1;
+    const pageNumbers = [];
+
+    const links = Array.from(document.querySelectorAll('a[href*="page="]') || []);
+
+    links.forEach((link) => {
+        const href = link?.getAttribute?.('href') || '';
+
+        if (!href) return;
+
+        try {
+            const url = new URL(href, window.location.origin);
+            const rawPage = Number(url.searchParams.get('page'));
+
+            if (Number.isInteger(rawPage) && rawPage > 0) {
+                pageNumbers.push(rawPage);
+            }
+        } catch {}
+    });
+
+    const uniquePageNumbers = Array.from(new Set(pageNumbers)).sort((a, b) => a - b);
+    const maxPage = uniquePageNumbers.length
+        ? Math.max(page, ...uniquePageNumbers)
+        : page;
+    const hasNextPage = uniquePageNumbers.some((value) => value > page);
+
+    return {
+        currentPage: page,
+        hasPagination: uniquePageNumbers.length > 0,
+        maxPage,
+        hasNextPage,
+        isLastPage: !hasNextPage
+    };
+}
+
+function getOrdersCompletionMeta(orders, paginationState = parsePaginationState()) {
+    const safeOrders = Array.isArray(orders) ? orders : [];
+    const safePaginationState = paginationState || parsePaginationState();
+    const currentPage = Number(safePaginationState.currentPage) || 1;
+
+    if (safeOrders.length === 0 && currentPage === 1) {
+        return {
+            isComplete: true,
+            completionReason: 'empty-first-page'
+        };
+    }
+
+    if (!safePaginationState.hasNextPage) {
+        return {
+            isComplete: true,
+            completionReason: safePaginationState.hasPagination
+                ? 'pagination-last-page'
+                : 'pagination-single-page'
+        };
+    }
+
+    return {
+        isComplete: false,
+        completionReason: null
+    };
+}
+
 function sendOrders() {
     const page = getCurrentPageFromUrl();
 
     if (lastSentPage === page) {
         log('DEBUG', 'SEND', 'duplicate page skip', page);
-        return;
-    }
-
-    if (!isTableReady()) {
-        log('WARN', 'PARSE', 'table not ready, skip send');
         return;
     }
 
@@ -287,12 +347,17 @@ function sendOrders() {
         return;
     }
 
+    const paginationState = parsePaginationState(page);
+    const completion = getOrdersCompletionMeta(orders, paginationState);
+
     lastSentPage = page;
 
     sendWithRetry({
         type: 'ORDERS',
         page,
-        isComplete: false,
+        isComplete: completion.isComplete,
+        completionReason: completion.completionReason,
+        pagination: paginationState,
         data: orders
     });
 }

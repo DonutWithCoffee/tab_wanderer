@@ -336,3 +336,70 @@ test('parseDictionaries extracts monitor dictionaries from checkbox groups', () 
         payment: [{ id: '9791', label: 'Наличными в офисе' }]
     });
 });
+test('parsePaginationState detects whether next page exists', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            headers: [],
+            paginationHrefs: [
+                '/admin/orders/?page=1',
+                '/admin/orders/?page=2',
+                '/admin/orders/?page=3'
+            ]
+        })
+    );
+
+    const pageTwo = context.parsePaginationState(2);
+    const pageThree = context.parsePaginationState(3);
+
+    assert.equal(pageTwo.currentPage, 2);
+    assert.equal(pageTwo.hasPagination, true);
+    assert.equal(pageTwo.maxPage, 3);
+    assert.equal(pageTwo.hasNextPage, true);
+    assert.equal(pageTwo.isLastPage, false);
+
+    assert.equal(pageThree.currentPage, 3);
+    assert.equal(pageThree.hasPagination, true);
+    assert.equal(pageThree.maxPage, 3);
+    assert.equal(pageThree.hasNextPage, false);
+    assert.equal(pageThree.isLastPage, true);
+});
+
+test('getOrdersCompletionMeta completes empty first page and pagination last page', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getOrdersCompletionMeta([], {
+            currentPage: 1,
+            hasPagination: false,
+            hasNextPage: false
+        }))),
+        {
+            isComplete: true,
+            completionReason: 'empty-first-page'
+        }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getOrdersCompletionMeta([{ id: '1' }], {
+            currentPage: 3,
+            hasPagination: true,
+            hasNextPage: false
+        }))),
+        {
+            isComplete: true,
+            completionReason: 'pagination-last-page'
+        }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getOrdersCompletionMeta([{ id: '1' }], {
+            currentPage: 2,
+            hasPagination: true,
+            hasNextPage: true
+        }))),
+        {
+            isComplete: false,
+            completionReason: null
+        }
+    );
+});
