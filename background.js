@@ -518,6 +518,12 @@ function clearPendingRebaseline() {
     pendingSyncReason = null;
 }
 
+function shouldRunCatchUpForPendingSync() {
+    return pendingRebaseline === true
+        && hasKnownOrders()
+        && normalizeSyncReason(pendingSyncReason) === SYNC_REASONS.MANUAL_START;
+}
+
 function recordCollectionMetadata(session, orders, reason = SYNC_REASONS.NORMAL) {
     const policy = getCollectionPolicy();
 
@@ -1026,6 +1032,23 @@ function runBaseline(orders, reason = 'auto') {
     save();
 }
 
+function runCatchUpSnapshot(orders, reason = SYNC_REASONS.MANUAL_START) {
+    const syncReason = normalizeSyncReason(reason);
+
+    markDeepSyncCompleted(collectionSession);
+    recordCollectionMetadata(collectionSession, orders, syncReason);
+    clearPendingRebaseline();
+    monitorState = 'active';
+
+    log('INFO', 'CATCH_UP', `${syncReason} count=${orders.length}`);
+    processOrders(orders, { syncReason });
+    applyWindowSnapshot(orders);
+    resetCollectionSession();
+    logState('CATCH_UP');
+
+    save();
+}
+
 function applyWindowSnapshot(orders) {
     const nextWindowDB = {};
     const nextWindowHashDB = {};
@@ -1094,12 +1117,10 @@ function processOrders(orders, options = {}) {
             ? []
             : getChangedFields(prevOrder, order);
 
-        log('INFO', 'CHANGE', {
+        log('INFO', 'CHANGE', 'event', {
             id: order.id,
             eventType,
-            changedFields,
-            prev: prevHash,
-            next: newHash
+            changedFields
         });
 
         const eventContext = {
@@ -1484,7 +1505,11 @@ logCollectionSessionCompleted(session, snapshot);
 const shouldReturnToFirstPage = session?.mode === 'deep';
 
 if (pendingRebaseline) {
-    runBaseline(snapshot, pendingSyncReason || SYNC_REASONS.INITIAL);
+    if (shouldRunCatchUpForPendingSync()) {
+        runCatchUpSnapshot(snapshot, pendingSyncReason || SYNC_REASONS.MANUAL_START);
+    } else {
+        runBaseline(snapshot, pendingSyncReason || SYNC_REASONS.INITIAL);
+    }
 
     if (shouldReturnToFirstPage) {
         await returnWorkerToFirstPageAfterDeepSession(session);

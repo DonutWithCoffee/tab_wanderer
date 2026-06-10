@@ -41,6 +41,32 @@ function getHashForOrder(context, order) {
     return hash;
 }
 
+function createDefaultMonitorScope() {
+    return {
+        status: [],
+        delivery: [],
+        payment: [],
+        orderFlags: [],
+        store: [],
+        reserve: [],
+        assemblyStatus: [],
+        predicates: {
+            ozonOnly: false,
+            juridicalOnly: false
+        }
+    };
+}
+
+function createWindowedConfig(context, overrides = {}) {
+    return getEffectiveConfigSnapshot(context, {
+        monitorMode: 'windowed',
+        deepSyncMaxPages: 1,
+        rules: {},
+        monitorScope: createDefaultMonitorScope(),
+        ...overrides
+    });
+}
+
 test('UPDATE_CONFIG normalizes notification triggers without scheduling rebaseline', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
@@ -429,6 +455,257 @@ setBackgroundState(context, {
     assert.equal(state.lastCollectionMetadata.ordersCollected, 2);
     assert.equal(state.lastCollectionMetadata.sessionMode, 'deep');
     assert.equal(context.__test.notifications.length, 0);
+});
+
+
+test('manual-start with known state detects changed order while stopped', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({
+        id: 'known',
+        status: 'Новый'
+    });
+    const nextOrder = createOrder({
+        id: 'known',
+        status: 'Оплачен'
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'manual-start',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {
+            known: prevOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, prevOrder)
+        },
+        windowOrdersDB: {
+            known: prevOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, prevOrder)
+        },
+        userConfig: createWindowedConfig(context)
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: false,
+            data: [nextOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+    const changeLog = state.diagnosticLog.find(entry => entry.scope === 'CHANGE');
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(context.__test.notifications[0].title, 'Заказ №known изменён');
+    assert.equal(context.__test.notifications[0].message, 'Статус: Новый → Оплачен');
+    assert.equal(state.knownOrdersDB.known.status, 'Оплачен');
+    assert.equal(state.windowOrdersDB.known.status, 'Оплачен');
+    assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.pendingSyncReason, null);
+    assert.equal(state.monitorState, 'active');
+    assert.equal(state.lastCollectionMetadata.syncReason, 'manual-start');
+    assert.equal(state.lastCollectionMetadata.ordersCollected, 1);
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].eventKind, 'catch-up');
+    assert.equal(state.eventJournal[0].syncReason, 'manual-start');
+    assert.equal(state.eventJournal[0].notification.notify, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['status']);
+    assert.ok(changeLog);
+    assert.equal(changeLog.details.id, 'known');
+    assert.equal(changeLog.details.eventType, 'order-changed');
+    assert.deepEqual(JSON.parse(JSON.stringify(changeLog.details.changedFields)), ['status']);
+    assert.equal(Object.prototype.hasOwnProperty.call(changeLog.details, 'prev'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(changeLog.details, 'next'), false);
+});
+
+test('manual-start with known state notifies new order while stopped', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const knownOrder = createOrder({ id: 'known' });
+    const newOrder = createOrder({
+        id: 'new-order',
+        status: 'Новый',
+        orderUrl: 'https://amperkot.ru/admin/orders/new-order/'
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'manual-start',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {
+            known: knownOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, knownOrder)
+        },
+        windowOrdersDB: {
+            known: knownOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, knownOrder)
+        },
+        userConfig: createWindowedConfig(context)
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: false,
+            data: [knownOrder, newOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(context.__test.notifications[0].title, 'Заказ №new-order');
+    assert.equal(state.knownOrdersDB['new-order'].id, 'new-order');
+    assert.equal(state.windowOrdersDB['new-order'].id, 'new-order');
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].eventType, 'new-order');
+    assert.equal(state.eventJournal[0].eventKind, 'catch-up');
+});
+
+test('manual-start with known state records tag-only catch-up without notification', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({
+        id: 'known',
+        tags: []
+    });
+    const nextOrder = createOrder({
+        id: 'known',
+        tags: ['VIP']
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'manual-start',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {
+            known: prevOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, prevOrder)
+        },
+        windowOrdersDB: {
+            known: prevOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, prevOrder)
+        },
+        userConfig: createWindowedConfig(context)
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: false,
+            data: [nextOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.knownOrdersDB.known.tags)), ['VIP']);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.windowOrdersDB.known.tags)), ['VIP']);
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].eventKind, 'catch-up');
+    assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['tags']);
+    assert.equal(state.eventJournal[0].notification.notify, false);
+});
+
+test('initial start with empty state remains silent baseline', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const newOrder = createOrder({ id: 'new-order' });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'initial',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
+        userConfig: createWindowedConfig(context)
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: false,
+            data: [newOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.eventJournal.length, 0);
+    assert.equal(state.knownOrdersDB['new-order'].id, 'new-order');
+    assert.equal(state.windowOrdersDB['new-order'].id, 'new-order');
+    assert.equal(state.lastCollectionMetadata.syncReason, 'initial');
+    assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.monitorState, 'active');
 });
 
 test('known order marks deep session intersection but does not stop collection before page limit', async () => {
