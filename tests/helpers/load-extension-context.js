@@ -170,6 +170,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/order-model.js', context);
     runScript('core/sync-model.js', context);
     runScript('core/event-journal.js', context);
+    runScript('core/monitor-status.js', context);
     runScript('background.js', context);
     return context;
 }

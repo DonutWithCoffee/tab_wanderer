@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -415,6 +415,27 @@ function appendOrderEventToJournal(order, eventContext, notificationDecision, sy
     });
 
     eventJournal = appendEventJournalEntry(eventJournal, entry);
+}
+
+function getMonitorStatusSnapshot() {
+    return createMonitorStatusSnapshot({
+        knownOrdersDB,
+        knownOrdersHashDB,
+        windowOrdersDB,
+        windowOrdersHashDB,
+        notificationTargets,
+        workerTabId,
+        lastBaselineDate,
+        isRunning,
+        monitorState,
+        lastDeepSyncAt,
+        userConfig,
+        pendingRebaseline,
+        pendingSyncReason,
+        collectionSession,
+        lastCollectionMetadata,
+        eventJournal
+    });
 }
 
 function getEffectiveUserConfig(storedConfig) {
@@ -1037,6 +1058,14 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 send({
                     ok: true,
                     ...getEventJournalSnapshot(eventJournal, msg.options || {})
+                });
+                return;
+            }
+
+            if (msg.type === 'GET_MONITOR_STATUS') {
+                send({
+                    ok: true,
+                    status: getMonitorStatusSnapshot()
                 });
                 return;
             }

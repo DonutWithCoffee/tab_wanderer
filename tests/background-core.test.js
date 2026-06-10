@@ -421,3 +421,103 @@ test('event journal normalization trims old stored entries', () => {
         { id: 'new' }
     ]);
 });
+
+
+test('monitor status snapshot exposes diagnostic counts without order payloads', () => {
+    const context = loadBackgroundContext();
+
+    const snapshot = context.createMonitorStatusSnapshot({
+        knownOrdersDB: {
+            '1000': { id: '1000', status: 'Новый' },
+            '2000': { id: '2000', status: 'Оплачен' }
+        },
+        knownOrdersHashDB: {
+            '1000': 'hash-1',
+            '2000': 'hash-2'
+        },
+        windowOrdersDB: {
+            '1000': { id: '1000', status: 'Новый' }
+        },
+        windowOrdersHashDB: {
+            '1000': 'hash-1'
+        },
+        notificationTargets: {
+            'notification-1': { orderId: '1000' }
+        },
+        workerTabId: 42,
+        lastBaselineDate: 'Wed Jun 10 2026',
+        isRunning: true,
+        monitorState: 'active',
+        lastDeepSyncAt: 1700000000000,
+        userConfig: {
+            monitorMode: 'windowed'
+        },
+        pendingRebaseline: true,
+        pendingSyncReason: 'scope-change',
+        collectionSession: {
+            mode: 'deep',
+            startedAt: 1700000000001,
+            lastActivityAt: 1700000000002,
+            advanceAttempts: 2,
+            orders: {
+                '1000': { id: '1000' },
+                '2000': { id: '2000' }
+            },
+            isComplete: false,
+            completionReason: null,
+            currentPage: 2,
+            lastCollectedPage: 2,
+            nextPage: 3,
+            seenKnownOrder: true,
+            processedPages: {
+                2: true,
+                1: true
+            }
+        },
+        lastCollectionMetadata: {
+            syncReason: 'normal',
+            pagesCollected: 2
+        },
+        eventJournal: [
+            { id: 'entry-1' },
+            { id: 'entry-2' }
+        ]
+    });
+
+    assert.equal(snapshot.isRunning, true);
+    assert.equal(snapshot.monitorState, 'active');
+    assert.equal(snapshot.monitorMode, 'windowed');
+    assert.equal(snapshot.workerTabId, 42);
+    assert.equal(snapshot.hasWorkerTab, true);
+    assert.equal(snapshot.pendingRebaseline, true);
+    assert.equal(snapshot.pendingSyncReason, 'scope-change');
+    assert.equal(snapshot.knownOrdersCount, 2);
+    assert.equal(snapshot.knownHashesCount, 2);
+    assert.equal(snapshot.windowOrdersCount, 1);
+    assert.equal(snapshot.windowHashesCount, 1);
+    assert.equal(snapshot.notificationTargetsCount, 1);
+    assert.equal(snapshot.eventJournalCount, 2);
+    assert.equal(snapshot.lastBaselineDate, 'Wed Jun 10 2026');
+    assert.equal(snapshot.lastDeepSyncAt, 1700000000000);
+    assert.equal(snapshot.collectionSession.ordersCount, 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.collectionSession.processedPages)), ['1', '2']);
+    assert.equal(snapshot.lastCollectionMetadata.pagesCollected, 2);
+    assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'knownOrdersDB'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'windowOrdersDB'), false);
+});
+
+test('monitor status snapshot handles empty state safely', () => {
+    const context = loadBackgroundContext();
+    const snapshot = context.createMonitorStatusSnapshot({});
+
+    assert.equal(snapshot.isRunning, false);
+    assert.equal(snapshot.monitorState, 'uninitialized');
+    assert.equal(snapshot.monitorMode, 'windowed');
+    assert.equal(snapshot.workerTabId, null);
+    assert.equal(snapshot.hasWorkerTab, false);
+    assert.equal(snapshot.knownOrdersCount, 0);
+    assert.equal(snapshot.windowOrdersCount, 0);
+    assert.equal(snapshot.eventJournalCount, 0);
+    assert.equal(snapshot.collectionSession, null);
+    assert.equal(snapshot.lastCollectionMetadata, null);
+});

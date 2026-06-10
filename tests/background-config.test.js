@@ -1255,3 +1255,95 @@ test('GET_EVENT_JOURNAL returns newest journal entries with filters', async () =
         }
     ]);
 });
+
+
+test('GET_MONITOR_STATUS returns readonly diagnostic snapshot', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        knownOrdersDB: {
+            '1000': createOrder({ id: '1000' }),
+            '2000': createOrder({ id: '2000' })
+        },
+        knownOrdersHashDB: {
+            '1000': 'hash-1',
+            '2000': 'hash-2'
+        },
+        windowOrdersDB: {
+            '1000': createOrder({ id: '1000' })
+        },
+        windowOrdersHashDB: {
+            '1000': 'hash-1'
+        },
+        notificationTargets: {
+            'notification-1': {
+                orderId: '1000',
+                orderUrl: 'https://amperkot.ru/admin/orders/1000/'
+            }
+        },
+        workerTabId: 77,
+        lastBaselineDate: 'Wed Jun 10 2026',
+        isRunning: true,
+        monitorState: 'active',
+        lastDeepSyncAt: 1700000000000,
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed'
+        }),
+        pendingRebaseline: true,
+        pendingSyncReason: 'scope-change',
+        collectionSession: {
+            mode: 'deep',
+            startedAt: 1700000000001,
+            lastActivityAt: 1700000000002,
+            advanceAttempts: 1,
+            orders: {
+                '1000': createOrder({ id: '1000' })
+            },
+            isComplete: false,
+            completionReason: null,
+            currentPage: 1,
+            lastCollectedPage: 1,
+            nextPage: 2,
+            seenKnownOrder: true,
+            processedPages: {
+                1: true
+            }
+        },
+        lastCollectionMetadata: {
+            syncReason: 'scope-change',
+            pagesCollected: 1
+        },
+        eventJournal: [
+            { id: 'entry-1' },
+            { id: 'entry-2' }
+        ]
+    });
+
+    const storageSetCallsBefore = context.__test.storageSetCalls.length;
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'GET_MONITOR_STATUS'
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.status.isRunning, true);
+    assert.equal(response.status.monitorState, 'active');
+    assert.equal(response.status.monitorMode, 'windowed');
+    assert.equal(response.status.workerTabId, 77);
+    assert.equal(response.status.hasWorkerTab, true);
+    assert.equal(response.status.pendingRebaseline, true);
+    assert.equal(response.status.pendingSyncReason, 'scope-change');
+    assert.equal(response.status.knownOrdersCount, 2);
+    assert.equal(response.status.knownHashesCount, 2);
+    assert.equal(response.status.windowOrdersCount, 1);
+    assert.equal(response.status.windowHashesCount, 1);
+    assert.equal(response.status.notificationTargetsCount, 1);
+    assert.equal(response.status.eventJournalCount, 2);
+    assert.equal(response.status.lastBaselineDate, 'Wed Jun 10 2026');
+    assert.equal(response.status.lastDeepSyncAt, 1700000000000);
+    assert.equal(response.status.collectionSession.ordersCount, 1);
+    assert.equal(response.status.lastCollectionMetadata.syncReason, 'scope-change');
+    assert.equal(Object.prototype.hasOwnProperty.call(response.status, 'knownOrdersDB'), false);
+    assert.equal(context.__test.storageSetCalls.length, storageSetCallsBefore);
+});
