@@ -691,6 +691,180 @@ windowOrdersHashDB: {},
     );
 });
 
+
+test('deep sync completion returns worker to first page', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'initial',
+        lastDeepSyncAt: 0,
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        windowOrdersDB: {},
+        windowOrdersHashDB: {},
+        collectionSession: {
+            mode: 'deep',
+            startedAt: 1700000000000,
+            lastActivityAt: 1700000000000,
+            advanceAttempts: 9,
+            orders: {
+                page1: createOrder({ id: 'page1' })
+            },
+            isComplete: false,
+            completionReason: null,
+            currentPage: 9,
+            lastCollectedPage: 9,
+            nextPage: 10,
+            seenKnownOrder: false,
+            processedPages: {
+                1: true,
+                9: true
+            }
+        },
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            rules: {},
+            monitorScope: {
+                status: ['6806'],
+                delivery: ['9797'],
+                payment: ['9791'],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 10,
+            isComplete: false,
+            data: [createOrder({ id: 'page10' })]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/?page=10#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(state.collectionSession, null);
+    assert.equal(state.monitorState, 'active');
+    assert.equal(state.lastCollectionMetadata.sessionMode, 'deep');
+    assert.equal(state.lastCollectionMetadata.pagesCollected, 10);
+    assert.equal(state.lastCollectionMetadata.ordersCollected, 2);
+    assert.equal(context.__test.tabUpdates.length, 1);
+    assert.equal(
+        context.__test.tabUpdates[0].updateInfo.url,
+        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791#tab_wanderer_worker=1'
+    );
+});
+
+test('fast cycle redirects stale non-first worker page without processing it', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const currentOrder = createOrder({
+        id: 'known',
+        status: 'Новый'
+    });
+    const stalePageOrder = createOrder({
+        id: 'known',
+        status: 'Оплачен'
+    });
+    const previousMetadata = {
+        syncReason: 'initial',
+        sessionMode: 'deep',
+        pagesCollected: 10,
+        ordersCollected: 300
+    };
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        pendingRebaseline: false,
+        lastDeepSyncAt: Date.now(),
+        knownOrdersDB: {
+            known: currentOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, currentOrder)
+        },
+        windowOrdersDB: {
+            known: currentOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, currentOrder)
+        },
+        lastCollectionMetadata: previousMetadata,
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            rules: {},
+            monitorScope: {
+                status: ['6806'],
+                delivery: ['9797'],
+                payment: ['9791'],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 10,
+            isComplete: false,
+            data: [stalePageOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/?page=10#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(response.collecting, true);
+    assert.equal(response.redirected, true);
+    assert.equal(response.stalePage, true);
+    assert.equal(state.knownOrdersDB.known.status, 'Новый');
+    assert.deepEqual(state.lastCollectionMetadata, previousMetadata);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(context.__test.tabUpdates.length, 1);
+    assert.equal(
+        context.__test.tabUpdates[0].updateInfo.url,
+        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791#tab_wanderer_worker=1'
+    );
+});
+
 test('START creates worker tab with URL from current monitorScope and enters warming', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

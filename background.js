@@ -206,6 +206,24 @@ function resetCollectionSession() {
     collectionSession = null;
 }
 
+function isFastCollectionPageMismatch(sessionMode, page) {
+    return sessionMode === 'fast' && Number(page) !== 1;
+}
+
+async function returnWorkerToFirstPageAfterDeepSession(session) {
+    if (session?.mode !== 'deep') {
+        return false;
+    }
+
+    const ok = await goToCollectionPage(1);
+
+    if (ok) {
+        log('INFO', 'COLLECTION', 'returned worker to page 1 after deep session');
+    }
+
+    return ok;
+}
+
 function shouldStartDeepSync() {
     return getCollectionPolicy().deepSyncDue;
 }
@@ -1237,6 +1255,26 @@ if (msg.type === 'ORDERS') {
 
         const isEmptyDB = Object.keys(windowOrdersDB).length === 0;
     const meta = normalizeOrdersMessageMeta(msg);
+    const sessionMode = getCollectionSessionMode();
+
+if (isFastCollectionPageMismatch(sessionMode, meta.page)) {
+    log('WARN', 'COLLECTION', 'fast session received non-first page, redirecting worker', {
+        page: meta.page,
+        sessionMode
+    });
+
+    resetCollectionSession();
+
+    const redirected = await goToCollectionPage(1);
+
+    send({
+        ok: true,
+        collecting: true,
+        redirected,
+        stalePage: true
+    });
+    return;
+}
 
 const session = ensureCollectionSession();
 const collected = collectPageIntoSession(session, msg.data, meta.page);
@@ -1263,14 +1301,23 @@ if (!decision.complete) {
 }
 
 const snapshot = completeCollectionSession(session, decision.reason);
+const shouldReturnToFirstPage = session?.mode === 'deep';
 
 if (pendingRebaseline) {
     runBaseline(snapshot, pendingSyncReason || SYNC_REASONS.INITIAL);
+
+    if (shouldReturnToFirstPage) {
+        await returnWorkerToFirstPageAfterDeepSession(session);
+    }
 } else if (isEmptyDB || !shouldEmitEvents()) {
     runBaseline(
         snapshot,
         hasKnownOrders() ? SYNC_REASONS.WINDOW_SYNC : SYNC_REASONS.INITIAL
     );
+
+    if (shouldReturnToFirstPage) {
+        await returnWorkerToFirstPageAfterDeepSession(session);
+    }
 } else {
     const syncReason = SYNC_REASONS.NORMAL;
 
@@ -1280,6 +1327,7 @@ if (pendingRebaseline) {
 
     if (session?.mode === 'deep') {
         applyWindowSnapshot(snapshot);
+        await returnWorkerToFirstPageAfterDeepSession(session);
     }
 
     resetCollectionSession();
