@@ -521,3 +521,74 @@ test('monitor status snapshot handles empty state safely', () => {
     assert.equal(snapshot.collectionSession, null);
     assert.equal(snapshot.lastCollectionMetadata, null);
 });
+
+test('diagnostic log helpers sanitize sensitive payloads', () => {
+    const context = loadBackgroundContext();
+
+    const entry = context.createDiagnosticLogEntry({
+        createdAt: 1700000000000,
+        level: 'warn',
+        scope: 'COLLECTION',
+        message: 'failed to parse payload',
+        details: {
+            orderId: '1000-300326',
+            page: 2,
+            phoneNormalized: '79213241566',
+            order: {
+                id: '1000-300326',
+                status: 'Новый'
+            },
+            changedFields: ['status', 'payment']
+        }
+    });
+
+    assert.equal(entry.level, 'WARN');
+    assert.equal(entry.scope, 'COLLECTION');
+    assert.equal(entry.message, 'failed to parse payload');
+    assert.equal(entry.details.orderId, '1000-300326');
+    assert.equal(entry.details.page, 2);
+    assert.equal(entry.details.phoneNormalized, '[redacted]');
+    assert.equal(entry.details.order, '[redacted]');
+    assert.deepEqual(JSON.parse(JSON.stringify(entry.details.changedFields)), ['status', 'payment']);
+});
+
+test('diagnostic log snapshot returns newest entries with filters and limit', () => {
+    const context = loadBackgroundContext();
+
+    const snapshot = context.getDiagnosticLogSnapshot(
+        [
+            { id: '1', createdAt: 1, level: 'INFO', scope: 'CONTROL', message: 'START' },
+            { id: '2', createdAt: 2, level: 'WARN', scope: 'COLLECTION', message: 'timeout' },
+            { id: '3', createdAt: 3, level: 'WARN', scope: 'WORKER', message: 'dead' }
+        ],
+        {
+            level: 'WARN',
+            limit: 1
+        }
+    );
+
+    assert.equal(snapshot.storedTotal, 3);
+    assert.equal(snapshot.total, 2);
+    assert.equal(snapshot.returned, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries)), [
+        { id: '3', createdAt: 3, level: 'WARN', scope: 'WORKER', message: 'dead' }
+    ]);
+});
+
+test('diagnostic log append keeps newest entries within limit', () => {
+    const context = loadBackgroundContext();
+
+    const log = context.appendDiagnosticLogEntry(
+        [
+            { id: '1' },
+            { id: '2' }
+        ],
+        { id: '3' },
+        2
+    );
+
+    assert.deepEqual(JSON.parse(JSON.stringify(log)), [
+        { id: '2' },
+        { id: '3' }
+    ]);
+});

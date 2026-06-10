@@ -171,6 +171,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/sync-model.js', context);
     runScript('core/event-journal.js', context);
     runScript('core/monitor-status.js', context);
+    runScript('core/diagnostic-log.js', context);
     runScript('background.js', context);
     return context;
 }
@@ -201,6 +202,8 @@ function setBackgroundState(context, state = {}) {
         monitorDictionaries = __testState.monitorDictionaries ?? null;
         lastCollectionMetadata = __testState.lastCollectionMetadata ?? null;
         eventJournal = Array.isArray(__testState.eventJournal) ? __testState.eventJournal : [];
+        diagnosticLog = Array.isArray(__testState.diagnosticLog) ? __testState.diagnosticLog : [];
+        isDiagnosticLogReady = __testState.isDiagnosticLogReady ?? true;
     `);
 
     delete context.__testState;
@@ -224,7 +227,8 @@ function getBackgroundState(context) {
         collectionSession,
         monitorDictionaries,
         lastCollectionMetadata,
-        eventJournal
+        eventJournal,
+        diagnosticLog
     })`);
 
     return JSON.parse(snapshot);

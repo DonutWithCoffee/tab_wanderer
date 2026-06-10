@@ -1491,8 +1491,16 @@ test('GET_MONITOR_STATUS returns readonly diagnostic snapshot', async () => {
         eventJournal: [
             { id: 'entry-1' },
             { id: 'entry-2' }
+        ],
+        diagnosticLog: [
+            { id: 'log-1' },
+            { id: 'log-2' },
+            { id: 'log-3' }
         ]
     });
+
+    context.__test.storageSetCalls.length = 0;
+    await settleBackgroundContext();
 
     const storageSetCallsBefore = context.__test.storageSetCalls.length;
 
@@ -1514,10 +1522,63 @@ test('GET_MONITOR_STATUS returns readonly diagnostic snapshot', async () => {
     assert.equal(response.status.windowHashesCount, 1);
     assert.equal(response.status.notificationTargetsCount, 1);
     assert.equal(response.status.eventJournalCount, 2);
+    assert.equal(response.status.diagnosticLogCount, 3);
     assert.equal(response.status.lastBaselineDate, 'Wed Jun 10 2026');
     assert.equal(response.status.lastDeepSyncAt, 1700000000000);
     assert.equal(response.status.collectionSession.ordersCount, 1);
     assert.equal(response.status.lastCollectionMetadata.syncReason, 'scope-change');
     assert.equal(Object.prototype.hasOwnProperty.call(response.status, 'knownOrdersDB'), false);
     assert.equal(context.__test.storageSetCalls.length, storageSetCallsBefore);
+});
+
+
+test('GET_DIAGNOSTIC_LOG returns newest diagnostic entries with filters', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        diagnosticLog: [
+            { id: '1', createdAt: 1, level: 'INFO', scope: 'CONTROL', message: 'START', details: null },
+            { id: '2', createdAt: 2, level: 'WARN', scope: 'COLLECTION', message: 'timeout', details: { page: 2 } },
+            { id: '3', createdAt: 3, level: 'WARN', scope: 'WORKER', message: 'dead', details: { tabId: 77 } }
+        ]
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            level: 'WARN',
+            limit: 1
+        }
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.storedTotal, 3);
+    assert.equal(response.total, 2);
+    assert.equal(response.returned, 1);
+    assert.equal(response.limit, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(response.entries)), [
+        { id: '3', createdAt: 3, level: 'WARN', scope: 'WORKER', message: 'dead', details: { tabId: 77 } }
+    ]);
+});
+
+test('CLEAR_DIAGNOSTIC_LOG clears persistent diagnostic log', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        diagnosticLog: [
+            { id: '1', createdAt: 1, level: 'INFO', scope: 'CONTROL', message: 'START', details: null }
+        ]
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'CLEAR_DIAGNOSTIC_LOG'
+    });
+    const state = getBackgroundState(context);
+    const lastStorageSet = context.__test.storageSetCalls[context.__test.storageSetCalls.length - 1];
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.diagnosticLog)), []);
+    assert.deepEqual(JSON.parse(JSON.stringify(lastStorageSet.diagnosticLog)), []);
 });

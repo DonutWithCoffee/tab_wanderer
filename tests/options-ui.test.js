@@ -35,6 +35,15 @@ class FakeElement extends FakeEventTarget {
         this.value = '';
         this.checked = false;
         this.disabled = false;
+        this.href = '';
+        this.download = '';
+        this.clicked = false;
+        this.style = {};
+    }
+
+    click() {
+        this.clicked = true;
+        this.dispatchEvent({ type: 'click', target: this });
     }
 }
 
@@ -42,6 +51,11 @@ class FakeDocument extends FakeEventTarget {
     constructor() {
         super();
         this.elements = new Map();
+        this.createdElements = [];
+        this.body = {
+            appendChild: () => {},
+            removeChild: () => {}
+        };
     }
 
     registerElement(id) {
@@ -52,6 +66,13 @@ class FakeDocument extends FakeEventTarget {
 
     getElementById(id) {
         return this.elements.get(id) || null;
+    }
+
+    createElement(tagName) {
+        const element = new FakeElement(String(tagName || '').toLowerCase());
+        element.tagName = String(tagName || '').toUpperCase();
+        this.createdElements.push(element);
+        return element;
     }
 }
 
@@ -91,7 +112,13 @@ function createOptionsDom() {
         'optionsDiagnosticsSync',
         'optionsDiagnosticsCollection',
         'optionsRefreshDiagnostics',
-        'optionsDiagnosticsStatus'
+        'optionsDiagnosticsStatus',
+        'optionsRefreshDiagnosticLog',
+        'optionsCopyDiagnosticLog',
+        'optionsDownloadDiagnosticLog',
+        'optionsClearDiagnosticLog',
+        'optionsDiagnosticLogStatus',
+        'optionsDiagnosticLogPreview'
     ]) {
         document.registerElement(id);
     }
@@ -150,6 +177,7 @@ function loadOptionsContext(overrides = {}) {
         windowHashesCount: 10,
         notificationTargetsCount: 1,
         eventJournalCount: 4,
+        diagnosticLogCount: 2,
         lastBaselineDate: 'Wed Jun 10 2026',
         lastDeepSyncAt: 1700000000000,
         lastCollectionMetadata: {
@@ -167,6 +195,33 @@ function loadOptionsContext(overrides = {}) {
             advanceAttempts: 1
         }
     };
+    const defaultDiagnosticLog = {
+        ok: true,
+        storedTotal: 2,
+        total: 2,
+        returned: 2,
+        limit: 100,
+        entries: [
+            {
+                createdAt: 1700000001000,
+                level: 'WARN',
+                scope: 'WATCHDOG',
+                message: 'worker dead restarting',
+                details: {
+                    tabId: 77
+                }
+            },
+            {
+                createdAt: 1700000000000,
+                level: 'INFO',
+                scope: 'CONTROL',
+                message: 'START',
+                details: {
+                    syncReason: 'manual-start'
+                }
+            }
+        ]
+    };
     const document = createOptionsDom();
     const getConfigResponse = overrides.getConfigResponse || (() => ({
         ok: true,
@@ -177,6 +232,17 @@ function loadOptionsContext(overrides = {}) {
         ok: true,
         status: JSON.parse(JSON.stringify(defaultMonitorStatus))
     }));
+    const getDiagnosticLogResponse = overrides.getDiagnosticLogResponse || (() => JSON.parse(JSON.stringify(defaultDiagnosticLog)));
+    const clearDiagnosticLogResponse = overrides.clearDiagnosticLogResponse || (() => ({ ok: true }));
+    const clipboardWrites = [];
+    const navigator = overrides.navigator || {
+        clipboard: {
+            writeText: (text) => {
+                clipboardWrites.push(text);
+                return Promise.resolve();
+            }
+        }
+    };
 
     const context = {
         console: {
@@ -186,8 +252,10 @@ function loadOptionsContext(overrides = {}) {
         },
         document,
         window: {},
+        navigator,
         chrome: {
             runtime: {
+                getManifest: () => ({ version: '0.9.8-test' }),
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
@@ -201,6 +269,14 @@ function loadOptionsContext(overrides = {}) {
                         response = getMonitorStatusResponse(msg);
                     }
 
+                    if (msg.type === 'GET_DIAGNOSTIC_LOG') {
+                        response = getDiagnosticLogResponse(msg);
+                    }
+
+                    if (msg.type === 'CLEAR_DIAGNOSTIC_LOG') {
+                        response = clearDiagnosticLogResponse(msg);
+                    }
+
                     if (typeof callback === 'function') {
                         callback(response);
                     }
@@ -212,7 +288,9 @@ function loadOptionsContext(overrides = {}) {
             document,
             defaultConfig,
             defaultDictionaries,
-            defaultMonitorStatus
+            defaultMonitorStatus,
+            defaultDiagnosticLog,
+            clipboardWrites
         }
     };
 
@@ -263,7 +341,15 @@ test('options page contains readonly config summary placeholders', () => {
     assert.match(html, /id="optionsDiagnosticsCollection"/);
     assert.match(html, /id="optionsRefreshDiagnostics"/);
     assert.match(html, /id="optionsDiagnosticsStatus"/);
+    assert.match(html, /id="optionsRefreshDiagnosticLog"/);
+    assert.match(html, /id="optionsCopyDiagnosticLog"/);
+    assert.match(html, /id="optionsDownloadDiagnosticLog"/);
+    assert.match(html, /id="optionsClearDiagnosticLog"/);
+    assert.match(html, /id="optionsDiagnosticLogStatus"/);
+    assert.match(html, /id="optionsDiagnosticLogPreview"/);
     assert.match(html, /Read-only snapshot текущего состояния расширения/);
+    assert.match(html, /Persistent local log для удалённой поддержки/);
+    assert.match(html, /Download \.txt/);
     assert.match(html, /<script src="options\.js"><\/script>/);
 });
 
@@ -273,6 +359,7 @@ test('options page loads current config summary without updating config', () => 
 
     assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
+    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
         assert.equal(
         document.getElementById('optionsMonitorModeSelect').value,
@@ -353,6 +440,22 @@ test('options page loads current config summary without updating config', () => 
     assert.equal(
         document.getElementById('optionsDiagnosticsStatus').innerText,
         'Диагностика загружена.'
+    );
+    assert.equal(
+        document.getElementById('optionsDiagnosticLogStatus').innerText,
+        'Лог загружен: 2 из 2 записей.'
+    );
+    assert.match(
+        document.getElementById('optionsDiagnosticLogPreview').innerText,
+        /tab_wanderer diagnostic log/
+    );
+    assert.match(
+        document.getElementById('optionsDiagnosticLogPreview').innerText,
+        /Version: 0\.9\.8-test/
+    );
+    assert.match(
+        document.getElementById('optionsDiagnosticLogPreview').innerText,
+        /WARN WATCHDOG worker dead restarting/
     );
 });
 
@@ -574,6 +677,106 @@ test('options page shows diagnostics load error when GET_MONITOR_STATUS fails', 
     assert.equal(
         context.__test.document.getElementById('optionsDiagnosticsStatus').innerText,
         'Не удалось загрузить диагностику.'
+    );
+});
+
+
+test('options page refreshes diagnostic log on demand', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const refreshBtn = document.getElementById('optionsRefreshDiagnosticLog');
+
+    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
+
+    refreshBtn.dispatchEvent({
+        type: 'click',
+        target: refreshBtn
+    });
+
+    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 2);
+    assert.equal(
+        document.getElementById('optionsDiagnosticLogStatus').innerText,
+        'Лог загружен: 2 из 2 записей.'
+    );
+});
+
+test('options page clears diagnostic log and reloads diagnostics', () => {
+    const context = loadOptionsContext({
+        getDiagnosticLogResponse: () => ({
+            ok: true,
+            storedTotal: 0,
+            total: 0,
+            returned: 0,
+            limit: 100,
+            entries: []
+        })
+    });
+    const clearBtn = context.__test.document.getElementById('optionsClearDiagnosticLog');
+
+    clearBtn.dispatchEvent({
+        type: 'click',
+        target: clearBtn
+    });
+
+    assert.equal(getSentMessagesByType(context, 'CLEAR_DIAGNOSTIC_LOG').length, 1);
+    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 2);
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
+    assert.match(
+        context.__test.document.getElementById('optionsDiagnosticLogPreview').innerText,
+        /No diagnostic log entries\./
+    );
+});
+
+test('options page prepares diagnostic log txt download', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const downloadBtn = document.getElementById('optionsDownloadDiagnosticLog');
+
+    downloadBtn.dispatchEvent({
+        type: 'click',
+        target: downloadBtn
+    });
+
+    const createdLink = document.createdElements.find((element) => element.tagName === 'A');
+
+    assert.ok(createdLink);
+    assert.match(createdLink.download, /^tab_wanderer-diagnostic-log-.*\.txt$/);
+    assert.match(createdLink.href, /^data:text\/plain;charset=utf-8,/);
+    assert.equal(createdLink.clicked, true);
+    assert.equal(
+        document.getElementById('optionsDiagnosticLogStatus').innerText,
+        'Файл лога подготовлен для скачивания.'
+    );
+});
+
+test('options page copies diagnostic log when clipboard is available', async () => {
+    const context = loadOptionsContext();
+    const copyBtn = context.__test.document.getElementById('optionsCopyDiagnosticLog');
+
+    copyBtn.dispatchEvent({
+        type: 'click',
+        target: copyBtn
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(context.__test.clipboardWrites.length, 1);
+    assert.match(context.__test.clipboardWrites[0], /tab_wanderer diagnostic log/);
+    assert.equal(
+        context.__test.document.getElementById('optionsDiagnosticLogStatus').innerText,
+        'Лог скопирован в буфер обмена.'
+    );
+});
+
+test('options page shows diagnostic log load error when GET_DIAGNOSTIC_LOG fails', () => {
+    const context = loadOptionsContext({
+        getDiagnosticLogResponse: () => ({ ok: false })
+    });
+
+    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
+    assert.equal(
+        context.__test.document.getElementById('optionsDiagnosticLogStatus').innerText,
+        'Не удалось загрузить диагностический лог.'
     );
 });
 

@@ -154,6 +154,23 @@
             color: #333;
             line-height: 1.45;
         }
+
+        .log-preview {
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 180px;
+            margin: 12px 0 0;
+            padding: 12px;
+            overflow: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f8f8f8;
+            color: #222;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 12px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
@@ -306,6 +323,21 @@
                 <button id="optionsRefreshDiagnostics">Refresh diagnostics</button>
             </div>
             <p id="optionsDiagnosticsStatus" class="muted">Загрузка диагностики...</p>
+        </section>
+
+        <section class="card">
+            <h2>Диагностический лог</h2>
+            <p class="muted">
+                Persistent local log для удалённой поддержки. Не содержит телефоны, HTML, cookies или полный payload заказов.
+            </p>
+            <div class="actions-row">
+                <button id="optionsRefreshDiagnosticLog">Refresh log</button>
+                <button id="optionsCopyDiagnosticLog">Copy log</button>
+                <button id="optionsDownloadDiagnosticLog">Download .txt</button>
+                <button id="optionsClearDiagnosticLog">Clear log</button>
+            </div>
+            <p id="optionsDiagnosticLogStatus" class="muted">Загрузка диагностического лога...</p>
+            <pre id="optionsDiagnosticLogPreview" class="log-preview">—</pre>
         </section>
 
         <section class="card">

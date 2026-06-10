@@ -53,6 +53,7 @@ function createMonitorStatusSnapshot(state = {}) {
     const userConfig = state.userConfig || {};
     const workerTabId = state.workerTabId ?? null;
     const eventJournal = Array.isArray(state.eventJournal) ? state.eventJournal : [];
+    const diagnosticLog = Array.isArray(state.diagnosticLog) ? state.diagnosticLog : [];
 
     return {
         isRunning: state.isRunning === true,
@@ -68,6 +69,7 @@ function createMonitorStatusSnapshot(state = {}) {
         windowHashesCount: countObjectKeys(state.windowOrdersHashDB),
         notificationTargetsCount: countObjectKeys(state.notificationTargets),
         eventJournalCount: eventJournal.length,
+        diagnosticLogCount: diagnosticLog.length,
         lastBaselineDate: state.lastBaselineDate || null,
         lastDeepSyncAt: Number(state.lastDeepSyncAt) || 0,
         lastCollectionMetadata: state.lastCollectionMetadata

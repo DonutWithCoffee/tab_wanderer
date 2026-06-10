@@ -22,6 +22,8 @@ let currentConfig = {};
 let currentDictionaries = {};
 let draftMonitorMode = 'windowed';
 let draftNotificationTriggers = getNotificationTriggers({});
+let currentMonitorStatus = null;
+let lastDiagnosticLogText = '';
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -435,6 +437,7 @@ function buildCollectionSessionText(session) {
 }
 
 function renderMonitorDiagnostics(status = {}) {
+    currentMonitorStatus = status || {};
     setText(
         'optionsDiagnosticsRuntime',
         [
@@ -511,6 +514,263 @@ function bindDiagnosticsActions() {
     }
 }
 
+
+function padDatePart(value) {
+    return String(value).padStart(2, '0');
+}
+
+function formatTimestamp(value) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return '—';
+    }
+
+    const date = new Date(numeric);
+
+    if (Number.isNaN(date.getTime())) {
+        return '—';
+    }
+
+    return [
+        date.getFullYear(),
+        '-',
+        padDatePart(date.getMonth() + 1),
+        '-',
+        padDatePart(date.getDate()),
+        ' ',
+        padDatePart(date.getHours()),
+        ':',
+        padDatePart(date.getMinutes()),
+        ':',
+        padDatePart(date.getSeconds())
+    ].join('');
+}
+
+function getExtensionVersion() {
+    try {
+        if (chrome?.runtime?.getManifest) {
+            return chrome.runtime.getManifest().version || 'unknown';
+        }
+    } catch {}
+
+    return 'unknown';
+}
+
+function stringifyDiagnosticDetails(details) {
+    if (details === null || details === undefined) {
+        return '';
+    }
+
+    if (typeof details === 'string') {
+        return details;
+    }
+
+    try {
+        return JSON.stringify(details);
+    } catch {
+        return String(details);
+    }
+}
+
+function formatDiagnosticLogEntry(entry = {}) {
+    const detailsText = stringifyDiagnosticDetails(entry.details);
+    const base = [
+        `[${formatTimestamp(entry.createdAt)}]`,
+        getTextValue(entry.level, 'INFO'),
+        getTextValue(entry.scope, 'GENERAL'),
+        getTextValue(entry.message, '')
+    ]
+        .filter(Boolean)
+        .join(' ');
+
+    return detailsText ? `${base} ${detailsText}` : base;
+}
+
+function buildMonitorStatusLogHeader(status = {}) {
+    return [
+        `Version: ${getExtensionVersion()}`,
+        `Generated: ${formatTimestamp(Date.now())}`,
+        `Monitor: running=${getYesNo(status.isRunning === true)}; state=${getTextValue(status.monitorState, 'uninitialized')}; mode=${getTextValue(status.monitorMode, 'windowed')}`,
+        `Worker: ${getYesNo(status.hasWorkerTab === true)}; tabId=${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`,
+        `Orders: known=${getNumber(status.knownOrdersCount)}; window=${getNumber(status.windowOrdersCount)}; hashes=${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}`,
+        `Logs: diagnostic=${getNumber(status.diagnosticLogCount)}; history=${getNumber(status.eventJournalCount)}`
+    ];
+}
+
+function buildDiagnosticLogText(snapshot = {}, status = currentMonitorStatus || {}) {
+    const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
+    const header = [
+        'tab_wanderer diagnostic log',
+        ...buildMonitorStatusLogHeader(status),
+        `Returned log entries: ${getNumber(snapshot.returned)} / ${getNumber(snapshot.total)}`,
+        ''
+    ];
+
+    if (!entries.length) {
+        return [
+            ...header,
+            'No diagnostic log entries.'
+        ].join('\n');
+    }
+
+    return [
+        ...header,
+        ...entries.map(formatDiagnosticLogEntry)
+    ].join('\n');
+}
+
+function renderDiagnosticLog(snapshot = {}) {
+    lastDiagnosticLogText = buildDiagnosticLogText(snapshot);
+    setText('optionsDiagnosticLogPreview', lastDiagnosticLogText);
+    setText(
+        'optionsDiagnosticLogStatus',
+        `Лог загружен: ${getNumber(snapshot.returned)} из ${getNumber(snapshot.total)} записей.`
+    );
+}
+
+function loadDiagnosticLog() {
+    setText('optionsDiagnosticLogStatus', 'Загрузка диагностического лога...');
+
+    send({
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            limit: 100
+        }
+    }, (res) => {
+        if (!res?.ok) {
+            setText('optionsDiagnosticLogStatus', 'Не удалось загрузить диагностический лог.');
+            return;
+        }
+
+        renderDiagnosticLog(res);
+    });
+}
+
+function copyDiagnosticLog() {
+    const text = lastDiagnosticLogText || '';
+
+    if (!text) {
+        setText('optionsDiagnosticLogStatus', 'Лог ещё не загружен.');
+        return;
+    }
+
+    const clipboard = globalThis.navigator?.clipboard;
+
+    if (!clipboard?.writeText) {
+        setText('optionsDiagnosticLogStatus', 'Копирование недоступно в этом браузере. Используй Download .txt.');
+        return;
+    }
+
+    clipboard.writeText(text)
+        .then(() => {
+            setText('optionsDiagnosticLogStatus', 'Лог скопирован в буфер обмена.');
+        })
+        .catch(() => {
+            setText('optionsDiagnosticLogStatus', 'Не удалось скопировать лог. Используй Download .txt.');
+        });
+}
+
+function buildDiagnosticLogFilename() {
+    const stamp = formatTimestamp(Date.now())
+        .replace(/[-:]/g, '')
+        .replace(/\s+/g, '-');
+
+    return `tab_wanderer-diagnostic-log-${stamp}.txt`;
+}
+
+function downloadTextFile(filename, text) {
+    if (!document?.createElement) {
+        return false;
+    }
+
+    const link = document.createElement('a');
+
+    if (!link) {
+        return false;
+    }
+
+    link.href = `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`;
+    link.download = filename;
+
+    if (link.style) {
+        link.style.display = 'none';
+    }
+
+    if (document.body?.appendChild) {
+        document.body.appendChild(link);
+    }
+
+    if (typeof link.click === 'function') {
+        link.click();
+    }
+
+    if (document.body?.removeChild) {
+        document.body.removeChild(link);
+    }
+
+    return true;
+}
+
+function downloadDiagnosticLog() {
+    const text = lastDiagnosticLogText || '';
+
+    if (!text) {
+        setText('optionsDiagnosticLogStatus', 'Лог ещё не загружен.');
+        return;
+    }
+
+    const downloaded = downloadTextFile(buildDiagnosticLogFilename(), text);
+
+    setText(
+        'optionsDiagnosticLogStatus',
+        downloaded ? 'Файл лога подготовлен для скачивания.' : 'Не удалось подготовить файл лога.'
+    );
+}
+
+function clearDiagnosticLog() {
+    send({ type: 'CLEAR_DIAGNOSTIC_LOG' }, (res) => {
+        if (!res?.ok) {
+            setText('optionsDiagnosticLogStatus', 'Не удалось очистить диагностический лог.');
+            return;
+        }
+
+        loadDiagnosticLog();
+        loadMonitorDiagnostics();
+    });
+}
+
+function bindDiagnosticLogActions() {
+    const refreshBtn = document.getElementById('optionsRefreshDiagnosticLog');
+    const copyBtn = document.getElementById('optionsCopyDiagnosticLog');
+    const downloadBtn = document.getElementById('optionsDownloadDiagnosticLog');
+    const clearBtn = document.getElementById('optionsClearDiagnosticLog');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadDiagnosticLog();
+        });
+    }
+
+    if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+            copyDiagnosticLog();
+        });
+    }
+
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', () => {
+            downloadDiagnosticLog();
+        });
+    }
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            clearDiagnosticLog();
+        });
+    }
+}
+
 function loadConfigSummary() {
     setText('optionsLoadStatus', 'Загрузка текущих настроек...');
 
@@ -534,6 +794,8 @@ document.addEventListener('DOMContentLoaded', () => {
     bindMonitorModeEditor();
     bindNotificationTriggersEditor();
     bindDiagnosticsActions();
+    bindDiagnosticLogActions();
     loadConfigSummary();
     loadMonitorDiagnostics();
+    loadDiagnosticLog();
 });

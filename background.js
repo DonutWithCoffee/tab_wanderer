@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -17,6 +17,9 @@ let collectionSession = null;
 let monitorDictionaries = null;
 let lastCollectionMetadata = null;
 let eventJournal = [];
+let diagnosticLog = [];
+let diagnosticLogFlushTimer = null;
+let isDiagnosticLogReady = false;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -339,9 +342,86 @@ function shouldLog(level) {
     return LEVELS[level] >= LEVELS[LOG_LEVEL];
 }
 
+function getDiagnosticLogMessage(args = []) {
+    const parts = [];
+
+    for (const arg of args) {
+        if (arg === null || arg === undefined) continue;
+
+        if (typeof arg === 'string' || typeof arg === 'number' || typeof arg === 'boolean') {
+            parts.push(String(arg));
+        }
+    }
+
+    return parts.join(' ') || 'event';
+}
+
+function getDiagnosticLogDetails(args = []) {
+    const objectArgs = args.filter(arg => arg && typeof arg === 'object');
+
+    if (!objectArgs.length) {
+        return null;
+    }
+
+    if (objectArgs.length === 1) {
+        return sanitizeDiagnosticLogDetails(objectArgs[0]);
+    }
+
+    return sanitizeDiagnosticLogDetails({ args: objectArgs });
+}
+
+function flushDiagnosticLog() {
+    if (!isDiagnosticLogReady) {
+        return;
+    }
+
+    chrome.storage.local.set({ diagnosticLog }).catch((err) => {
+        console.error('[BG][ERROR][DIAGNOSTIC_LOG]', err?.message || err);
+    });
+}
+
+function scheduleDiagnosticLogFlush(level) {
+    if (!isDiagnosticLogReady || !shouldPersistDiagnosticLogLevel(level)) {
+        return;
+    }
+
+    if (diagnosticLogFlushTimer) {
+        return;
+    }
+
+    const delay = normalizeDiagnosticLogLevel(level) === 'ERROR'
+        || normalizeDiagnosticLogLevel(level) === 'WARN'
+        ? 0
+        : 1000;
+
+    diagnosticLogFlushTimer = setTimeout(() => {
+        diagnosticLogFlushTimer = null;
+        flushDiagnosticLog();
+    }, delay);
+}
+
+function persistDiagnosticLog(level, scope, args = []) {
+    if (!isDiagnosticLogReady || !shouldPersistDiagnosticLogLevel(level)) {
+        return;
+    }
+
+    const entry = createDiagnosticLogEntry({
+        level,
+        scope,
+        message: getDiagnosticLogMessage(args),
+        details: getDiagnosticLogDetails(args)
+    });
+
+    diagnosticLog = appendDiagnosticLogEntry(diagnosticLog, entry);
+    scheduleDiagnosticLogFlush(level);
+}
+
 function log(level, scope, ...args) {
-    if (!shouldLog(level)) return;
-    console.log(`[BG][${level}][${scope}]`, ...args);
+    if (shouldLog(level)) {
+        console.log(`[BG][${level}][${scope}]`, ...args);
+    }
+
+    persistDiagnosticLog(level, scope, args);
 }
 
 log('INFO', 'VERSION', VERSION);
@@ -367,6 +447,7 @@ function logState(scope = 'STATE') {
         pendingSyncReason,
         lastCollectionMetadata,
         totalEventJournalEntries: Array.isArray(eventJournal) ? eventJournal.length : 0,
+        totalDiagnosticLogEntries: Array.isArray(diagnosticLog) ? diagnosticLog.length : 0,
         lastEventJournalEntry: Array.isArray(eventJournal) && eventJournal.length
             ? eventJournal[eventJournal.length - 1]
             : null,
@@ -452,7 +533,8 @@ function getMonitorStatusSnapshot() {
         pendingSyncReason,
         collectionSession,
         lastCollectionMetadata,
-        eventJournal
+        eventJournal,
+        diagnosticLog
     });
 }
 
@@ -539,7 +621,8 @@ async function save() {
         collectionSession,
         monitorDictionaries,
         lastCollectionMetadata,
-        eventJournal
+        eventJournal,
+        diagnosticLog
     });
 
     logState('SAVE');
@@ -562,7 +645,8 @@ async function load() {
         'collectionSession',
         'monitorDictionaries',
         'lastCollectionMetadata',
-        'eventJournal'
+        'eventJournal',
+        'diagnosticLog'
     ]);
 
     knownOrdersDB = d.knownOrdersDB || {};
@@ -581,6 +665,8 @@ async function load() {
     monitorDictionaries = d.monitorDictionaries || null;
     lastCollectionMetadata = d.lastCollectionMetadata || null;
     eventJournal = normalizeEventJournal(d.eventJournal);
+    diagnosticLog = normalizeDiagnosticLog(d.diagnosticLog);
+    isDiagnosticLogReady = true;
 
     workerTabId = null;
 
@@ -1085,6 +1171,21 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     ok: true,
                     status: getMonitorStatusSnapshot()
                 });
+                return;
+            }
+
+            if (msg.type === 'GET_DIAGNOSTIC_LOG') {
+                send({
+                    ok: true,
+                    ...getDiagnosticLogSnapshot(diagnosticLog, msg.options || {})
+                });
+                return;
+            }
+
+            if (msg.type === 'CLEAR_DIAGNOSTIC_LOG') {
+                diagnosticLog = [];
+                await chrome.storage.local.set({ diagnosticLog });
+                send({ ok: true });
                 return;
             }
 
