@@ -643,3 +643,47 @@ test('monitor scope log summary hides raw predicate details', () => {
     assert.equal(Object.prototype.hasOwnProperty.call(summary, 'ozonOnly'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(summary, 'juridicalOnly'), false);
 });
+
+
+test('config log summary hides raw config details and keeps support counts', () => {
+    const context = loadBackgroundContext();
+
+    const summary = context.getConfigLogSummary({
+        monitorMode: 'active',
+        deepSyncMaxPages: 999,
+        monitorScope: {
+            status: ['6806'],
+            delivery: ['9797'],
+            payment: [],
+            predicates: {
+                ozonOnly: true,
+                juridicalOnly: true
+            }
+        },
+        notificationTriggers: {
+            newOrders: true,
+            changedOrders: true,
+            changedFields: {
+                status: true,
+                delivery: false,
+                payment: false,
+                city: true,
+                tags: true
+            }
+        }
+    });
+
+    assert.equal(summary.monitorMode, 'active');
+    assert.equal(summary.deepSyncMaxPages, 50);
+    assert.equal(summary.monitorScope.scope, 'filtered');
+    assert.equal(summary.monitorScope.statusCount, 1);
+    assert.equal(summary.monitorScope.deliveryCount, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(summary.monitorScope, 'predicates'), false);
+    assert.equal(summary.notificationTriggers.newOrders, true);
+    assert.equal(summary.notificationTriggers.changedOrders, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(summary.notificationTriggers.enabledChangedFields)), [
+        'status',
+        'city'
+    ]);
+    assert.equal(Object.prototype.hasOwnProperty.call(summary, 'rules'), false);
+});

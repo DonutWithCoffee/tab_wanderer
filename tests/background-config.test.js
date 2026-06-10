@@ -1990,3 +1990,72 @@ test('UPDATE_CONFIG diagnostic log stores sanitized config summaries', async () 
     assert.equal(Object.prototype.hasOwnProperty.call(configEntry.details.monitorScope, 'predicates'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(configEntry.details, 'monitorScopeSignature'), false);
 });
+
+
+test('deep collection page navigation is console-only while completion stays persistent', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'warming',
+        workerTabId: 77,
+        pendingRebaseline: true,
+        pendingSyncReason: 'recovery',
+        lastDeepSyncAt: 0,
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 2,
+            monitorScope: createDefaultMonitorScope()
+        }),
+        diagnosticLog: []
+    });
+
+    const sender = {
+        tab: {
+            id: 77,
+            url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+        }
+    };
+
+    const firstResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: false,
+            data: [createOrder({ id: 'page-1-order' })]
+        },
+        sender
+    );
+
+    const secondResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 2,
+            isComplete: false,
+            data: [createOrder({ id: 'page-2-order' })]
+        },
+        sender
+    );
+
+    const logResponse = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            scope: 'COLLECTION',
+            order: 'oldest-first',
+            limit: 20
+        }
+    });
+
+    const entries = JSON.parse(JSON.stringify(logResponse.entries));
+    const messages = entries.map(entry => entry.message);
+
+    assert.equal(firstResponse.ok, true);
+    assert.equal(firstResponse.advanced, true);
+    assert.equal(secondResponse.ok, true);
+    assert.equal(logResponse.ok, true);
+    assert.equal(messages.includes('navigated to page 2'), false);
+    assert.equal(messages.includes('session completed'), true);
+});

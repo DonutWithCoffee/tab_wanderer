@@ -223,6 +223,62 @@ function getDiagnosticLogSnapshot(log, options = {}) {
     };
 }
 
+
+function getDiagnosticArrayCount(value) {
+    return Array.isArray(value) ? value.length : 0;
+}
+
+function getMonitorScopeLogSummary(monitorScope = {}) {
+    const safeScope = monitorScope || {};
+    const summary = {
+        statusCount: getDiagnosticArrayCount(safeScope.status),
+        deliveryCount: getDiagnosticArrayCount(safeScope.delivery),
+        paymentCount: getDiagnosticArrayCount(safeScope.payment),
+        orderFlagsCount: getDiagnosticArrayCount(safeScope.orderFlags),
+        storeCount: getDiagnosticArrayCount(safeScope.store),
+        reserveCount: getDiagnosticArrayCount(safeScope.reserve),
+        assemblyStatusCount: getDiagnosticArrayCount(safeScope.assemblyStatus)
+    };
+
+    const selectedTotal = Object.values(summary).reduce((total, count) => total + count, 0);
+
+    return {
+        scope: selectedTotal > 0 ? 'filtered' : 'all',
+        ...summary
+    };
+}
+
+function getNotificationTriggerLogSummary(notificationTriggers = {}) {
+    const triggers = typeof normalizeNotificationTriggers === 'function'
+        ? normalizeNotificationTriggers(notificationTriggers)
+        : (notificationTriggers || {});
+    const changedFields = triggers.changedFields || {};
+    const enabledChangedFields = Object.entries(changedFields)
+        .filter(([, enabled]) => enabled === true)
+        .map(([field]) => field);
+
+    return {
+        newOrders: triggers.newOrders === true,
+        changedOrders: triggers.changedOrders === true,
+        enabledChangedFieldsCount: enabledChangedFields.length,
+        enabledChangedFields
+    };
+}
+
+function getConfigLogSummary(config = {}) {
+    const safeConfig = config || {};
+    const deepSyncMaxPages = typeof normalizeDeepSyncMaxPages === 'function'
+        ? normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages)
+        : Number(safeConfig.deepSyncMaxPages) || 50;
+
+    return {
+        monitorMode: safeConfig.monitorMode === 'active' ? 'active' : 'windowed',
+        deepSyncMaxPages,
+        monitorScope: getMonitorScopeLogSummary(safeConfig.monitorScope),
+        notificationTriggers: getNotificationTriggerLogSummary(safeConfig.notificationTriggers)
+    };
+}
+
 globalThis.DIAGNOSTIC_LOG_LEVELS = DIAGNOSTIC_LOG_LEVELS;
 globalThis.DEFAULT_DIAGNOSTIC_LOG_LIMIT = DEFAULT_DIAGNOSTIC_LOG_LIMIT;
 globalThis.DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT = DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT;
@@ -238,3 +294,7 @@ globalThis.normalizeDiagnosticLog = normalizeDiagnosticLog;
 globalThis.appendDiagnosticLogEntry = appendDiagnosticLogEntry;
 globalThis.matchesDiagnosticLogFilter = matchesDiagnosticLogFilter;
 globalThis.getDiagnosticLogSnapshot = getDiagnosticLogSnapshot;
+globalThis.getDiagnosticArrayCount = getDiagnosticArrayCount;
+globalThis.getMonitorScopeLogSummary = getMonitorScopeLogSummary;
+globalThis.getNotificationTriggerLogSummary = getNotificationTriggerLogSummary;
+globalThis.getConfigLogSummary = getConfigLogSummary;
