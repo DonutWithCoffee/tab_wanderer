@@ -1,154 +1,278 @@
 # tab_wanderer
 
-Расширение Chrome для мониторинга заказов в админке Amperkot.
+Chrome extension для мониторинга заказов в админке Amperkot.
+
+`tab_wanderer` работает как локальный наблюдатель за потоком заказов: собирает snapshot заказов через изолированную worker-вкладку, сравнивает текущее состояние с известным состоянием, пишет события в локальную историю и показывает уведомления по настройкам пользователя.
 
 ---
 
-## 📌 Назначение
+## Текущий статус
 
-`tab_wanderer` — это system-level observer потока заказов.
+```text
+Стадия разработки: 0.9.7 late stage / переход к 0.9.8
+Manifest version: 0.9.6 до следующего release bump
+Следующий этап: 0.9.8 Observability + Refactor
+```
+
+Roadmap вынесен в отдельный файл:
+
+```text
+docs/roadmap.md
+```
+
+---
+
+## Назначение
 
 Плагин отслеживает:
 
-- появление новых заказов
-- изменения уже известных заказов
-- изменения в верхнем рабочем окне заказов
-- значимые события только в рамках выбранного monitor scope
+- появление новых заказов;
+- изменения известных заказов;
+- изменения в рабочем окне заказов глубже первой страницы;
+- историю событий заказа в локальном журнале;
+- уведомления только по выбранным notification triggers.
 
 ---
 
-## ⚙️ Как это работает
+## Основная модель
 
-Система использует двухконтурный режим мониторинга:
+Система разделяет сбор данных, события и уведомления.
+
+```text
+monitorScope
+→ какие заказы физически попадают в наблюдение
+
+order event model
+→ какие изменения считаются событием
+
+notificationTriggers
+→ какие события создают уведомление
+```
+
+Важно: `notificationTriggers` не блокируют обновление состояния и запись истории. Они управляют только показом уведомлений.
+
+---
+
+## Worker tab
+
+Мониторинг выполняется через отдельную worker-вкладку.
+
+Правила:
+
+```text
+worker определяется marker + tabId
+URL reuse запрещён
+нельзя брать произвольную admin-вкладку с похожим URL
+```
+
+Это нужно потому, что менеджер может работать в другой вкладке админки с тем же URL.
+
+---
+
+## Collection model
+
+Система использует два контура сбора:
 
 ### Fast poll
-- каждые 15 секунд
-- проверяется только первая страница заказов
-- используется для быстрого обнаружения новых заказов и свежих изменений
+
+```text
+каждые 15 секунд
+страница 1
+быстро ловит свежие изменения
+```
 
 ### Deep sync
-- каждые 5 минут
-- собирается окно до 10 страниц
-- используется для синхронизации рабочего окна заказов без уведомлений
+
+```text
+каждые 5 минут
+до 10 страниц
+pagination через ?page=N
+синхронизирует рабочее окно заказов глубже первой страницы
+```
+
+Empty page не используется как обычное условие остановки, потому что валидные страницы админки заказов должны содержать хотя бы один заказ.
 
 ---
 
-## 🧠 Архитектурная модель
+## Monitor modes
 
-Система работает на основе trusted snapshot model:
+```text
+windowed
+→ page 1 fast poll + периодический deep sync
 
-- baseline строится только из полного snapshot
-- partial данные не участвуют в diff
-- события разрешены только в состоянии `active`
-
-### Monitor state
-- `uninitialized`
-- `warming`
-- `active`
-
-### Collection model
-- URL-driven pagination через `?page=N`
-- collection session
-- duplicate page protection
-- timeout protection
-- retry-limit protection
-
-### Data model
-Система разделяет:
-
-- `knownOrdersDB` — долговременная память о заказах
-- `windowOrdersDB` — текущее активное окно заказов
-
-Это позволяет корректно отличать:
-
-- новый заказ
-- старый известный заказ, вернувшийся в окно
+active
+→ page 1 only, без deep sync
+```
 
 ---
 
-## 🔔 Уведомления
+## State model
 
-Уведомления приходят при:
+Система хранит две разные модели состояния:
 
-- появлении нового заказа
-- изменении известного заказа в активном fast cycle
+```text
+knownOrdersDB
+→ долговременная память всех известных заказов
 
-Deep sync уведомления не генерирует.
+windowOrdersDB
+→ текущее наблюдаемое окно заказов
+```
+
+`knownOrdersDB` не должен очищаться при baseline/rebaseline. Scope/mode changes перестраивают текущее окно сравнения, но не стирают глобальную память известных заказов.
+
+---
+
+## Event model
+
+Event fields:
+
+```text
+status
+delivery
+payment
+city
+tags
+```
+
+Только эти поля участвуют в event fingerprint, `changedFields`, history и notification triggers.
+
+Context/search fields:
+
+```text
+id
+internalId
+orderUrl
+date
+phoneNormalized
+totalAmount
+productsDone
+productsTotal
+manager
+contractor
+hasAutoreserve
+```
+
+Эти поля могут храниться для контекста, поиска и отображения, но не создают события и уведомления.
+
+---
+
+## Sync reasons
+
+Система различает причины синхронизации:
+
+```text
+initial
+manual-start
+recovery
+stale-resume
+scope-change
+mode-change
+window-sync
+normal
+```
+
+Это нужно для корректной истории, диагностики и будущего catch-up поведения после долгого простоя.
+
+---
+
+## Event journal / History
+
+В проект добавлен локальный event journal.
+
+Он хранит:
+
+```text
+orderId
+eventType
+eventKind
+syncReason
+changedFields
+diff было → стало
+order context
+notification decision
+coverage metadata
+```
+
+Доступ к журналу:
+
+```text
+GET_EVENT_JOURNAL
+```
+
+Также добавлена минимальная `history.html` skeleton page. Это технический скелет без финальной UI/UX-полировки.
+
+---
+
+## Уведомления
+
+Уведомления создаются для событий, которые прошли notification decision model.
+
+Текущие trigger-группы:
+
+```text
+newOrders
+changedOrders
+changedFields:
+  status
+  delivery
+  payment
+  city
+  tags
+```
 
 При клике на уведомление открывается карточка заказа.
 
 ---
 
-## 🏷 Метки в уведомлениях
+## Настройки
 
-Некоторые заказы дополнительно помечаются:
+В popup/options доступны:
 
-- **(ОЗОН)** — если контрагент `OZON (ОЗОН)`
-- **(Юрик)** — если тип оплаты `Безналичный расчет для юридических лиц`
+```text
+START / STOP
+monitorMode
+monitorScope
+notificationTriggers
+history skeleton access
+```
 
----
-
-## ⚙️ Настройки
-
-В popup доступны:
-
-- **START / STOP**
-- monitor scope:
-  - статус
-  - доставка
-  - оплата
-- правила игнорирования:
-  - Игнорировать ОЗОН
-  - Игнорировать юриков
-
-Monitor scope формирует URL запрос к админке и ограничивает входной поток данных.
+`monitorScope` должен быть похож на фильтры админки, чтобы сотрудникам не приходилось учить отдельную модель.
 
 ---
 
-## 🔄 Поведение системы
+## Тесты
 
-### При запуске
-- создаётся worker tab
-- система входит в `warming`
-- собирается baseline
-- только после этого система переходит в `active`
+Запуск:
 
-### При изменении config или scope
-- назначается rebaseline
-- события временно блокируются
-- строится новый trusted snapshot
+```bash
+npm test
+```
 
-### При сбое / перезапуске
-- diff не вычисляется на потерянном состоянии
-- система повторно строит baseline
-- затем возвращается в `active`
+Test runner печатает итоговую строку:
 
----
+```text
+N pass 0 fail
+```
 
-## 🧩 Слои системы
+Текущий последний подтверждённый результат после history skeleton:
 
-- **Core** — lifecycle, collection, baseline, diff
-- **Rules** — decision layer для notify / ignore
-- **Config/UI** — настройки пользователя
-- **Monitor Scope** — ограничение входного потока заказов
+```text
+91 pass 0 fail
+```
 
 ---
 
-## 📦 Версия
+## Документация
 
-Текущий статус:
+Основные документы проекта:
 
-```txt
-0.9.6
-deep collection complete
+```text
+readme.md
+→ краткое описание текущей версии
 
-## ✅ Реализовано в 0.9.6
-monitorState
-collectionSession
-URL-driven pagination
-fast/deep collection policy
-known/window split
-duplicate page protection
-collection timeout
-retry-limit
-trusted snapshot flow
+docs/project-context.md
+→ living contract / замена старых Message 51
+
+docs/roadmap.md
+→ roadmap от текущего состояния до 1.0 и post-1.0
+```

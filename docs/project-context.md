@@ -1,8 +1,8 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: после `0.9.7.6 / Step 2`.
+Актуально на момент: после `0.9.7 history skeleton` и перед входом в `0.9.8 Observability + Refactor`.
 
-Этот документ заменяет старый `Message 51` и используется как living document для переноса контекста между чатами.
+Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами.
 
 В новом чате использовать этот файл как основной контракт проекта. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -19,26 +19,32 @@
 ```text
 0.9.5 — Stabilization + Test Hardening ✅
 0.9.6 — Deep Collection ✅
-0.9.7 — Scope UX + Event/Notification Model 🔥
+0.9.7 — Scope UX + Event/History Foundation ✅ / checkpoint stage
+0.9.8 — Observability + Refactor ⏭ next
+1.0 — Stable Monitoring Release ⏳
 ```
 
 Текущая точка:
 
 ```text
-0.9.7.6 / Step 2 ✅
-Notification Triggers UI добавлен
-Changed field controls отключаются, когда changedOrders выключен
+0.9.7 late stage / transition to 0.9.8
 ```
 
-Последние коммиты:
+Последние завершённые slices:
 
 ```text
-4b27522 fix(popup): disable changed field controls when changes are off
-dbb57b6 feat(popup): add notification trigger controls
-4501f6d refactor(rules): remove hardcoded notification presets
-edee8b2 test(core): cover notification trigger state updates
-23e4517 feat(rules): apply notification trigger settings
-8c1dec2 feat(config): add notification trigger defaults
+fix(core): align tracked order state fields
+feat(core): add sync reason and coverage metadata foundation
+feat(core): add event journal foundation
+feat(core): expose event journal for history
+feat(history): add history page skeleton
+chore(repo): normalize text file line endings
+```
+
+Последний подтверждённый тестовый результат:
+
+```text
+91 pass 0 fail
 ```
 
 ---
@@ -54,21 +60,25 @@ edee8b2 test(core): cover notification trigger state updates
 4. Уменьшать шум уведомлений
 5. Позволять сотруднику управлять тем, какие заказы отслеживать
 6. Позволять сотруднику управлять тем, какие изменения должны уведомлять
-7. Сохранять стабильность при reload/restart браузера
-8. В будущем — автоматизировать отдельные действия, включая Ozon barcode binding
+7. Сохранять историю изменения заказов
+8. Сохранять стабильность при reload/restart браузера
+9. В будущем — централизовать сбор событий и добавить отдельные automation/action features
 ```
 
 Ключевое разделение:
 
 ```text
 monitorScope
-→ какие заказы попадают в наблюдение
+→ какие заказы физически попадают в наблюдение
+
+order event model
+→ какие изменения считаются событием
 
 notificationTriggers
 → какие события/изменения создают уведомления
 ```
 
-Это две разные модели. Их нельзя смешивать.
+Эти модели нельзя смешивать.
 
 ---
 
@@ -77,12 +87,15 @@ notificationTriggers
 Обязательные слои:
 
 ```text
-core
+core / domain model
 rules / notification decision
 config
 monitorScope
 collection policy
-popup UX
+sync model
+event journal
+popup/options/history UI
+Chrome runtime edge
 ```
 
 Жёсткие правила:
@@ -90,13 +103,15 @@ popup UX
 ```text
 UI не источник логики
 rules не влияют на сбор данных
+notificationTriggers не влияют на state update
 scope не смешивается с notificationTriggers
 config не содержит runtime state
 worker определяется marker + tabId
 URL reuse запрещён
 partial diff запрещён
-events вне active запрещены
-baseline/rebaseline/recovery не генерируют events
+baseline/rebaseline не должны создавать notification flood
+Chrome APIs держать на краях
+новую domain logic постепенно выносить из background.js
 ```
 
 Всегда выбирать:
@@ -117,27 +132,37 @@ Worker tab:
 нельзя reuse URL как identity
 ```
 
-Причина: в другом admin-tab может быть такой же URL, и это не worker.
+Причина: менеджер может работать в другой admin-tab с таким же URL, и это не worker.
 
 ---
 
-## 5. Trusted Snapshot Model
+## 5. Trusted Snapshot / State Model
 
-Истина системы:
+Система разделяет:
 
 ```text
-разница между двумя полными trusted snapshots
+knownOrdersDB
+→ долговременная память обо всех известных заказах
+
+windowOrdersDB
+→ текущее наблюдаемое окно заказов
 ```
 
 Правила:
 
 ```text
-baseline только из полного snapshot
+knownOrdersDB не очищается при baseline/rebaseline
+windowOrdersDB может перестраиваться из нового snapshot
 partial snapshot не используется для diff
-baseline не генерирует events
-rebaseline не генерирует events
-recovery не генерирует events
-active monitoring генерирует events
+scope/mode change не должен стирать глобальную память известных заказов
+```
+
+Baseline/rebaseline:
+
+```text
+строит trusted snapshot
+обновляет current window
+не должен создавать false notification flood
 ```
 
 ---
@@ -152,120 +177,224 @@ warming
 active
 ```
 
-Правила:
+Смысл:
 
 ```text
-warming → baseline phase
-active → events разрешены
-вне active events запрещены
+uninitialized → монитор выключен / нет активного наблюдения
+warming → worker/baseline/rebaseline phase
+active → нормальное сравнение snapshot и запись событий
 ```
 
 ---
 
-## 7. Baseline Model
-
-Типы baseline:
-
-```text
-initial baseline
-rebaseline
-deep baseline
-recovery baseline
-```
-
-Правила:
-
-```text
-baseline = полный snapshot
-baseline не уведомляет
-baseline обновляет DB/hash/window state
-```
-
----
-
-## 8. Collection Model
-
-Режимы:
-
-```text
-fast cycle
-deep sync
-```
+## 7. Collection Model
 
 Fast cycle:
 
 ```text
 page 1
-быстрый polling
+polling каждые 15 секунд
+быстро ловит свежие изменения
 ```
 
 Deep sync:
 
 ```text
 pagination через ?page=N
-до лимита страниц
-используется для full-depth monitoring
+до 10 страниц
+каждые 5 минут
+синхронизирует рабочее окно заказов глубже первой страницы
 ```
 
-Текущая модель:
+Monitor modes:
 
 ```text
-windowed mode:
+windowed:
   fast + deep sync
 
-active mode:
+active:
   page 1 only
   deep sync не запускается
 ```
 
----
-
-## 9. Event Model
-
-Актуальная модель:
+Important:
 
 ```text
-events зависят от phase, а не от fast/deep
+empty page не является обычным stop condition
+не останавливаться только из-за встречи известного заказа
 ```
 
-Не генерируют events:
+---
+
+## 8. Event Field Contract
+
+Event fields:
 
 ```text
-initial baseline
-rebaseline
+status
+delivery
+payment
+city
+tags
+```
+
+Только эти поля участвуют в:
+
+```text
+event fingerprint
+changedFields
+history diff
+notificationTriggers.changedFields
+```
+
+Context/search fields:
+
+```text
+id
+internalId
+orderUrl
+date
+phoneNormalized
+totalAmount
+productsDone
+productsTotal
+manager
+contractor
+hasAutoreserve
+```
+
+Context/search fields могут храниться и отображаться, но не создают события и уведомления.
+
+Ignored/noise fields:
+
+```text
+shipmentDateText
+hasOrderFlag
+user column
+```
+
+Причины:
+
+```text
+shipmentDateText содержит countdown/noise
+hasOrderFlag не нужен текущему поведению
+user column не идентифицирует клиента
+```
+
+---
+
+## 9. Sync Reason Model
+
+Sync reasons:
+
+```text
+initial
+manual-start
 recovery
-warming phase
+stale-resume
+scope-change
+mode-change
+window-sync
+normal
 ```
 
-Генерируют events:
+Зачем:
 
 ```text
-fast cycle в active
-deep sync в active
-```
-
-Event context:
-
-```text
-eventType:
-  new-order
-  order-changed
-
-changedFields:
-  status
-  delivery
-  payment
-  contractor
-  date
-  shipmentDateText
-  hasOrderFlag
-  hasAutoreserve
-  tags
+отличать первый запуск от ручного старта
+отличать обычное recovery от stale resume
+отличать scope/mode changes
+строить корректную историю и diagnostics
+готовить будущий catch-up behavior
 ```
 
 ---
 
-## 10. Notification Decision Model
+## 10. Event Journal
+
+Core file:
+
+```text
+core/event-journal.js
+```
+
+Journal entry хранит:
+
+```text
+orderId
+eventType
+eventKind
+syncReason
+changedFields
+diff было → стало
+order context
+prevHash/newHash
+monitorMode
+monitorScopeSignature
+coverage metadata
+notification decision
+```
+
+Event kinds:
+
+```text
+live
+catch-up
+scope-catch-up
+```
+
+Storage/read limits:
+
+```text
+stored journal limit: 500
+read default limit: 100
+```
+
+Runtime access:
+
+```text
+GET_EVENT_JOURNAL
+```
+
+Фильтры чтения:
+
+```text
+orderId
+eventType
+eventKind
+limit
+```
+
+---
+
+## 11. History Page
+
+Добавлена минимальная history page skeleton:
+
+```text
+history.html
+history.js
+tests/history-ui.test.js
+```
+
+Назначение skeleton:
+
+```text
+проверить цепочку eventJournal → GET_EVENT_JOURNAL → UI
+показать последние события
+показать простой diff было → стало
+```
+
+Важно:
+
+```text
+не разгонять UI/UX сейчас
+детальную полировку history page делать совместно с пользователем в pre-1.0 stage
+```
+
+---
+
+## 12. Notification Decision Model
 
 Точка входа:
 
@@ -273,26 +402,7 @@ changedFields:
 evaluateNotification(order, eventContext, config)
 ```
 
-Старая hardcoded rules-engine модель удалена.
-
-Удалено:
-
-```text
-DEFAULT_CONFIG.rules
-NOTIFICATION_IGNORE_RULES
-ignoreOzon
-ignoreJurics
-ignoreLegalEntityBankTransfer
-hardcoded notification presets
-```
-
 Текущая модель:
-
-```text
-notificationTriggers
-```
-
-Структура:
 
 ```js
 notificationTriggers: {
@@ -302,26 +412,25 @@ notificationTriggers: {
         status: true,
         delivery: true,
         payment: true,
-        contractor: false,
-        date: false,
-        shipmentDateText: true,
-        hasOrderFlag: true,
-        hasAutoreserve: true,
+        city: true,
         tags: true
     }
 }
 ```
 
-Правило:
+Правила:
 
 ```text
 notificationTriggers suppress notification only
 DB/hash/window state всегда обновляются
+eventJournal пишет события независимо от подавления уведомления
 ```
+
+Hardcoded production rules for Ozon/Jurics were temporary and should not be preserved as product architecture.
 
 ---
 
-## 11. Monitor Scope
+## 13. Monitor Scope
 
 Назначение:
 
@@ -339,21 +448,27 @@ orderFlags[]
 store[]
 reserve[]
 assemblyStatus[]
-predicates:
-  ozonOnly
-  juridicalOnly
+predicates
 ```
 
 Scope change:
 
 ```text
-вызывает rebaseline
-блокирует events на rebaseline phase
+назначает syncReason = scope-change
+перестраивает наблюдаемое окно
+не должен стирать knownOrdersDB
+не должен создавать notification flood
+```
+
+UX direction:
+
+```text
+monitorScope должен быть похож на фильтры админки
 ```
 
 ---
 
-## 12. Popup UX
+## 14. Popup / Options UX
 
 Popup использует draft/apply/reset модель.
 
@@ -372,6 +487,7 @@ dirty state отображается в UI
 Monitor Mode
 Monitor Scope
 Notification Triggers
+History navigation
 Actions
 ```
 
@@ -384,9 +500,7 @@ Notification Triggers UI:
   Статус
   Доставка
   Оплата
-  Дата отгрузки
-  Флаг заказа
-  Авторезерв
+  Город
   Теги
 ```
 
@@ -398,13 +512,11 @@ checked values сохраняются
 при повторном включении changedOrders поля снова enabled
 ```
 
-`contractor` и `date` пока не показаны в UI, но остаются в config.
-
 ---
 
-## 13. Parser Contract
+## 15. Parser Contract
 
-Парсер извлекает:
+Парсер должен извлекать:
 
 ```text
 id / internalId
@@ -413,24 +525,30 @@ delivery
 payment
 contractor
 date / primary date
-shipmentDateText
 orderUrl
-flags / tags
-hasOrderFlag
+tags
+city
+phoneNormalized
+totalAmount
+productsDone
+productsTotal
+manager
 hasAutoreserve
 ```
 
-Важное изменение:
+Правила:
 
 ```text
-date-cell tags отделены от date
-date hash не должен ловить шум тегов
-tags могут понадобиться в будущем
+date-cell tags отделять от date
+shipment countdown noise не включать в event model
+phone хранить normalized only
+totalAmount хранить numeric only
+products progress хранить как productsDone/productsTotal
 ```
 
 ---
 
-## 14. Tests
+## 16. Tests
 
 Тесты фиксируют behavior contract, а не реализацию.
 
@@ -441,84 +559,57 @@ tags могут понадобиться в будущем
 каждый баг → тест
 ```
 
-Текущий test runner печатает итоговую строку:
+Запуск:
+
+```bash
+npm test
+```
+
+Runner печатает:
 
 ```text
 N pass 0 fail
 ```
 
-Перед коммитом достаточно одного зелёного `npm test` после финальной версии файлов.
+Перед commit достаточно одного зелёного `npm test` после финальной версии файлов.
 
 Повторный `npm test` нужен только если после зелёного теста были новые правки, merge/rebase/conflict или сомнение в состоянии файлов.
 
 ---
 
-## 15. Git Workflow
+## 17. Git Workflow
 
 Работаем через Git Bash в VS Code.
 
-Перед commit checkpoint:
+Правила:
+
+```text
+не использовать git add .
+добавлять файлы явно
+коммит = логический behavior/docs slice
+не делать микрокоммиты без необходимости
+```
+
+Перед commit checkpoint при необходимости:
 
 ```bash
-git status
+git status --short
 git diff --name-only
 git diff --stat
 git diff --check
 ```
 
-Полный `git diff` по умолчанию не нужен.
-
-Если нужен, смотреть точечно:
+Commit/push после зелёных тестов или docs-only changes:
 
 ```bash
-git diff -- popup.js
+git add <explicit files>
+git commit -m "type(scope): message"
+git push origin main
 ```
-
-Не давать одним copy-paste блоком:
-
-```text
-status/diff + commit + push
-```
-
-Сначала checkpoint. Только после подтверждения — commit/push.
-
-Коммит = логический behavior, не каждый микрошаг.
-
-Маленькие шаги допустимы, но можно группировать в один commit, если они закрывают один behavior.
 
 ---
 
-## 16. Local Archive Workflow
-
-Для передачи актуального кода можно использовать архив:
-
-```bash
-git archive --format=zip --output=tab_wanderer_current.zip HEAD
-```
-
-Рекомендуемый alias:
-
-```bash
-git config alias.twzip '!f() { rm -f tab_wanderer_current.zip && git archive --format=zip --output=tab_wanderer_current.zip HEAD; }; f'
-```
-
-Использование:
-
-```bash
-git twzip
-```
-
-Локальный ignore для архива:
-
-```bash
-echo "/tab_wanderer_current.zip" >> .git/info/exclude
-```
-
-`tab_wanderer_current.zip` не должен попадать в commit.
-
----
-
-## 17. Communication Contract
+## 18. Communication Contract
 
 Стиль:
 
@@ -538,235 +629,81 @@ echo "/tab_wanderer_current.zip" >> .git/info/exclude
 Код
 ```
 
-Запрещено:
+Пользователь предпочитает:
 
 ```text
-писать код без анализа
-давать псевдокод вместо copy-ready code
-давать примерный код
-перескакивать через проверку
+готовые полные файлы вместо мелких patch snippets
+малые безопасные implementation steps
+архитектурные решения от ассистента
+русский язык для документации и project contracts
 ```
 
-Формат точечных изменений:
+Если актуальный код неизвестен:
 
 ```text
-Файл: <path>
-
-было:
-<код>
-
-стало:
-<код>
-```
-
-При полной перезаписи файла:
-
-```text
-Файл: <path>
-
-только финальная версия
-без "было"
+спросить нужные файлы списком
+не угадывать реализацию
 ```
 
 ---
 
-## 18. Roadmap
+## 19. Roadmap
 
-### 0.9.5 — Stabilization + Test Hardening ✅
-
-Завершено.
+Основной roadmap вынесен в отдельный файл:
 
 ```text
-core stabilization
-test hardening
-parser/hash/date tests
-background process/config tests
-popup draft tests
+docs/roadmap.md
 ```
 
----
-
-### 0.9.6 — Deep Collection ✅
-
-Завершено.
+Кратко:
 
 ```text
-deep collection
-fast/deep cycles
-pagination
-collection session
-monitorState
-baseline/rebaseline
-known/window DB
-monitorMode active/windowed
-```
-
-Tag:
-
-```text
-v0.9.6
-```
-
----
-
-### 0.9.7 — Scope UX + Event/Notification Model 🔥
-
-В работе.
-
-Завершено:
-
-```text
-0.9.7.1 Parser Contract Hardening ✅
-0.9.7.2 Event Model Upgrade ✅
-0.9.7.3 Field-level Change Events ✅
-0.9.7.4 Notification Trigger Settings ✅
-0.9.7.5 Remove Hardcoded Notification Rule Presets ✅
-0.9.7.6 Step 1 Notification Triggers UI ✅
-0.9.7.6 Step 2 Changed-fields UI dependency ✅
-```
-
-Осталось:
-
-```text
-0.9.7.6 Step 3 Scope UX wording / explanation
-0.9.7.6 Step 4 Notification Triggers polish
-0.9.7 final README/version sync
-tag v0.9.7
-```
-
----
-
-### 0.9.8 — Observability + Refactor ⏳
-
-Цель:
-
-```text
-сделать систему объяснимой и удобной для диагностики
-```
-
-План:
-
-```text
-logs:
-  phase
-  eventType
-  changedFields
-  suppress reason
-  baseline reason
-  rebaseline reason
-  collection session state
-
-cleanup:
-  background.js organization
-  helper grouping
-  test helper cleanup
-  parser diagnostics
-```
-
-Ограничение:
-
-```text
-без большого опасного refactor
-только маленькие шаги
-```
-
----
-
-### 1.0 — Stable Monitoring Release ⏳
-
-Definition of Done:
-
-```text
-deterministic core
-trusted snapshot model
-events только в active
-baseline/rebaseline/recovery не уведомляют
-deep sync отслеживает изменения на глубину
-monitorScope управляет входом
-notificationTriggers управляют уведомлениями
-нет hardcoded business rules
-понятный popup UX
-README актуален
-tests green
-release notes
-tag v1.0
-```
-
----
-
-## 19. Post-1.0 Roadmap
-
-### 1.1 — Action Foundation
-
-Перед любыми автоматическими действиями нужны:
-
-```text
-action state
-locks
-queue
-audit log
-manual confirmation model
-error handling
-retry strategy
-```
-
----
-
-### 1.2 — Ozon Barcode Binding
-
-Отложено до отдельного этапа.
-
-Архитектура: отдельно от worker tab.
-
-Планируемые источники:
-
-```text
-активное окно заказа
-страница сборки заказа
-личный кабинет Ozon
-```
-
-Обязательные требования:
-
-```text
-определить, что заказ именно Ozon
-считать товары и штрихкоды со сборки
-искать товар в Ozon по product ID
-показать пользователю товар/штрихкод перед привязкой
-возможно ручное подтверждение
-учитывать минимальную цену товара для barcode binding
-```
-
----
-
-### Later — Firefox Fork
-
-После стабильного Chrome release:
-
-```text
-оценить переносимость
-проверить browser APIs
-подготовить fork при необходимости
+0.9.7 checkpoint docs/smoke test
+0.9.8 Observability + Refactor
+pre-1.0 UI/UX polish with user
+1.0 Stable Monitoring Release
+post-1.0 centralized collector / priority direct follow-up / Ozon barcode binding / Firefox fork
 ```
 
 ---
 
 ## 20. Current Next Step
 
-Текущий следующий шаг после добавления этого документа:
+После обновления документации:
 
 ```text
-1. Add docs/project-context.md
-2. Commit:
-   docs: add project context contract
-3. Move to new chat
-4. In new chat continue:
-   0.9.7.6 Step 3 — Scope UX wording / explanation
+0.9.8 Step 1 — GET_MONITOR_STATUS / diagnostic snapshot
 ```
 
-В новом чате загрузить:
+Цель:
 
 ```text
-docs/project-context.md
-актуальный tab_wanderer_current.zip при необходимости
+read-only monitor status endpoint for diagnostics and smoke tests
+```
+
+Ожидаемые поля:
+
+```text
+isRunning
+monitorState
+hasWorkerTab
+pendingRebaseline
+pendingSyncReason
+monitorMode
+knownOrdersCount
+windowOrdersCount
+eventJournalCount
+lastBaselineDate
+lastDeepSyncAt
+lastCollectionMetadata
+collectionSession summary
+```
+
+Правила:
+
+```text
+только чтение
+не запускать worker
+не менять state
+не создавать notifications
 ```
