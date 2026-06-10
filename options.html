@@ -39,6 +39,11 @@
             font-size: 18px;
         }
 
+        h3 {
+            margin: 0 0 6px;
+            font-size: 14px;
+        }
+
         p {
             line-height: 1.5;
         }
@@ -62,28 +67,6 @@
             background: #f7f9ff;
         }
 
-        ul {
-            margin: 0;
-            padding-left: 20px;
-            line-height: 1.7;
-        }
-
-        h3 {
-            margin: 0 0 6px;
-            font-size: 14px;
-        }
-
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 12px;
-        }
-
-        .summary-value {
-            margin: 0;
-            color: #333;
-        }
-
         .muted {
             color: #666;
         }
@@ -94,21 +77,43 @@
             font-weight: 700;
         }
 
-        select {
+        select,
+        input[type="number"] {
             min-width: 280px;
             padding: 8px;
             font-size: 14px;
         }
 
-        .actions-row {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-        }
-
         button {
             padding: 8px 12px;
             cursor: pointer;
+        }
+
+        details {
+            margin-top: 12px;
+        }
+
+        summary {
+            cursor: pointer;
+            user-select: none;
+            font-weight: 700;
+        }
+
+        .form-grid,
+        .summary-grid,
+        .dictionary-grid,
+        .diagnostics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .summary-value,
+        .dictionary-value,
+        .diagnostics-value {
+            margin: 0;
+            color: #333;
+            line-height: 1.45;
         }
 
         .checkbox-list {
@@ -132,27 +137,11 @@
             font-weight: 400;
         }
 
-        .dictionary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 12px;
-        }
-
-        .dictionary-value {
-            margin: 0;
-            color: #333;
-        }
-
-        .diagnostics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 12px;
-        }
-
-        .diagnostics-value {
-            margin: 0;
-            color: #333;
-            line-height: 1.45;
+        .actions-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
         }
 
         .log-preview {
@@ -179,47 +168,37 @@
             <p class="eyebrow">tab_wanderer</p>
             <h1>Настройки tab_wanderer</h1>
             <p class="lead">
-                Эта страница будет использоваться для расширенных настроек мониторинга и уведомлений.
+                Popup остаётся быстрым пультом. Настройки сохраняются автоматически на этой странице.
             </p>
         </header>
 
-        <section class="card">
-            <h2>Назначение страницы</h2>
-            <p>
-                Popup останется быстрым контролом START / STOP и краткой сводки состояния.
-                Расширенные настройки будут перенесены сюда.
-            </p>
+        <section class="card notice">
+            <h2>Сохранение настроек</h2>
+            <p id="optionsSettingsSaveStatus" class="muted">Загрузка настроек...</p>
         </section>
 
         <section class="card">
-            <h2>Что будет здесь</h2>
-            <ul>
-                <li>Режим мониторинга</li>
-                <li>Область мониторинга</li>
-                <li>Notification triggers</li>
-                <li>Поля изменений</li>
-                <li>Apply / Reset</li>
-            </ul>
-        </section>
-
-                <section class="card">
-            <h2>Режим мониторинга</h2>
+            <h2>Мониторинг</h2>
             <p class="muted">
-                Windowed отслеживает первую страницу и deep sync. Active ограничивается первой страницей.
+                Windowed отслеживает первую страницу и периодически проходит глубже. Active ограничивается первой страницей.
             </p>
-            <label for="optionsMonitorModeSelect">Режим</label>
-            <select id="optionsMonitorModeSelect">
-                <option value="windowed">Windowed: первая страница + deep sync</option>
-                <option value="active">Active: только первая страница</option>
-            </select>
-            <div class="actions-row">
-                <button id="optionsApplyMonitorMode">Apply</button>
-                <button id="optionsResetMonitorMode">Reset</button>
+            <div class="form-grid">
+                <div>
+                    <label for="optionsMonitorModeSelect">Режим</label>
+                    <select id="optionsMonitorModeSelect">
+                        <option value="windowed">Windowed: первая страница + deep sync</option>
+                        <option value="active">Active: только первая страница</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="optionsDeepSyncMaxPages">Глубина deep sync</label>
+                    <input id="optionsDeepSyncMaxPages" type="number" min="1" max="50" step="1">
+                    <p class="muted">Безопасный диапазон: 1–50 страниц. По умолчанию: 30.</p>
+                </div>
             </div>
-            <p id="optionsMonitorModeEditStatus" class="muted">Загрузка текущего режима...</p>
         </section>
 
-                <section class="card">
+        <section class="card">
             <h2>Уведомления</h2>
             <p class="muted">
                 Notification triggers управляют только уведомлениями. Состояние заказа обновляется даже если уведомление подавлено.
@@ -259,18 +238,12 @@
                     Теги
                 </label>
             </div>
-
-            <div class="actions-row">
-                <button id="optionsApplyNotificationTriggers">Apply</button>
-                <button id="optionsResetNotificationTriggers">Reset</button>
-            </div>
-            <p id="optionsNotificationEditStatus" class="muted">Загрузка настроек уведомлений...</p>
         </section>
 
-                <section class="card">
+        <section class="card">
             <h2>Справочники области мониторинга</h2>
             <p class="muted">
-                Эти значения приходят из админки после запуска мониторинга. Сейчас блок работает только в режиме чтения.
+                Значения приходят из админки после запуска мониторинга. Сейчас блок работает только в режиме чтения.
             </p>
             <div class="dictionary-grid">
                 <div>
@@ -334,6 +307,10 @@
                     <p id="optionsMonitorMode" class="summary-value">—</p>
                 </div>
                 <div>
+                    <h3>Глубина deep sync</h3>
+                    <p id="optionsDeepSyncSummary" class="summary-value">—</p>
+                </div>
+                <div>
                     <h3>Область мониторинга</h3>
                     <p id="optionsScopeSummary" class="summary-value">—</p>
                 </div>
@@ -344,19 +321,11 @@
             </div>
         </section>
 
-        <section class="card notice">
-            <h2>Статус</h2>
-            <p>
-                Пока это только каркас. Runtime-логика, monitorScope и notificationTriggers не изменены.
-            </p>
-        </section>
-
         <section class="card">
             <details id="optionsDiagnosticLogDetails">
-                <summary><strong>Диагностический лог</strong></summary>
+                <summary>Диагностический лог</summary>
                 <p class="muted">
-                    Persistent local log для удалённой поддержки. Не содержит телефоны, HTML, cookies или полный payload заказов.
-                    Файл .txt экспортируется в хронологическом порядке.
+                    Если расширение работает неправильно, скачай лог и отправь разработчику.
                 </p>
                 <div class="actions-row">
                     <button id="optionsRefreshDiagnosticLog">Refresh log</button>

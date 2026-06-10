@@ -27,107 +27,54 @@ class FakeEventTarget {
 }
 
 class FakeElement extends FakeEventTarget {
-    constructor(tagName, ownerDocument, id = '') {
+    constructor(tagName, id = '') {
         super();
         this.tagName = String(tagName || '').toUpperCase();
-        this.ownerDocument = ownerDocument;
         this.id = id;
         this.innerText = '';
         this.textContent = '';
         this.value = '';
-        this.checked = false;
-        this.attributes = {};
+        this.href = '';
+        this.download = '';
+        this.clicked = false;
+        this.style = {};
         this.className = '';
-        this.dataset = {};
-        this._innerHTML = '';
-        this.onclick = null;
-
         this.classList = {
             add: (...tokens) => {
                 const current = new Set(this.className.split(/\s+/).filter(Boolean));
-
-                for (const token of tokens) {
-                    current.add(token);
-                }
-
+                tokens.forEach((token) => current.add(token));
                 this.className = Array.from(current).join(' ');
             },
             remove: (...tokens) => {
-                const blocked = new Set(tokens);
+                const removeSet = new Set(tokens);
                 this.className = this.className
                     .split(/\s+/)
-                    .filter((token) => token && !blocked.has(token))
+                    .filter((token) => token && !removeSet.has(token))
                     .join(' ');
             },
-            contains: (token) => {
-                return this.className.split(/\s+/).includes(token);
-            }
+            contains: (token) => this.className.split(/\s+/).includes(token)
         };
     }
 
-    set innerHTML(value) {
-        this._innerHTML = String(value || '');
-        this.ownerDocument.registerScopeInputsFromHTML(this.id, this._innerHTML);
-    }
-
-    get innerHTML() {
-        return this._innerHTML;
-    }
-
     click() {
-        if (typeof this.onclick === 'function') {
-            this.onclick();
-        }
-
+        this.clicked = true;
         this.dispatchEvent({ type: 'click', target: this });
-    }
-}
-
-class FakeInputElement extends FakeElement {
-    constructor(ownerDocument, id = '') {
-        super('input', ownerDocument, id);
-        this.type = 'text';
-    }
-
-    matches(selector) {
-        if (selector === 'input[data-scope-group]') {
-            return this.tagName === 'INPUT' && this.dataset.scopeGroup;
-        }
-
-        return false;
     }
 }
 
 class FakeDocument extends FakeEventTarget {
     constructor() {
         super();
-
         this.elements = new Map();
-        this.scopeInputs = [];
         this.createdElements = [];
-
-        this.body = new FakeElement('body', this, 'body');
-        this.body.appendChild = () => {};
-        this.body.removeChild = () => {};
+        this.body = {
+            appendChild: () => {},
+            removeChild: () => {}
+        };
     }
 
-    createElement(tagName) {
-        const element = String(tagName).toLowerCase() === 'input'
-            ? new FakeInputElement(this)
-            : new FakeElement(tagName, this);
-
-        element.tagName = String(tagName || '').toUpperCase();
-        element.href = '';
-        element.download = '';
-        element.style = {};
-        element.clicked = false;
-
-        this.createdElements.push(element);
-
-        return element;
-    }
-
-    registerElement(id, element) {
+    registerElement(id) {
+        const element = new FakeElement('div', id);
         this.elements.set(id, element);
         return element;
     }
@@ -136,111 +83,33 @@ class FakeDocument extends FakeEventTarget {
         return this.elements.get(id) || null;
     }
 
-    querySelectorAll(selector) {
-        const checkedScopeMatch = selector.match(/^input\[data-scope-group="(.+)"\]:checked$/);
-
-        if (checkedScopeMatch) {
-            const group = checkedScopeMatch[1];
-
-            return this.scopeInputs.filter((input) => {
-                return input.dataset.scopeGroup === group && input.checked;
-            });
-        }
-
-        return [];
+    createElement(tagName) {
+        const element = new FakeElement(tagName);
+        this.createdElements.push(element);
+        return element;
     }
+}
 
-    registerScopeInputsFromHTML(containerId, html) {
-        this.scopeInputs = this.scopeInputs.filter((input) => input.__containerId !== containerId);
-
-        const inputRegex = /<input\s+([^>]+)>/g;
-        let match = inputRegex.exec(html);
-
-        while (match) {
-            const attrs = match[1];
-            const input = new FakeInputElement(this);
-
-            input.__containerId = containerId;
-            input.type = this.extractAttr(attrs, 'type') || 'checkbox';
-            input.value = this.decodeHtml(this.extractAttr(attrs, 'value') || '');
-            input.checked = /\schecked(?:\s|>)/.test(match[0]);
-            input.dataset.scopeGroup = this.decodeHtml(this.extractAttr(attrs, 'data-scope-group') || '');
-
-            this.scopeInputs.push(input);
-
-            match = inputRegex.exec(html);
-        }
-    }
-
-    extractAttr(attrs, name) {
-        const regex = new RegExp(`${name}="([^"]*)"`);
-        const found = attrs.match(regex);
-        return found ? found[1] : '';
-    }
-
-    decodeHtml(value) {
-        return String(value || '')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, '\'')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&');
-    }
+function readPopupHtml() {
+    return fs.readFileSync(
+        path.join(__dirname, '..', 'popup.html'),
+        'utf8'
+    );
 }
 
 function createPopupDom() {
     const document = new FakeDocument();
 
-    const ids = [
+    for (const id of [
         'version',
         'status',
-        'start',
-        'stop',
-        'monitorModeWindowed',
-        'monitorModeActive',
-        'triggerNewOrders',
-        'triggerChangedOrders',
-        'triggerFieldStatus',
-        'triggerFieldDelivery',
-        'triggerFieldPayment',
-        'triggerFieldCity',
-        'triggerFieldTags',
-        'scopeStatusSummary',
-        'scopeStatusOptions',
-        'scopeDeliverySummary',
-        'scopeDeliveryOptions',
-        'scopePaymentSummary',
-        'scopePaymentOptions',
-        'configStatus',
-        'applyConfig',
-        'resetConfig',
+        'toggleMonitor',
         'openOptions',
         'openHistory',
         'downloadDiagnosticLog',
         'diagnosticLogStatus'
-    ];
-
-    for (const id of ids) {
-        const isInput = [
-            'monitorModeWindowed',
-            'monitorModeActive',
-            'triggerNewOrders',
-            'triggerChangedOrders',
-            'triggerFieldStatus',
-            'triggerFieldDelivery',
-            'triggerFieldPayment',
-            'triggerFieldCity',
-            'triggerFieldTags'
-        ].includes(id);
-        const element = isInput ? new FakeInputElement(document, id) : new FakeElement('div', document, id);
-
-        if (isInput) {
-            element.type = ['monitorModeWindowed', 'monitorModeActive'].includes(id)
-                ? 'radio'
-                : 'checkbox';
-        }
-
-        document.registerElement(id, element);
+    ]) {
+        document.registerElement(id);
     }
 
     return document;
@@ -253,53 +122,30 @@ function loadPopupContext(overrides = {}) {
     );
 
     const sentMessages = [];
-    const manifest = { version: '0.9.7-test' };
-
-    const defaultConfig = {
-        monitorMode: 'windowed',
-        notificationTriggers: {
-            newOrders: true,
-            changedOrders: true,
-            changedFields: {
-                status: true,
-                delivery: true,
-                payment: true,
-                city: true,
-                tags: true
-            }
-        },
-        monitorScope: {
-            status: ['6806'],
-            delivery: ['9797'],
-            payment: ['9791'],
-            orderFlags: [],
-            store: [],
-            reserve: [],
-            assemblyStatus: [],
-            predicates: {
-                ozonOnly: false,
-                juridicalOnly: false
-            }
-        }
-    };
-
-    const defaultDictionaries = {
-        status: [
-            { id: '6806', label: 'Ожидает оплаты' },
-            { id: '6810', label: 'Отменен' }
-        ],
-        delivery: [
-            { id: '9797', label: 'Самовывоз' },
-            { id: '9847', label: 'Курьер СДЭК' }
-        ],
-        payment: [
-            { id: '9791', label: 'Наличными в офисе' },
-            { id: '9793', label: 'Оплата онлайн' }
-        ],
-        updatedAt: 123
-    };
-
     const document = createPopupDom();
+    const monitorStatus = overrides.monitorStatus || {
+        isRunning: true,
+        monitorState: 'active',
+        monitorMode: 'windowed',
+        hasWorkerTab: true,
+        workerTabId: 77,
+        knownOrdersCount: 12,
+        knownHashesCount: 12,
+        windowOrdersCount: 10,
+        windowHashesCount: 10,
+        diagnosticLogCount: 2,
+        eventJournalCount: 1
+    };
+    const diagnosticLog = overrides.diagnosticLog || {
+        ok: true,
+        storedTotal: 2,
+        total: 2,
+        returned: 2,
+        entries: [
+            { createdAt: 1700000000000, level: 'INFO', scope: 'CONTROL', message: 'START' },
+            { createdAt: 1700000001000, level: 'WARN', scope: 'WATCHDOG', message: 'worker dead restarting' }
+        ]
+    };
 
     const context = {
         console: {
@@ -309,7 +155,6 @@ function loadPopupContext(overrides = {}) {
         },
         document,
         window: {},
-        HTMLInputElement: FakeInputElement,
         chrome: {
             tabs: {
                 createdTabs: [],
@@ -318,79 +163,39 @@ function loadPopupContext(overrides = {}) {
                 }
             },
             runtime: {
-                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
-                openOptionsPage: () => {},
+                getManifest: () => ({ version: '0.9.8-test' }),
+                getURL: (page) => `chrome-extension://tab-wanderer/${page}`,
+                openOptionsPageCalled: false,
+                openOptionsPage: () => {
+                    context.chrome.runtime.openOptionsPageCalled = true;
+                },
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
                     let response = { ok: true };
 
-                    if (msg.type === 'CHECK_WORKER') {
-                        response = { isRunning: true };
-                    }
-
-                    if (msg.type === 'GET_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: JSON.parse(JSON.stringify(defaultConfig)),
-                            monitorDictionaries: JSON.parse(JSON.stringify(defaultDictionaries))
-                        };
-                    }
-
-                    if (msg.type === 'UPDATE_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: JSON.parse(JSON.stringify(msg.userConfig))
-                        };
-                    }
-
                     if (msg.type === 'GET_MONITOR_STATUS') {
-                        response = {
-                            ok: true,
-                            status: {
-                                isRunning: true,
-                                monitorState: 'active',
-                                monitorMode: 'windowed',
-                                hasWorkerTab: true,
-                                workerTabId: 77,
-                                knownOrdersCount: 12,
-                                knownHashesCount: 12,
-                                windowOrdersCount: 10,
-                                windowHashesCount: 10,
-                                diagnosticLogCount: 2,
-                                eventJournalCount: 1
-                            }
-                        };
+                        response = { ok: true, status: JSON.parse(JSON.stringify(monitorStatus)) };
                     }
 
                     if (msg.type === 'GET_DIAGNOSTIC_LOG') {
-                        response = {
-                            ok: true,
-                            storedTotal: 2,
-                            total: 2,
-                            returned: 2,
-                            limit: 100,
-                            entries: [
-                                { createdAt: 1700000000000, level: 'INFO', scope: 'CONTROL', message: 'START', details: null },
-                                { createdAt: 1700000001000, level: 'WARN', scope: 'WATCHDOG', message: 'worker dead restarting', details: { tabId: 77 } }
-                            ]
-                        };
+                        response = JSON.parse(JSON.stringify(diagnosticLog));
+                    }
+
+                    if (msg.type === 'START' || msg.type === 'STOP') {
+                        response = { ok: true };
                     }
 
                     if (typeof callback === 'function') {
                         callback(response);
                     }
-                },
-                getManifest: () => manifest
+                }
             }
         },
         __test: {
             sentMessages,
-            document,
-            defaultConfig,
-            defaultDictionaries
-        },
-        ...overrides
+            document
+        }
     };
 
     context.globalThis = context;
@@ -408,540 +213,84 @@ function getSentMessagesByType(context, type) {
     return context.__test.sentMessages.filter((msg) => msg.type === type);
 }
 
-function getScopeCheckboxes(context, groupName) {
-    return context.__test.document.scopeInputs.filter((input) => {
-        return input.dataset.scopeGroup === groupName;
-    });
-}
-
-function readPopupHtml() {
-    return fs.readFileSync(
-        path.join(__dirname, '..', 'popup.html'),
-        'utf8'
-    );
-}
-
-test('popup explains monitor scope and notification trigger boundaries', () => {
+test('popup is quick-control only and contains no settings form controls', () => {
     const html = readPopupHtml();
 
-    assert.match(html, /Область мониторинга ограничивает входящий поток заказов/);
-    assert.match(html, /Заказы вне выбранной области не отслеживаются/);
-    assert.match(html, /Notification triggers управляют только уведомлениями/);
-    assert.match(html, /Состояние заказа обновляется даже если уведомление подавлено/);
-    assert.match(html, /id="triggerFieldCity"/);
-    assert.match(html, /id="openHistory"/);
+    assert.match(html, /id="toggleMonitor"/);
     assert.match(html, /id="openOptions"/);
+    assert.match(html, /id="openHistory"/);
     assert.match(html, /id="downloadDiagnosticLog"/);
-    assert.match(html, /id="diagnosticLogStatus"/);
-    assert.match(html, /Черновая страница истории показывает последние зафиксированные события/);
-    assert.match(html, /скачай диагностический лог/);
-    assert.doesNotMatch(html, /id="triggerFieldShipmentDateText"/);
-    assert.doesNotMatch(html, /id="triggerFieldHasOrderFlag"/);
-    assert.doesNotMatch(html, /id="triggerFieldHasAutoreserve"/);
+    assert.doesNotMatch(html, /id="applyConfig"/);
+    assert.doesNotMatch(html, /id="resetConfig"/);
+    assert.doesNotMatch(html, /id="monitorModeWindowed"/);
+    assert.doesNotMatch(html, /id="triggerNewOrders"/);
+    assert.doesNotMatch(html, /id="scopeStatusOptions"/);
 });
 
-test('popup initializes from GET_CONFIG and renders dictionaries', () => {
+test('popup loads monitor status and toggles running state through one button', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
 
-    assert.equal(getSentMessagesByType(context, 'CHECK_WORKER').length, 1);
-    assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
+    assert.equal(document.getElementById('version').innerText, 'v0.9.8-test');
+    assert.equal(document.getElementById('status').innerText, 'Статус: RUNNING');
+    assert.equal(document.getElementById('toggleMonitor').innerText, 'Stop monitoring');
 
-    assert.equal(document.getElementById('status').innerText, 'Status: RUNNING');
-    assert.equal(document.getElementById('version').innerText, 'v0.9.7-test');
-       assert.equal(document.getElementById('configStatus').innerText, 'No changes');
-
-    assert.equal(document.getElementById('monitorModeWindowed').checked, true);
-    assert.equal(document.getElementById('monitorModeActive').checked, false);
-
-        assert.equal(document.getElementById('triggerNewOrders').checked, true);
-    assert.equal(document.getElementById('triggerChangedOrders').checked, true);
-    assert.equal(document.getElementById('triggerFieldStatus').checked, true);
-    assert.equal(document.getElementById('triggerFieldDelivery').checked, true);
-    assert.equal(document.getElementById('triggerFieldPayment').checked, true);
-    assert.equal(document.getElementById('triggerFieldCity').checked, true);
-    assert.equal(document.getElementById('triggerFieldTags').checked, true);
-
-    assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
-    assert.equal(document.getElementById('scopeDeliverySummary').innerText, 'Доставка: Самовывоз');
-    assert.equal(document.getElementById('scopePaymentSummary').innerText, 'Оплата: Наличными в офисе');
-
-    assert.equal(getScopeCheckboxes(context, 'Status').length, 2);
-    assert.equal(getScopeCheckboxes(context, 'Delivery').length, 2);
-    assert.equal(getScopeCheckboxes(context, 'Payment').length, 2);
-});
-
-test('popup changes draft without live UPDATE_CONFIG on scope change', () => {
-    const context = loadPopupContext();
-    const statusCheckboxes = getScopeCheckboxes(context, 'Status');
-    const updateCallsBefore = getSentMessagesByType(context, 'UPDATE_CONFIG').length;
-
-    statusCheckboxes[1].checked = true;
-
-    context.__test.document.dispatchEvent({
-        type: 'change',
-        target: statusCheckboxes[1]
-    });
-
-    const updateCallsAfter = getSentMessagesByType(context, 'UPDATE_CONFIG').length;
-
-    assert.equal(updateCallsBefore, 0);
-    assert.equal(updateCallsAfter, 0);
-    assert.equal(context.__test.document.getElementById('configStatus').innerText, 'Unsaved changes');
-    assert.equal(
-        context.__test.document.getElementById('scopeStatusSummary').innerText,
-        'Статус: Ожидает оплаты, Отменен'
-    );
-});
-
-test('popup Apply sends UPDATE_CONFIG with draft state and clears dirty flag', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-    const statusCheckboxes = getScopeCheckboxes(context, 'Status');
-
-    statusCheckboxes[1].checked = true;
-
-    document.dispatchEvent({
-        type: 'change',
-        target: statusCheckboxes[1]
-    });
-
-    document.getElementById('applyConfig').dispatchEvent({
+    document.getElementById('toggleMonitor').dispatchEvent({
         type: 'click',
-        target: document.getElementById('applyConfig')
+        target: document.getElementById('toggleMonitor')
     });
 
-    const updateCalls = getSentMessagesByType(context, 'UPDATE_CONFIG');
-
-    assert.equal(updateCalls.length, 1);
-    assert.equal(
-        JSON.stringify(updateCalls[0].userConfig.monitorScope.status),
-        JSON.stringify(['6806', '6810'])
-    );
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
+    assert.equal(getSentMessagesByType(context, 'STOP').length, 1);
+    assert.equal(getSentMessagesByType(context, 'START').length, 0);
+    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
 });
 
-test('popup changes notification trigger draft without live UPDATE_CONFIG', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-    const triggerNewOrders = document.getElementById('triggerNewOrders');
-
-    triggerNewOrders.checked = false;
-
-    triggerNewOrders.dispatchEvent({
-        type: 'change',
-        target: triggerNewOrders
-    });
-
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
-});
-
-test('popup disables changed field controls when changed order trigger is off', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-    const triggerChangedOrders = document.getElementById('triggerChangedOrders');
-    const triggerFieldStatus = document.getElementById('triggerFieldStatus');
-    const triggerFieldTags = document.getElementById('triggerFieldTags');
-
-    assert.equal(triggerChangedOrders.checked, true);
-    assert.equal(triggerFieldStatus.disabled, false);
-    assert.equal(triggerFieldTags.disabled, false);
-    assert.equal(triggerFieldStatus.checked, true);
-    assert.equal(triggerFieldTags.checked, true);
-
-    triggerChangedOrders.checked = false;
-
-    triggerChangedOrders.dispatchEvent({
-        type: 'change',
-        target: triggerChangedOrders
-    });
-
-    assert.equal(triggerFieldStatus.disabled, true);
-    assert.equal(triggerFieldTags.disabled, true);
-    assert.equal(triggerFieldStatus.checked, true);
-    assert.equal(triggerFieldTags.checked, true);
-    assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
-
-    triggerChangedOrders.checked = true;
-
-    triggerChangedOrders.dispatchEvent({
-        type: 'change',
-        target: triggerChangedOrders
-    });
-
-    assert.equal(triggerFieldStatus.disabled, false);
-    assert.equal(triggerFieldTags.disabled, false);
-    assert.equal(triggerFieldStatus.checked, true);
-    assert.equal(triggerFieldTags.checked, true);
-});
-
-test('popup Apply sends notification trigger settings', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-
-    const triggerNewOrders = document.getElementById('triggerNewOrders');
-    const triggerFieldStatus = document.getElementById('triggerFieldStatus');
-    const triggerFieldTags = document.getElementById('triggerFieldTags');
-
-    triggerNewOrders.checked = false;
-    triggerFieldStatus.checked = false;
-    triggerFieldTags.checked = false;
-
-    triggerFieldTags.dispatchEvent({
-        type: 'change',
-        target: triggerFieldTags
-    });
-
-    document.getElementById('applyConfig').dispatchEvent({
-        type: 'click',
-        target: document.getElementById('applyConfig')
-    });
-
-    const updateCalls = getSentMessagesByType(context, 'UPDATE_CONFIG');
-
-    assert.equal(updateCalls.length, 1);
-    assert.equal(updateCalls[0].userConfig.notificationTriggers.newOrders, false);
-    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedOrders, true);
-    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.status, false);
-    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.city, true);
-    assert.equal(updateCalls[0].userConfig.notificationTriggers.changedFields.tags, false);
-    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'contractor'), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'date'), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'shipmentDateText'), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'hasOrderFlag'), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig.notificationTriggers.changedFields, 'hasAutoreserve'), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(updateCalls[0].userConfig, 'rules'), false);
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
-});
-
-test('popup Reset restores current config and clears unsaved state', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-    const statusCheckboxes = getScopeCheckboxes(context, 'Status');
-    const triggerNewOrders = document.getElementById('triggerNewOrders');
-
-    statusCheckboxes[1].checked = true;
-    triggerNewOrders.checked = false;
-
-    document.dispatchEvent({
-        type: 'change',
-        target: statusCheckboxes[1]
-    });
-
-        triggerNewOrders.dispatchEvent({
-        type: 'change',
-        target: triggerNewOrders
-    });
-
-    assert.equal(document.getElementById('configStatus').innerText, 'Unsaved changes');
-
-    document.getElementById('resetConfig').dispatchEvent({
-        type: 'click',
-        target: document.getElementById('resetConfig')
-    });
-
-    const resetStatusCheckboxes = getScopeCheckboxes(context, 'Status');
-
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
-    assert.equal(resetStatusCheckboxes[0].checked, true);
-    assert.equal(resetStatusCheckboxes[1].checked, false);
-    assert.equal(document.getElementById('triggerNewOrders').checked, true);
-    assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
-});
-
-test('popup handles empty monitorDictionaries without crashing', () => {
-    const sentMessages = [];
-
+test('popup starts monitoring when status is stopped', () => {
     const context = loadPopupContext({
-        chrome: {
-            tabs: {
-                createdTabs: [],
-                create: (createInfo) => {
-                    context.chrome.tabs.createdTabs.push(createInfo);
-                }
-            },
-            runtime: {
-                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
-                openOptionsPage: () => {},
-                sendMessage: (msg, callback) => {
-                    sentMessages.push(msg);
-
-                    let response = { ok: true };
-
-                    if (msg.type === 'CHECK_WORKER') {
-                        response = { isRunning: true };
-                    }
-
-                    if (msg.type === 'GET_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: {
-                                monitorScope: {
-                                    status: ['6806'],
-                                    delivery: ['9797'],
-                                    payment: ['9791'],
-                                    orderFlags: [],
-                                    store: [],
-                                    reserve: [],
-                                    assemblyStatus: [],
-                                    predicates: {
-                                        ozonOnly: false,
-                                        juridicalOnly: false
-                                    }
-                                }
-                            },
-                            monitorDictionaries: null
-                        };
-                    }
-
-                    if (msg.type === 'UPDATE_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: JSON.parse(JSON.stringify(msg.userConfig))
-                        };
-                    }
-
-                    if (typeof callback === 'function') {
-                        callback(response);
-                    }
-                },
-                getManifest: () => ({ version: '0.9.7-test' })
-            }
+        monitorStatus: {
+            isRunning: false,
+            monitorState: 'uninitialized',
+            monitorMode: 'windowed'
         }
     });
-
-    context.__test.sentMessages = sentMessages;
-
     const document = context.__test.document;
 
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
-    assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: 1 выбрано');
-    assert.equal(document.getElementById('scopeDeliverySummary').innerText, 'Доставка: 1 выбрано');
-    assert.equal(document.getElementById('scopePaymentSummary').innerText, 'Оплата: 1 выбрано');
-    assert.equal(getScopeCheckboxes(context, 'Status').length, 0);
-    assert.equal(getScopeCheckboxes(context, 'Delivery').length, 0);
-    assert.equal(getScopeCheckboxes(context, 'Payment').length, 0);
-});
+    assert.equal(document.getElementById('status').innerText, 'Статус: STOPPED');
+    assert.equal(document.getElementById('toggleMonitor').innerText, 'Start monitoring');
 
-test('popup keeps working when monitorScope contains unknown ids', () => {
-    const sentMessages = [];
-    const defaultDictionaries = {
-        status: [
-            { id: '6806', label: 'Ожидает оплаты' },
-            { id: '6810', label: 'Отменен' }
-        ],
-        delivery: [
-            { id: '9797', label: 'Самовывоз' },
-            { id: '9847', label: 'Курьер СДЭК' }
-        ],
-        payment: [
-            { id: '9791', label: 'Наличными в офисе' },
-            { id: '9793', label: 'Оплата онлайн' }
-        ],
-        updatedAt: 123
-    };
-
-    const context = loadPopupContext({
-        chrome: {
-            tabs: {
-                createdTabs: [],
-                create: (createInfo) => {
-                    context.chrome.tabs.createdTabs.push(createInfo);
-                }
-            },
-            runtime: {
-                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
-                openOptionsPage: () => {},
-                sendMessage: (msg, callback) => {
-                    sentMessages.push(msg);
-
-                    let response = { ok: true };
-
-                    if (msg.type === 'CHECK_WORKER') {
-                        response = { isRunning: true };
-                    }
-
-                    if (msg.type === 'GET_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: {
-                                monitorScope: {
-                                    status: ['999999'],
-                                    delivery: ['888888'],
-                                    payment: ['777777'],
-                                    orderFlags: [],
-                                    store: [],
-                                    reserve: [],
-                                    assemblyStatus: [],
-                                    predicates: {
-                                        ozonOnly: false,
-                                        juridicalOnly: false
-                                    }
-                                }
-                            },
-                            monitorDictionaries: JSON.parse(JSON.stringify(defaultDictionaries))
-                        };
-                    }
-
-                    if (msg.type === 'UPDATE_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: JSON.parse(JSON.stringify(msg.userConfig))
-                        };
-                    }
-
-                    if (typeof callback === 'function') {
-                        callback(response);
-                    }
-                },
-                getManifest: () => ({ version: '0.9.7-test' })
-            }
-        }
-    });
-
-    context.__test.sentMessages = sentMessages;
-
-    const document = context.__test.document;
-
-    assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: 1 выбрано');
-    assert.equal(document.getElementById('scopeDeliverySummary').innerText, 'Доставка: 1 выбрано');
-    assert.equal(document.getElementById('scopePaymentSummary').innerText, 'Оплата: 1 выбрано');
-});
-
-test('popup summary uses compact format for three or more selected values', () => {
-    const sentMessages = [];
-    const defaultDictionaries = {
-        delivery: [
-            { id: '9797', label: 'Самовывоз' },
-            { id: '9847', label: 'Курьер СДЭК' }
-        ],
-        payment: [
-            { id: '9791', label: 'Наличными в офисе' },
-            { id: '9793', label: 'Оплата онлайн' }
-        ]
-    };
-
-    const context = loadPopupContext({
-        chrome: {
-            tabs: {
-                createdTabs: [],
-                create: (createInfo) => {
-                    context.chrome.tabs.createdTabs.push(createInfo);
-                }
-            },
-            runtime: {
-                getURL: (path) => `chrome-extension://tab-wanderer/${path}`,
-                openOptionsPage: () => {},
-                sendMessage: (msg, callback) => {
-                    sentMessages.push(msg);
-
-                    let response = { ok: true };
-
-                    if (msg.type === 'CHECK_WORKER') {
-                        response = { isRunning: true };
-                    }
-
-                    if (msg.type === 'GET_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: {
-                                monitorScope: {
-                                    status: ['6806', '6810', '11184'],
-                                    delivery: ['9797'],
-                                    payment: ['9791'],
-                                    orderFlags: [],
-                                    store: [],
-                                    reserve: [],
-                                    assemblyStatus: [],
-                                    predicates: {
-                                        ozonOnly: false,
-                                        juridicalOnly: false
-                                    }
-                                }
-                            },
-                            monitorDictionaries: {
-                                status: [
-                                    { id: '6806', label: 'Ожидает оплаты' },
-                                    { id: '6810', label: 'Отменен' },
-                                    { id: '11184', label: 'Готов к выдаче' }
-                                ],
-                                delivery: JSON.parse(JSON.stringify(defaultDictionaries.delivery)),
-                                payment: JSON.parse(JSON.stringify(defaultDictionaries.payment)),
-                                updatedAt: 123
-                            }
-                        };
-                    }
-
-                    if (msg.type === 'UPDATE_CONFIG') {
-                        response = {
-                            ok: true,
-                            userConfig: JSON.parse(JSON.stringify(msg.userConfig))
-                        };
-                    }
-
-                    if (typeof callback === 'function') {
-                        callback(response);
-                    }
-                },
-                getManifest: () => ({ version: '0.9.7-test' })
-            }
-        }
-    });
-
-    context.__test.sentMessages = sentMessages;
-
-    assert.equal(
-        context.__test.document.getElementById('scopeStatusSummary').innerText,
-        'Статус: Ожидает оплаты, Отменен +1'
-    );
-});
-
-test('popup Apply does nothing when there are no changes', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
-
-    document.getElementById('applyConfig').dispatchEvent({
+    document.getElementById('toggleMonitor').dispatchEvent({
         type: 'click',
-        target: document.getElementById('applyConfig')
+        target: document.getElementById('toggleMonitor')
     });
 
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
+    assert.equal(getSentMessagesByType(context, 'START').length, 1);
 });
 
-test('popup Reset does nothing harmful when there are no changes', () => {
+test('popup opens options and history pages', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
 
-    document.getElementById('resetConfig').dispatchEvent({
+    document.getElementById('openOptions').dispatchEvent({
         type: 'click',
-        target: document.getElementById('resetConfig')
+        target: document.getElementById('openOptions')
     });
-
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(document.getElementById('configStatus').innerText, 'No changes');
-    assert.equal(document.getElementById('scopeStatusSummary').innerText, 'Статус: Ожидает оплаты');
-});
-
-test('popup opens history page from navigation button', () => {
-    const context = loadPopupContext();
-    const document = context.__test.document;
 
     document.getElementById('openHistory').dispatchEvent({
         type: 'click',
         target: document.getElementById('openHistory')
     });
 
-    assert.equal(context.chrome.tabs.createdTabs.length, 1);
-    assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs[0])), {
-        url: 'chrome-extension://tab-wanderer/history.html',
-        active: true
-    });
+    assert.equal(context.chrome.runtime.openOptionsPageCalled, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs)), [
+        {
+            url: 'chrome-extension://tab-wanderer/history.html',
+            active: true
+        }
+    ]);
 });
 
-
-test('popup downloads diagnostic log from support button', () => {
+test('popup downloads diagnostic log from quick action', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
 
@@ -950,14 +299,13 @@ test('popup downloads diagnostic log from support button', () => {
         target: document.getElementById('downloadDiagnosticLog')
     });
 
-    const diagnosticLogCalls = getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG');
-    const createdLink = document.createdElements.find((element) => element.tagName === 'A');
+    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
 
-    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
-    assert.equal(diagnosticLogCalls.length, 1);
-    assert.equal(diagnosticLogCalls[0].options.order, 'oldest-first');
-    assert.ok(createdLink);
-    assert.match(createdLink.download, /^tab_wanderer-diagnostic-log-.*\.txt$/);
-    assert.match(decodeURIComponent(createdLink.href), /INFO CONTROL START[\s\S]*WARN WATCHDOG worker dead restarting/);
+    const createdLinks = document.createdElements.filter((element) => element.tagName === 'A');
+
+    assert.equal(createdLinks.length, 1);
+    assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /CONTROL START/);
     assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Diagnostic log prepared.');
 });

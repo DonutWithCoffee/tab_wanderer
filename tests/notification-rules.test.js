@@ -234,3 +234,13 @@ test('evaluateNotification ignores legacy hardcoded rule keys', () => {
     assert.equal(juridicalDecision.notify, true);
     assert.equal(juridicalDecision.ruleId, null);
 });
+test('getEffectiveConfig normalizes deep sync max pages', () => {
+    const context = loadRulesContext();
+
+    assert.equal(context.getEffectiveConfig({}).deepSyncMaxPages, 30);
+    assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: 1 }).deepSyncMaxPages, 1);
+    assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: 50 }).deepSyncMaxPages, 50);
+    assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: 999 }).deepSyncMaxPages, 50);
+    assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: -5 }).deepSyncMaxPages, 1);
+    assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: 'abc' }).deepSyncMaxPages, 30);
+});

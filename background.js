@@ -32,9 +32,8 @@ const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
 const FAST_POLL_INTERVAL_MS = 15000;
 const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
-const DEEP_SYNC_MAX_PAGES = 10;
 const COLLECTION_TIMEOUT_MS = 60000;
-const COLLECTION_MAX_ADVANCE_ATTEMPTS = DEEP_SYNC_MAX_PAGES + 2;
+const COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER = 2;
 
 function createCollectionSession(mode = 'fast') {
     return {
@@ -51,6 +50,18 @@ function createCollectionSession(mode = 'fast') {
         seenKnownOrder: false,
         processedPages: {}
     };
+}
+
+function getConfiguredDeepSyncMaxPages() {
+    if (typeof normalizeDeepSyncMaxPages === 'function') {
+        return normalizeDeepSyncMaxPages(userConfig?.deepSyncMaxPages);
+    }
+
+    return Number(userConfig?.deepSyncMaxPages) || 30;
+}
+
+function getCollectionMaxAdvanceAttempts() {
+    return getCollectionPolicy().maxPages + COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER;
 }
 
 function getCollectionPolicy() {
@@ -70,7 +81,7 @@ function getCollectionPolicy() {
     return {
         sessionMode: deepSyncDue ? 'deep' : 'fast',
         deepSyncDue,
-        maxPages: DEEP_SYNC_MAX_PAGES
+        maxPages: getConfiguredDeepSyncMaxPages()
     };
 }
 
@@ -141,10 +152,12 @@ async function advanceCollectionPage() {
     collectionSession.advanceAttempts += 1;
     collectionSession.lastActivityAt = Date.now();
 
-    if (collectionSession.advanceAttempts > COLLECTION_MAX_ADVANCE_ATTEMPTS) {
+    const maxAdvanceAttempts = getCollectionMaxAdvanceAttempts();
+
+    if (collectionSession.advanceAttempts > maxAdvanceAttempts) {
         log('ERROR', 'COLLECTION', 'advance limit exceeded', {
             advanceAttempts: collectionSession.advanceAttempts,
-            maxAdvanceAttempts: COLLECTION_MAX_ADVANCE_ATTEMPTS,
+            maxAdvanceAttempts,
             mode: collectionSession.mode,
             currentPage: collectionSession.currentPage,
             nextPage: collectionSession.nextPage
@@ -568,6 +581,7 @@ function getEffectiveUserConfig(storedConfig) {
         ...DEFAULT_CONFIG,
         ...configWithoutRules,
         monitorMode,
+        deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         monitorScope: normalizeMonitorScope(safe.monitorScope)
     };
@@ -1246,7 +1260,18 @@ if (msg.type === 'UPDATE_CONFIG') {
     const nextMode = String(userConfig?.monitorMode || 'windowed');
     const modeChanged = prevMode !== nextMode;
 
+    const prevDeepSyncMaxPages = normalizeDeepSyncMaxPages(prevConfig?.deepSyncMaxPages);
+    const nextDeepSyncMaxPages = normalizeDeepSyncMaxPages(userConfig?.deepSyncMaxPages);
+    const deepSyncMaxPagesChanged = prevDeepSyncMaxPages !== nextDeepSyncMaxPages;
+
     const syncReason = getConfigChangeSyncReason({ scopeChanged, modeChanged });
+
+    if (deepSyncMaxPagesChanged) {
+        log('INFO', 'CONFIG', 'deep sync max pages changed', {
+            from: prevDeepSyncMaxPages,
+            to: nextDeepSyncMaxPages
+        });
+    }
 
     if (syncReason) {
         scheduleRebaseline(syncReason);
@@ -1269,7 +1294,7 @@ if (msg.type === 'UPDATE_CONFIG') {
         if (isRunning && workerTabId) {
             await goToCollectionPage(1);
         }
-    } else {
+    } else if (!deepSyncMaxPagesChanged) {
         log('DEBUG', 'CONFIG', 'no changes');
     }
 

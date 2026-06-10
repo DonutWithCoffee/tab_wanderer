@@ -1,3 +1,7 @@
+const OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES = 30;
+const OPTIONS_MIN_DEEP_SYNC_MAX_PAGES = 1;
+const OPTIONS_MAX_DEEP_SYNC_MAX_PAGES = 50;
+
 const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
     newOrders: true,
     changedOrders: true,
@@ -20,9 +24,7 @@ const OPTIONS_VISIBLE_CHANGED_FIELDS = [
 
 let currentConfig = {};
 let currentDictionaries = {};
-let draftMonitorMode = 'windowed';
-let draftNotificationTriggers = getNotificationTriggers({});
-let currentMonitorStatus = null;
+let currentMonitorStatus = {};
 let lastDiagnosticLogText = '';
 
 function send(msg, cb) {
@@ -44,7 +46,7 @@ function setValue(id, value) {
     const el = document.getElementById(id);
 
     if (el) {
-        el.value = String(value || '');
+        el.value = String(value ?? '');
     }
 }
 
@@ -76,12 +78,26 @@ function setDisabled(id, value) {
     }
 }
 
-function cloneNotificationTriggers(triggers) {
-    return JSON.parse(JSON.stringify(triggers));
+function getNumber(value, fallback = 0) {
+    const numeric = Number(value);
+
+    return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function areNotificationTriggersEqual(a, b) {
-    return JSON.stringify(a) === JSON.stringify(b);
+function getTextValue(value, fallback = '—') {
+    if (value === undefined || value === null || value === '') {
+        return fallback;
+    }
+
+    return String(value);
+}
+
+function getYesNo(value) {
+    return value ? 'да' : 'нет';
+}
+
+function cloneValue(value) {
+    return JSON.parse(JSON.stringify(value));
 }
 
 function getScopeList(values) {
@@ -94,6 +110,26 @@ function getBooleanConfigValue(value, fallback) {
 
 function normalizeMonitorMode(value) {
     return String(value || 'windowed') === 'active' ? 'active' : 'windowed';
+}
+
+function normalizeDeepSyncMaxPages(value) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) {
+        return OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES;
+    }
+
+    const integer = Math.floor(numeric);
+
+    if (integer < OPTIONS_MIN_DEEP_SYNC_MAX_PAGES) {
+        return OPTIONS_MIN_DEEP_SYNC_MAX_PAGES;
+    }
+
+    if (integer > OPTIONS_MAX_DEEP_SYNC_MAX_PAGES) {
+        return OPTIONS_MAX_DEEP_SYNC_MAX_PAGES;
+    }
+
+    return integer;
 }
 
 function getNotificationTriggers(config = {}) {
@@ -169,18 +205,9 @@ function buildDictionaryText(title, options) {
 }
 
 function renderScopeDictionaries(dictionaries = {}) {
-    setText(
-        'optionsScopeDictionaryStatus',
-        buildDictionaryText('Статус', dictionaries.status || [])
-    );
-    setText(
-        'optionsScopeDictionaryDelivery',
-        buildDictionaryText('Доставка', dictionaries.delivery || [])
-    );
-    setText(
-        'optionsScopeDictionaryPayment',
-        buildDictionaryText('Оплата', dictionaries.payment || [])
-    );
+    setText('optionsScopeDictionaryStatus', buildDictionaryText('Статус', dictionaries.status || []));
+    setText('optionsScopeDictionaryDelivery', buildDictionaryText('Доставка', dictionaries.delivery || []));
+    setText('optionsScopeDictionaryPayment', buildDictionaryText('Оплата', dictionaries.payment || []));
 }
 
 function getScopeSummary(config = {}, dictionaries = {}) {
@@ -206,81 +233,10 @@ function getNotificationSummary(config = {}) {
 
 function renderConfigSummary(config, dictionaries) {
     setText('optionsMonitorMode', getMonitorModeLabel(config));
+    setText('optionsDeepSyncSummary', `${normalizeDeepSyncMaxPages(config.deepSyncMaxPages)} страниц`);
     setText('optionsScopeSummary', getScopeSummary(config, dictionaries));
     setText('optionsNotificationSummary', getNotificationSummary(config));
     setText('optionsLoadStatus', 'Текущие настройки загружены.');
-}
-
-function renderMonitorModeEditor(config = {}) {
-    draftMonitorMode = normalizeMonitorMode(config.monitorMode);
-    setValue('optionsMonitorModeSelect', draftMonitorMode);
-    setText('optionsMonitorModeEditStatus', 'Изменений нет.');
-}
-
-function updateMonitorModeDirtyState() {
-    const currentMode = normalizeMonitorMode(currentConfig.monitorMode);
-
-    if (draftMonitorMode === currentMode) {
-        setText('optionsMonitorModeEditStatus', 'Изменений нет.');
-        return;
-    }
-
-    setText('optionsMonitorModeEditStatus', 'Есть несохранённые изменения режима мониторинга.');
-}
-
-function applyMonitorMode() {
-    const currentMode = normalizeMonitorMode(currentConfig.monitorMode);
-
-    if (draftMonitorMode === currentMode) {
-        setText('optionsMonitorModeEditStatus', 'Изменений нет.');
-        return;
-    }
-
-    const nextConfig = {
-        ...currentConfig,
-        monitorMode: draftMonitorMode
-    };
-
-    send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
-        if (!res?.ok) {
-            setText('optionsMonitorModeEditStatus', 'Не удалось сохранить режим мониторинга.');
-            return;
-        }
-
-        currentConfig = nextConfig;
-        renderConfigSummary(currentConfig, currentDictionaries);
-        renderMonitorModeEditor(currentConfig);
-        setText('optionsMonitorModeEditStatus', 'Режим мониторинга сохранён.');
-    });
-}
-
-function resetMonitorModeDraft() {
-    renderMonitorModeEditor(currentConfig);
-}
-
-function bindMonitorModeEditor() {
-    const select = document.getElementById('optionsMonitorModeSelect');
-    const applyBtn = document.getElementById('optionsApplyMonitorMode');
-    const resetBtn = document.getElementById('optionsResetMonitorMode');
-
-    if (select) {
-        select.addEventListener('change', () => {
-            draftMonitorMode = normalizeMonitorMode(getValue('optionsMonitorModeSelect'));
-            updateMonitorModeDirtyState();
-        });
-    }
-
-    if (applyBtn) {
-        applyBtn.addEventListener('click', () => {
-            applyMonitorMode();
-        });
-    }
-
-    if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-            resetMonitorModeDraft();
-        });
-    }
 }
 
 function setNotificationFieldControlsDisabled(disabled) {
@@ -289,135 +245,131 @@ function setNotificationFieldControlsDisabled(disabled) {
     }
 }
 
-function renderNotificationTriggersEditor(config = {}) {
-    draftNotificationTriggers = cloneNotificationTriggers(getNotificationTriggers(config));
+function renderSettings(config = {}) {
+    const triggers = getNotificationTriggers(config);
 
-    setChecked('optionsNotifyNewOrders', draftNotificationTriggers.newOrders);
-    setChecked('optionsNotifyChangedOrders', draftNotificationTriggers.changedOrders);
+    setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
+    setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
+
+    setChecked('optionsNotifyNewOrders', triggers.newOrders);
+    setChecked('optionsNotifyChangedOrders', triggers.changedOrders);
 
     for (const field of OPTIONS_VISIBLE_CHANGED_FIELDS) {
-        setChecked(field.id, draftNotificationTriggers.changedFields[field.key]);
+        setChecked(field.id, triggers.changedFields[field.key]);
     }
 
-    setNotificationFieldControlsDisabled(!draftNotificationTriggers.changedOrders);
-    setText('optionsNotificationEditStatus', 'Изменений нет.');
+    setNotificationFieldControlsDisabled(!triggers.changedOrders);
 }
 
-function updateNotificationTriggersDirtyState() {
-    const currentTriggers = getNotificationTriggers(currentConfig);
+function saveConfig(nextConfig, successMessage = 'Сохранено.') {
+    const configToSave = cloneValue(nextConfig || {});
 
-    if (areNotificationTriggersEqual(draftNotificationTriggers, currentTriggers)) {
-        setText('optionsNotificationEditStatus', 'Изменений нет.');
-        return;
-    }
+    setText('optionsSettingsSaveStatus', 'Сохраняем...');
 
-    setText('optionsNotificationEditStatus', 'Есть несохранённые изменения уведомлений.');
-}
-
-function applyNotificationTriggers() {
-    const currentTriggers = getNotificationTriggers(currentConfig);
-
-    if (areNotificationTriggersEqual(draftNotificationTriggers, currentTriggers)) {
-        setText('optionsNotificationEditStatus', 'Изменений нет.');
-        return;
-    }
-
-    const nextConfig = {
-        ...currentConfig,
-        notificationTriggers: cloneNotificationTriggers(draftNotificationTriggers)
-    };
-
-    send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
+    send({ type: 'UPDATE_CONFIG', userConfig: configToSave }, (res) => {
         if (!res?.ok) {
-            setText('optionsNotificationEditStatus', 'Не удалось сохранить настройки уведомлений.');
+            setText('optionsSettingsSaveStatus', 'Ошибка сохранения настроек.');
+            renderSettings(currentConfig);
             return;
         }
 
-        currentConfig = nextConfig;
+        currentConfig = res.userConfig || configToSave;
+        renderSettings(currentConfig);
         renderConfigSummary(currentConfig, currentDictionaries);
-        renderNotificationTriggersEditor(currentConfig);
-        setText('optionsNotificationEditStatus', 'Настройки уведомлений сохранены.');
+        setText('optionsSettingsSaveStatus', successMessage);
+        loadMonitorDiagnostics();
     });
 }
 
-function resetNotificationTriggersDraft() {
-    renderNotificationTriggersEditor(currentConfig);
+function saveMonitorModeFromUI() {
+    const nextConfig = {
+        ...currentConfig,
+        monitorMode: normalizeMonitorMode(getValue('optionsMonitorModeSelect'))
+    };
+
+    saveConfig(nextConfig, 'Режим мониторинга сохранён.');
 }
 
-function bindNotificationTriggersEditor() {
-    const newOrders = document.getElementById('optionsNotifyNewOrders');
-    const changedOrders = document.getElementById('optionsNotifyChangedOrders');
-    const applyBtn = document.getElementById('optionsApplyNotificationTriggers');
-    const resetBtn = document.getElementById('optionsResetNotificationTriggers');
+function saveDeepSyncMaxPagesFromUI() {
+    const nextConfig = {
+        ...currentConfig,
+        deepSyncMaxPages: normalizeDeepSyncMaxPages(getValue('optionsDeepSyncMaxPages'))
+    };
 
-    if (newOrders) {
-        newOrders.addEventListener('change', () => {
-            draftNotificationTriggers.newOrders = getChecked('optionsNotifyNewOrders');
-            updateNotificationTriggersDirtyState();
-        });
-    }
+    saveConfig(nextConfig, 'Глубина deep sync сохранена.');
+}
 
-    if (changedOrders) {
-        changedOrders.addEventListener('change', () => {
-            draftNotificationTriggers.changedOrders = getChecked('optionsNotifyChangedOrders');
-            setNotificationFieldControlsDisabled(!draftNotificationTriggers.changedOrders);
-            updateNotificationTriggersDirtyState();
-        });
-    }
+function collectNotificationTriggersFromUI(baseConfig = {}) {
+    const currentTriggers = getNotificationTriggers(baseConfig);
+    const changedFields = { ...currentTriggers.changedFields };
 
     for (const field of OPTIONS_VISIBLE_CHANGED_FIELDS) {
-        const el = document.getElementById(field.id);
+        changedFields[field.key] = getChecked(field.id);
+    }
 
-        if (el) {
-            el.addEventListener('change', () => {
-                draftNotificationTriggers.changedFields[field.key] = getChecked(field.id);
-                updateNotificationTriggersDirtyState();
+    return {
+        ...currentTriggers,
+        newOrders: getChecked('optionsNotifyNewOrders'),
+        changedOrders: getChecked('optionsNotifyChangedOrders'),
+        changedFields
+    };
+}
+
+function saveNotificationTriggersFromUI(successMessage = 'Настройки уведомлений сохранены.') {
+    const nextTriggers = collectNotificationTriggersFromUI(currentConfig);
+    const nextConfig = {
+        ...currentConfig,
+        notificationTriggers: nextTriggers
+    };
+
+    setNotificationFieldControlsDisabled(!nextTriggers.changedOrders);
+    saveConfig(nextConfig, successMessage);
+}
+
+function bindSettingsAutosave() {
+    const monitorMode = document.getElementById('optionsMonitorModeSelect');
+    const deepSyncMaxPages = document.getElementById('optionsDeepSyncMaxPages');
+
+    if (monitorMode) {
+        monitorMode.addEventListener('change', () => {
+            saveMonitorModeFromUI();
+        });
+    }
+
+    if (deepSyncMaxPages) {
+        deepSyncMaxPages.addEventListener('change', () => {
+            saveDeepSyncMaxPagesFromUI();
+        });
+    }
+
+    const triggerControlIds = [
+        'optionsNotifyNewOrders',
+        'optionsNotifyChangedOrders',
+        ...OPTIONS_VISIBLE_CHANGED_FIELDS.map((field) => field.id)
+    ];
+
+    for (const id of triggerControlIds) {
+        const control = document.getElementById(id);
+
+        if (control) {
+            control.addEventListener('change', () => {
+                saveNotificationTriggersFromUI();
             });
         }
     }
-
-    if (applyBtn) {
-        applyBtn.addEventListener('click', () => {
-            applyNotificationTriggers();
-        });
-    }
-
-    if (resetBtn) {
-        resetBtn.addEventListener('click', () => {
-            resetNotificationTriggersDraft();
-        });
-    }
-}
-
-
-function getNumber(value, fallback = 0) {
-    const numeric = Number(value);
-
-    return Number.isFinite(numeric) ? numeric : fallback;
-}
-
-function getTextValue(value, fallback = '—') {
-    if (value === undefined || value === null || value === '') {
-        return fallback;
-    }
-
-    return String(value);
-}
-
-function getYesNo(value) {
-    return value ? 'да' : 'нет';
 }
 
 function buildLastCollectionMetadataText(metadata) {
     if (!metadata) {
-        return 'last collection: —';
+        return 'last collection: нет';
     }
 
     return [
         `last collection: ${getTextValue(metadata.syncReason || metadata.reason)}`,
         `pages: ${getNumber(metadata.pagesCollected)}`,
         `orders: ${getNumber(metadata.ordersCollected)}`,
-        `complete: ${getYesNo(metadata.isComplete === true)}`
+        `complete: ${getYesNo(metadata.isComplete === true)}`,
+        `max pages: ${getNumber(metadata.maxPages)}`
     ].join('; ');
 }
 
@@ -443,7 +395,8 @@ function renderMonitorDiagnostics(status = {}) {
         [
             `running: ${getYesNo(status.isRunning === true)}`,
             `state: ${getTextValue(status.monitorState, 'uninitialized')}`,
-            `mode: ${getTextValue(status.monitorMode, 'windowed')}`
+            `mode: ${getTextValue(status.monitorMode, 'windowed')}`,
+            `deep pages: ${getNumber(status.deepSyncMaxPages, OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES)}`
         ].join('; ')
     );
 
@@ -467,7 +420,10 @@ function renderMonitorDiagnostics(status = {}) {
 
     setText(
         'optionsDiagnosticsJournal',
-        `entries: ${getNumber(status.eventJournalCount)}`
+        [
+            `history: ${getNumber(status.eventJournalCount)}`,
+            `diagnostic: ${getNumber(status.diagnosticLogCount)}`
+        ].join('; ')
     );
 
     setText(
@@ -513,7 +469,6 @@ function bindDiagnosticsActions() {
         });
     }
 }
-
 
 function padDatePart(value) {
     return String(value).padStart(2, '0');
@@ -629,10 +584,7 @@ function buildDiagnosticLogText(snapshot = {}, status = currentMonitorStatus || 
 function renderDiagnosticLog(snapshot = {}) {
     lastDiagnosticLogText = buildDiagnosticLogText(snapshot);
     setText('optionsDiagnosticLogPreview', lastDiagnosticLogText);
-    setText(
-        'optionsDiagnosticLogStatus',
-        `Лог загружен: ${getNumber(snapshot.returned)} из ${getNumber(snapshot.total)} записей.`
-    );
+    setText('optionsDiagnosticLogStatus', `Лог загружен: ${getNumber(snapshot.returned)} из ${getNumber(snapshot.total)} записей.`);
 }
 
 function loadDiagnosticLog() {
@@ -729,10 +681,7 @@ function downloadDiagnosticLog() {
 
     const downloaded = downloadTextFile(buildDiagnosticLogFilename(), text);
 
-    setText(
-        'optionsDiagnosticLogStatus',
-        downloaded ? 'Файл лога подготовлен для скачивания.' : 'Не удалось подготовить файл лога.'
-    );
+    setText('optionsDiagnosticLogStatus', downloaded ? 'Файл лога подготовлен для скачивания.' : 'Не удалось подготовить файл лога.');
 }
 
 function clearDiagnosticLog() {
@@ -780,26 +729,27 @@ function bindDiagnosticLogActions() {
 
 function loadConfigSummary() {
     setText('optionsLoadStatus', 'Загрузка текущих настроек...');
+    setText('optionsSettingsSaveStatus', 'Загрузка настроек...');
 
     send({ type: 'GET_CONFIG' }, (res) => {
         if (!res?.ok) {
             setText('optionsLoadStatus', 'Не удалось загрузить текущие настройки.');
+            setText('optionsSettingsSaveStatus', 'Ошибка загрузки настроек.');
             return;
         }
 
         currentConfig = res.userConfig || {};
         currentDictionaries = res.monitorDictionaries || {};
 
+        renderSettings(currentConfig);
         renderConfigSummary(currentConfig, currentDictionaries);
         renderScopeDictionaries(currentDictionaries);
-        renderMonitorModeEditor(currentConfig);
-        renderNotificationTriggersEditor(currentConfig);
+        setText('optionsSettingsSaveStatus', 'Настройки загружены. Изменения сохраняются автоматически.');
     });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    bindMonitorModeEditor();
-    bindNotificationTriggersEditor();
+    bindSettingsAutosave();
     bindDiagnosticsActions();
     bindDiagnosticLogActions();
     loadConfigSummary();

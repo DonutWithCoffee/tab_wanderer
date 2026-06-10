@@ -26,6 +26,16 @@ function normalizeMonitorStatusMode(userConfig = {}) {
     return userConfig?.monitorMode === 'active' ? 'active' : 'windowed';
 }
 
+function normalizeMonitorStatusDeepSyncMaxPages(userConfig = {}) {
+    if (typeof normalizeDeepSyncMaxPages === 'function') {
+        return normalizeDeepSyncMaxPages(userConfig?.deepSyncMaxPages);
+    }
+
+    const numeric = Number(userConfig?.deepSyncMaxPages);
+
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 30;
+}
+
 function createCollectionSessionStatusSnapshot(session) {
     if (!session) {
         return null;
@@ -59,6 +69,7 @@ function createMonitorStatusSnapshot(state = {}) {
         isRunning: state.isRunning === true,
         monitorState: String(state.monitorState || DEFAULT_MONITOR_STATUS_STATE.UNINITIALIZED),
         monitorMode: normalizeMonitorStatusMode(userConfig),
+        deepSyncMaxPages: normalizeMonitorStatusDeepSyncMaxPages(userConfig),
         workerTabId,
         hasWorkerTab: workerTabId !== null && workerTabId !== undefined,
         pendingRebaseline: state.pendingRebaseline === true,
@@ -83,5 +94,6 @@ globalThis.DEFAULT_MONITOR_STATUS_STATE = DEFAULT_MONITOR_STATUS_STATE;
 globalThis.cloneMonitorStatusValue = cloneMonitorStatusValue;
 globalThis.countObjectKeys = countObjectKeys;
 globalThis.normalizeMonitorStatusMode = normalizeMonitorStatusMode;
+globalThis.normalizeMonitorStatusDeepSyncMaxPages = normalizeMonitorStatusDeepSyncMaxPages;
 globalThis.createCollectionSessionStatusSnapshot = createCollectionSessionStatusSnapshot;
 globalThis.createMonitorStatusSnapshot = createMonitorStatusSnapshot;

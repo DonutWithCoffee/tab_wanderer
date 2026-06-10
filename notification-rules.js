@@ -1,5 +1,10 @@
+const DEFAULT_DEEP_SYNC_MAX_PAGES = 30;
+const MIN_DEEP_SYNC_MAX_PAGES = 1;
+const MAX_DEEP_SYNC_MAX_PAGES = 50;
+
 const DEFAULT_CONFIG = {
     monitorMode: 'windowed',
+    deepSyncMaxPages: DEFAULT_DEEP_SYNC_MAX_PAGES,
     notificationTriggers: {
         newOrders: true,
         changedOrders: true,
@@ -27,6 +32,30 @@ const DEFAULT_CONFIG = {
 };
 
 self.DEFAULT_CONFIG = DEFAULT_CONFIG;
+self.DEFAULT_DEEP_SYNC_MAX_PAGES = DEFAULT_DEEP_SYNC_MAX_PAGES;
+self.MIN_DEEP_SYNC_MAX_PAGES = MIN_DEEP_SYNC_MAX_PAGES;
+self.MAX_DEEP_SYNC_MAX_PAGES = MAX_DEEP_SYNC_MAX_PAGES;
+
+
+function normalizeDeepSyncMaxPages(value) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) {
+        return DEFAULT_DEEP_SYNC_MAX_PAGES;
+    }
+
+    const integer = Math.floor(numeric);
+
+    if (integer < MIN_DEEP_SYNC_MAX_PAGES) {
+        return MIN_DEEP_SYNC_MAX_PAGES;
+    }
+
+    if (integer > MAX_DEEP_SYNC_MAX_PAGES) {
+        return MAX_DEEP_SYNC_MAX_PAGES;
+    }
+
+    return integer;
+}
 
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
@@ -94,6 +123,7 @@ function getEffectiveConfig(config = {}) {
         ...DEFAULT_CONFIG,
         ...configWithoutRules,
         monitorMode,
+        deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
         monitorScope: normalizeMonitorScope(safeConfig.monitorScope)
     };
@@ -179,3 +209,4 @@ function evaluateNotification(order, context = {}, config = DEFAULT_CONFIG) {
         config: effectiveConfig
     };
 }
+self.normalizeDeepSyncMaxPages = normalizeDeepSyncMaxPages;

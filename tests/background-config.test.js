@@ -114,6 +114,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
     setBackgroundState(context, {
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: [],
@@ -136,6 +137,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when scope changes', async () => {
         type: 'UPDATE_CONFIG',
         userConfig: {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -179,7 +181,7 @@ test('collection aborts when advance attempt limit is exceeded', async () => {
             mode: 'deep',
             startedAt: Date.now(),
             lastActivityAt: Date.now(),
-            advanceAttempts: 12,
+            advanceAttempts: 33,
             orders: {
                 '1000-300326': createOrder()
             },
@@ -195,6 +197,7 @@ test('collection aborts when advance attempt limit is exceeded', async () => {
         },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -257,6 +260,7 @@ windowOrdersDB: {},
 windowOrdersHashDB: {},
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: [],
@@ -514,6 +518,7 @@ windowOrdersDB: {},
 windowOrdersHashDB: {},
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -586,6 +591,7 @@ windowOrdersHashDB: {
 },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: [],
@@ -643,6 +649,7 @@ windowOrdersDB: {},
 windowOrdersHashDB: {},
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -728,6 +735,7 @@ test('deep sync completion returns worker to first page', async () => {
         },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -816,6 +824,7 @@ test('fast cycle redirects stale non-first worker page without processing it', a
         lastCollectionMetadata: previousMetadata,
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -875,6 +884,7 @@ test('START creates worker tab with URL from current monitorScope and enters war
         workerTabId: null,
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: ['6806'],
@@ -1036,6 +1046,7 @@ test('UPDATE_CONFIG sets pendingRebaseline when monitorMode changes', async () =
     setBackgroundState(context, {
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: [],
@@ -1263,6 +1274,7 @@ test('active deep sync emits notification for changed known order', async () => 
         },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: [],
@@ -1338,6 +1350,7 @@ test('active deep sync rebuilds window snapshot after emitting events', async ()
         },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
+            deepSyncMaxPages: 10,
             rules: {},
             monitorScope: {
                 status: [],

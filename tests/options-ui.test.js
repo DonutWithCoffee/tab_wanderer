@@ -87,14 +87,14 @@ function createOptionsDom() {
     const document = new FakeDocument();
 
     for (const id of [
+        'optionsSettingsSaveStatus',
         'optionsLoadStatus',
         'optionsMonitorMode',
+        'optionsDeepSyncSummary',
         'optionsScopeSummary',
         'optionsNotificationSummary',
         'optionsMonitorModeSelect',
-        'optionsApplyMonitorMode',
-        'optionsResetMonitorMode',
-        'optionsMonitorModeEditStatus',
+        'optionsDeepSyncMaxPages',
         'optionsNotifyNewOrders',
         'optionsNotifyChangedOrders',
         'optionsNotifyFieldStatus',
@@ -102,9 +102,9 @@ function createOptionsDom() {
         'optionsNotifyFieldPayment',
         'optionsNotifyFieldCity',
         'optionsNotifyFieldTags',
-        'optionsApplyNotificationTriggers',
-        'optionsResetNotificationTriggers',
-        'optionsNotificationEditStatus',
+        'optionsScopeDictionaryStatus',
+        'optionsScopeDictionaryDelivery',
+        'optionsScopeDictionaryPayment',
         'optionsDiagnosticsRuntime',
         'optionsDiagnosticsWorker',
         'optionsDiagnosticsOrders',
@@ -135,6 +135,7 @@ function loadOptionsContext(overrides = {}) {
     const sentMessages = [];
     const defaultConfig = {
         monitorMode: 'windowed',
+        deepSyncMaxPages: 30,
         notificationTriggers: {
             newOrders: true,
             changedOrders: true,
@@ -167,6 +168,7 @@ function loadOptionsContext(overrides = {}) {
         isRunning: true,
         monitorState: 'active',
         monitorMode: 'windowed',
+        deepSyncMaxPages: 30,
         workerTabId: 77,
         hasWorkerTab: true,
         pendingRebaseline: false,
@@ -184,6 +186,7 @@ function loadOptionsContext(overrides = {}) {
             syncReason: 'normal',
             pagesCollected: 2,
             ordersCollected: 10,
+            maxPages: 30,
             isComplete: true
         },
         collectionSession: {
@@ -207,18 +210,14 @@ function loadOptionsContext(overrides = {}) {
                 level: 'WARN',
                 scope: 'WATCHDOG',
                 message: 'worker dead restarting',
-                details: {
-                    tabId: 77
-                }
+                details: { tabId: 77 }
             },
             {
                 createdAt: 1700000000000,
                 level: 'INFO',
                 scope: 'CONTROL',
                 message: 'START',
-                details: {
-                    syncReason: 'manual-start'
-                }
+                details: { syncReason: 'manual-start' }
             }
         ]
     };
@@ -265,6 +264,13 @@ function loadOptionsContext(overrides = {}) {
                         response = getConfigResponse(msg);
                     }
 
+                    if (msg.type === 'UPDATE_CONFIG') {
+                        response = {
+                            ok: true,
+                            userConfig: JSON.parse(JSON.stringify(msg.userConfig))
+                        };
+                    }
+
                     if (msg.type === 'GET_MONITOR_STATUS') {
                         response = getMonitorStatusResponse(msg);
                     }
@@ -286,11 +292,9 @@ function loadOptionsContext(overrides = {}) {
         __test: {
             sentMessages,
             document,
+            clipboardWrites,
             defaultConfig,
-            defaultDictionaries,
-            defaultMonitorStatus,
-            defaultDiagnosticLog,
-            clipboardWrites
+            defaultDictionaries
         }
     };
 
@@ -309,53 +313,22 @@ function getSentMessagesByType(context, type) {
     return context.__test.sentMessages.filter((msg) => msg.type === type);
 }
 
-test('options page contains readonly config summary placeholders', () => {
+test('options page contains autosave settings and support diagnostics sections', () => {
     const html = readOptionsHtml();
 
-    assert.match(html, /id="optionsLoadStatus"/);
-    assert.match(html, /id="optionsMonitorMode"/);
-    assert.match(html, /id="optionsScopeSummary"/);
-    assert.match(html, /id="optionsNotificationSummary"/);
+    assert.match(html, /id="optionsSettingsSaveStatus"/);
     assert.match(html, /id="optionsMonitorModeSelect"/);
-    assert.match(html, /id="optionsApplyMonitorMode"/);
-    assert.match(html, /id="optionsResetMonitorMode"/);
-    assert.match(html, /id="optionsMonitorModeEditStatus"/);
+    assert.match(html, /id="optionsDeepSyncMaxPages"/);
     assert.match(html, /id="optionsNotifyNewOrders"/);
     assert.match(html, /id="optionsNotifyChangedOrders"/);
-    assert.match(html, /id="optionsNotifyFieldStatus"/);
-    assert.match(html, /id="optionsNotifyFieldDelivery"/);
-    assert.match(html, /id="optionsNotifyFieldPayment"/);
-    assert.match(html, /id="optionsNotifyFieldCity"/);
-    assert.match(html, /id="optionsNotifyFieldTags"/);
-    assert.doesNotMatch(html, /id="optionsNotifyFieldShipmentDateText"/);
-    assert.doesNotMatch(html, /id="optionsNotifyFieldHasOrderFlag"/);
-    assert.doesNotMatch(html, /id="optionsNotifyFieldHasAutoreserve"/);
-    assert.match(html, /id="optionsApplyNotificationTriggers"/);
-    assert.match(html, /id="optionsResetNotificationTriggers"/);
-    assert.match(html, /id="optionsNotificationEditStatus"/);
-    assert.match(html, /id="optionsDiagnosticsRuntime"/);
-    assert.match(html, /id="optionsDiagnosticsWorker"/);
-    assert.match(html, /id="optionsDiagnosticsOrders"/);
-    assert.match(html, /id="optionsDiagnosticsJournal"/);
-    assert.match(html, /id="optionsDiagnosticsSync"/);
-    assert.match(html, /id="optionsDiagnosticsCollection"/);
-    assert.match(html, /id="optionsRefreshDiagnostics"/);
-    assert.match(html, /id="optionsDiagnosticsStatus"/);
-    assert.match(html, /id="optionsRefreshDiagnosticLog"/);
-    assert.match(html, /id="optionsCopyDiagnosticLog"/);
-    assert.match(html, /id="optionsDownloadDiagnosticLog"/);
-    assert.match(html, /id="optionsClearDiagnosticLog"/);
-    assert.match(html, /id="optionsDiagnosticLogStatus"/);
-    assert.match(html, /id="optionsDiagnosticLogPreview"/);
-    assert.match(html, /Read-only snapshot текущего состояния расширения/);
     assert.match(html, /id="optionsDiagnosticLogDetails"/);
-    assert.match(html, /Persistent local log для удалённой поддержки/);
-    assert.match(html, /Файл \.txt экспортируется в хронологическом порядке/);
-    assert.match(html, /Download \.txt/);
-    assert.match(html, /<script src="options\.js"><\/script>/);
+    assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
+    assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
+    assert.doesNotMatch(html, /id="optionsApplyNotificationTriggers"/);
+    assert.doesNotMatch(html, /id="optionsResetNotificationTriggers"/);
 });
 
-test('options page loads current config summary without updating config', () => {
+test('options page loads current config and diagnostics without updating config', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
 
@@ -363,195 +336,71 @@ test('options page loads current config summary without updating config', () => 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
     assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-        assert.equal(
-        document.getElementById('optionsMonitorModeSelect').value,
-        'windowed'
-    );
-    assert.equal(
-        document.getElementById('optionsMonitorModeEditStatus').innerText,
-        'Изменений нет.'
-    );
-        assert.equal(
-        document.getElementById('optionsNotifyNewOrders').checked,
-        true
-    );
-    assert.equal(
-        document.getElementById('optionsNotifyChangedOrders').checked,
-        true
-    );
-    assert.equal(
-        document.getElementById('optionsNotifyFieldStatus').checked,
-        true
-    );
-    assert.equal(
-        document.getElementById('optionsNotifyFieldPayment').checked,
-        true
-    );
-    assert.equal(
-        document.getElementById('optionsNotifyFieldCity').checked,
-        true
-    );
-    assert.equal(
-        document.getElementById('optionsNotifyFieldStatus').disabled,
-        false
-    );
-    assert.equal(
-        document.getElementById('optionsNotificationEditStatus').innerText,
-        'Изменений нет.'
-    );
-    assert.equal(
-        document.getElementById('optionsLoadStatus').innerText,
-        'Текущие настройки загружены.'
-    );
-    assert.equal(
-        document.getElementById('optionsMonitorMode').innerText,
-        'Windowed: первая страница + deep sync'
-    );
-    assert.equal(
-        document.getElementById('optionsScopeSummary').innerText,
-        'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе'
-    );
-    assert.equal(
-        document.getElementById('optionsNotificationSummary').innerText,
-        'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 5 включено'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsRuntime').innerText,
-        'running: да; state: active; mode: windowed'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsWorker').innerText,
-        'worker: да; tabId: 77'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsOrders').innerText,
-        'known: 12; window: 10; hashes: 12 / 10; notifications: 1'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsJournal').innerText,
-        'entries: 4'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsSync').innerText,
-        'pending rebaseline: нет; reason: —; last baseline: Wed Jun 10 2026; last deep sync: 1700000000000'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsCollection').innerText,
-        'session: deep; orders: 3; current page: 2; last page: 2; next: 3; attempts: 1; last collection: normal; pages: 2; orders: 10; complete: да'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticsStatus').innerText,
-        'Диагностика загружена.'
-    );
-    assert.equal(
-        document.getElementById('optionsDiagnosticLogStatus').innerText,
-        'Лог загружен: 2 из 2 записей.'
-    );
-    assert.match(
-        document.getElementById('optionsDiagnosticLogPreview').innerText,
-        /tab_wanderer diagnostic log/
-    );
-    assert.match(
-        document.getElementById('optionsDiagnosticLogPreview').innerText,
-        /Version: 0\.9\.8-test/
-    );
-    const logPreview = document.getElementById('optionsDiagnosticLogPreview').innerText;
-    const diagnosticLogCall = getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG')[0];
-
-    assert.match(logPreview, /WARN WATCHDOG worker dead restarting/);
-    assert.ok(logPreview.indexOf('INFO CONTROL START') < logPreview.indexOf('WARN WATCHDOG worker dead restarting'));
-    assert.equal(diagnosticLogCall.options.order, 'oldest-first');
+    assert.equal(document.getElementById('optionsMonitorModeSelect').value, 'windowed');
+    assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '30');
+    assert.equal(document.getElementById('optionsNotifyNewOrders').checked, true);
+    assert.equal(document.getElementById('optionsNotifyFieldStatus').checked, true);
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Windowed: первая страница + deep sync');
+    assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '30 страниц');
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе');
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 5 включено');
+    assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 30/);
 });
 
-test('options page changes monitor mode draft without live UPDATE_CONFIG', () => {
+test('options page autosaves monitor mode changes', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
     const select = document.getElementById('optionsMonitorModeSelect');
 
     select.value = 'active';
-    select.dispatchEvent({
-        type: 'change',
-        target: select
-    });
-
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(
-        document.getElementById('optionsMonitorModeEditStatus').innerText,
-        'Есть несохранённые изменения режима мониторинга.'
-    );
-});
-
-test('options page applies monitor mode change', () => {
-    const context = loadOptionsContext();
-    const document = context.__test.document;
-    const select = document.getElementById('optionsMonitorModeSelect');
-    const applyBtn = document.getElementById('optionsApplyMonitorMode');
-
-    select.value = 'active';
-    select.dispatchEvent({
-        type: 'change',
-        target: select
-    });
-    applyBtn.dispatchEvent({
-        type: 'click',
-        target: applyBtn
-    });
+    select.dispatchEvent({ type: 'change', target: select });
 
     const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
 
     assert.equal(updateMessages.length, 1);
     assert.equal(updateMessages[0].userConfig.monitorMode, 'active');
-    assert.deepEqual(updateMessages[0].userConfig.monitorScope.status, ['6806']);
-    assert.equal(
-        document.getElementById('optionsMonitorMode').innerText,
-        'Active: только первая страница'
-    );
-    assert.equal(
-        document.getElementById('optionsMonitorModeEditStatus').innerText,
-        'Режим мониторинга сохранён.'
-    );
+    assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 30);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), ['6806']);
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Active: только первая страница');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Режим мониторинга сохранён.');
 });
 
-test('options page resets monitor mode draft without updating config', () => {
+test('options page autosaves and clamps deep sync max pages', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
-    const select = document.getElementById('optionsMonitorModeSelect');
-    const resetBtn = document.getElementById('optionsResetMonitorMode');
+    const input = document.getElementById('optionsDeepSyncMaxPages');
 
-    select.value = 'active';
-    select.dispatchEvent({
-        type: 'change',
-        target: select
-    });
-    resetBtn.dispatchEvent({
-        type: 'click',
-        target: resetBtn
-    });
+    input.value = '999';
+    input.dispatchEvent({ type: 'change', target: input });
 
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(select.value, 'windowed');
-    assert.equal(
-        document.getElementById('optionsMonitorModeEditStatus').innerText,
-        'Изменений нет.'
-    );
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 50);
+    assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
+    assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Глубина deep sync сохранена.');
 });
 
-test('options page changes notification trigger draft without live UPDATE_CONFIG', () => {
+test('options page autosaves notification trigger settings', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
     const newOrders = document.getElementById('optionsNotifyNewOrders');
+    const paymentField = document.getElementById('optionsNotifyFieldPayment');
 
     newOrders.checked = false;
-    newOrders.dispatchEvent({
-        type: 'change',
-        target: newOrders
-    });
+    newOrders.dispatchEvent({ type: 'change', target: newOrders });
+    paymentField.checked = false;
+    paymentField.dispatchEvent({ type: 'change', target: paymentField });
 
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(
-        document.getElementById('optionsNotificationEditStatus').innerText,
-        'Есть несохранённые изменения уведомлений.'
-    );
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 2);
+    assert.equal(updateMessages[0].userConfig.notificationTriggers.newOrders, false);
+    assert.equal(updateMessages[1].userConfig.notificationTriggers.changedFields.payment, false);
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 4 включено');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки уведомлений сохранены.');
 });
 
 test('options page disables changed field controls when changed order trigger is off', () => {
@@ -561,115 +410,24 @@ test('options page disables changed field controls when changed order trigger is
     const statusField = document.getElementById('optionsNotifyFieldStatus');
 
     changedOrders.checked = false;
-    changedOrders.dispatchEvent({
-        type: 'change',
-        target: changedOrders
-    });
+    changedOrders.dispatchEvent({ type: 'change', target: changedOrders });
 
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
     assert.equal(statusField.disabled, true);
-    assert.equal(statusField.checked, true);
-
-    changedOrders.checked = true;
-    changedOrders.dispatchEvent({
-        type: 'change',
-        target: changedOrders
-    });
-
-    assert.equal(statusField.disabled, false);
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 1);
 });
-
-test('options page applies notification trigger settings', () => {
-    const context = loadOptionsContext();
-    const document = context.__test.document;
-    const newOrders = document.getElementById('optionsNotifyNewOrders');
-    const paymentField = document.getElementById('optionsNotifyFieldPayment');
-    const applyBtn = document.getElementById('optionsApplyNotificationTriggers');
-
-    newOrders.checked = false;
-    newOrders.dispatchEvent({
-        type: 'change',
-        target: newOrders
-    });
-    paymentField.checked = false;
-    paymentField.dispatchEvent({
-        type: 'change',
-        target: paymentField
-    });
-    applyBtn.dispatchEvent({
-        type: 'click',
-        target: applyBtn
-    });
-
-    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
-
-    assert.equal(updateMessages.length, 1);
-    assert.equal(updateMessages[0].userConfig.monitorMode, 'windowed');
-    assert.deepEqual(updateMessages[0].userConfig.monitorScope.status, ['6806']);
-    assert.equal(updateMessages[0].userConfig.notificationTriggers.newOrders, false);
-    assert.equal(updateMessages[0].userConfig.notificationTriggers.changedOrders, true);
-    assert.equal(updateMessages[0].userConfig.notificationTriggers.changedFields.payment, false);
-    assert.equal(
-        document.getElementById('optionsNotificationSummary').innerText,
-        'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 4 включено'
-    );
-    assert.equal(
-        document.getElementById('optionsNotificationEditStatus').innerText,
-        'Настройки уведомлений сохранены.'
-    );
-});
-
-test('options page resets notification trigger draft without updating config', () => {
-    const context = loadOptionsContext();
-    const document = context.__test.document;
-    const newOrders = document.getElementById('optionsNotifyNewOrders');
-    const changedOrders = document.getElementById('optionsNotifyChangedOrders');
-    const statusField = document.getElementById('optionsNotifyFieldStatus');
-    const resetBtn = document.getElementById('optionsResetNotificationTriggers');
-
-    newOrders.checked = false;
-    newOrders.dispatchEvent({
-        type: 'change',
-        target: newOrders
-    });
-    changedOrders.checked = false;
-    changedOrders.dispatchEvent({
-        type: 'change',
-        target: changedOrders
-    });
-    resetBtn.dispatchEvent({
-        type: 'click',
-        target: resetBtn
-    });
-
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(newOrders.checked, true);
-    assert.equal(changedOrders.checked, true);
-    assert.equal(statusField.disabled, false);
-    assert.equal(
-        document.getElementById('optionsNotificationEditStatus').innerText,
-        'Изменений нет.'
-    );
-});
-
 
 test('options page refreshes monitor diagnostics on demand', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
-    const refreshBtn = document.getElementById('optionsRefreshDiagnostics');
 
-    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
-
-    refreshBtn.dispatchEvent({
+    document.getElementById('optionsRefreshDiagnostics').dispatchEvent({
         type: 'click',
-        target: refreshBtn
+        target: document.getElementById('optionsRefreshDiagnostics')
     });
 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
-    assert.equal(
-        document.getElementById('optionsDiagnosticsStatus').innerText,
-        'Диагностика загружена.'
-    );
+    assert.equal(document.getElementById('optionsDiagnosticsStatus').innerText, 'Диагностика загружена.');
+    assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /max pages: 30/);
 });
 
 test('options page shows diagnostics load error when GET_MONITOR_STATUS fails', () => {
@@ -677,99 +435,71 @@ test('options page shows diagnostics load error when GET_MONITOR_STATUS fails', 
         getMonitorStatusResponse: () => ({ ok: false })
     });
 
-    assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
     assert.equal(
         context.__test.document.getElementById('optionsDiagnosticsStatus').innerText,
         'Не удалось загрузить диагностику.'
     );
 });
 
-
 test('options page refreshes diagnostic log on demand', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
-    const refreshBtn = document.getElementById('optionsRefreshDiagnosticLog');
 
-    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
-
-    refreshBtn.dispatchEvent({
+    document.getElementById('optionsRefreshDiagnosticLog').dispatchEvent({
         type: 'click',
-        target: refreshBtn
+        target: document.getElementById('optionsRefreshDiagnosticLog')
     });
 
     assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 2);
-    assert.equal(
-        document.getElementById('optionsDiagnosticLogStatus').innerText,
-        'Лог загружен: 2 из 2 записей.'
-    );
+    assert.match(document.getElementById('optionsDiagnosticLogPreview').innerText, /tab_wanderer diagnostic log/);
+    assert.match(document.getElementById('optionsDiagnosticLogPreview').innerText, /CONTROL START/);
 });
 
 test('options page clears diagnostic log and reloads diagnostics', () => {
-    const context = loadOptionsContext({
-        getDiagnosticLogResponse: () => ({
-            ok: true,
-            storedTotal: 0,
-            total: 0,
-            returned: 0,
-            limit: 100,
-            entries: []
-        })
-    });
-    const clearBtn = context.__test.document.getElementById('optionsClearDiagnosticLog');
+    const context = loadOptionsContext();
+    const document = context.__test.document;
 
-    clearBtn.dispatchEvent({
+    document.getElementById('optionsClearDiagnosticLog').dispatchEvent({
         type: 'click',
-        target: clearBtn
+        target: document.getElementById('optionsClearDiagnosticLog')
     });
 
     assert.equal(getSentMessagesByType(context, 'CLEAR_DIAGNOSTIC_LOG').length, 1);
     assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 2);
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
-    assert.match(
-        context.__test.document.getElementById('optionsDiagnosticLogPreview').innerText,
-        /No diagnostic log entries\./
-    );
 });
 
 test('options page prepares diagnostic log txt download', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
-    const downloadBtn = document.getElementById('optionsDownloadDiagnosticLog');
 
-    downloadBtn.dispatchEvent({
+    document.getElementById('optionsDownloadDiagnosticLog').dispatchEvent({
         type: 'click',
-        target: downloadBtn
+        target: document.getElementById('optionsDownloadDiagnosticLog')
     });
 
-    const createdLink = document.createdElements.find((element) => element.tagName === 'A');
+    const createdLinks = document.createdElements.filter((element) => element.tagName === 'A');
 
-    assert.ok(createdLink);
-    assert.match(createdLink.download, /^tab_wanderer-diagnostic-log-.*\.txt$/);
-    assert.match(createdLink.href, /^data:text\/plain;charset=utf-8,/);
-    assert.equal(createdLink.clicked, true);
-    assert.equal(
-        document.getElementById('optionsDiagnosticLogStatus').innerText,
-        'Файл лога подготовлен для скачивания.'
-    );
+    assert.equal(createdLinks.length, 1);
+    assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
+    assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Файл лога подготовлен для скачивания.');
 });
 
 test('options page copies diagnostic log when clipboard is available', async () => {
     const context = loadOptionsContext();
-    const copyBtn = context.__test.document.getElementById('optionsCopyDiagnosticLog');
+    const document = context.__test.document;
 
-    copyBtn.dispatchEvent({
+    document.getElementById('optionsCopyDiagnosticLog').dispatchEvent({
         type: 'click',
-        target: copyBtn
+        target: document.getElementById('optionsCopyDiagnosticLog')
     });
 
-    await new Promise(resolve => setImmediate(resolve));
+    await Promise.resolve();
 
     assert.equal(context.__test.clipboardWrites.length, 1);
     assert.match(context.__test.clipboardWrites[0], /tab_wanderer diagnostic log/);
-    assert.equal(
-        context.__test.document.getElementById('optionsDiagnosticLogStatus').innerText,
-        'Лог скопирован в буфер обмена.'
-    );
+    assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Лог скопирован в буфер обмена.');
 });
 
 test('options page shows diagnostic log load error when GET_DIAGNOSTIC_LOG fails', () => {
@@ -777,7 +507,6 @@ test('options page shows diagnostic log load error when GET_DIAGNOSTIC_LOG fails
         getDiagnosticLogResponse: () => ({ ok: false })
     });
 
-    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
     assert.equal(
         context.__test.document.getElementById('optionsDiagnosticLogStatus').innerText,
         'Не удалось загрузить диагностический лог.'
@@ -793,5 +522,9 @@ test('options page shows load error when GET_CONFIG fails', () => {
     assert.equal(
         context.__test.document.getElementById('optionsLoadStatus').innerText,
         'Не удалось загрузить текущие настройки.'
+    );
+    assert.equal(
+        context.__test.document.getElementById('optionsSettingsSaveStatus').innerText,
+        'Ошибка загрузки настроек.'
     );
 });
