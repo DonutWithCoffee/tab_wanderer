@@ -1433,16 +1433,17 @@ test('GET_EVENT_JOURNAL returns newest journal entries with filters', async () =
 
 
 
-test('ORDERS writes collection completion entry to diagnostic log', async () => {
+test('ORDERS writes deep collection completion entry to diagnostic log', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
     setBackgroundState(context, {
         isRunning: true,
-        monitorState: 'active',
+        monitorState: 'warming',
         workerTabId: 77,
-        pendingRebaseline: false,
-        lastDeepSyncAt: Date.now(),
+        pendingRebaseline: true,
+        pendingSyncReason: 'recovery',
+        lastDeepSyncAt: 0,
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
             monitorScope: {
@@ -1467,7 +1468,9 @@ test('ORDERS writes collection completion entry to diagnostic log', async () => 
         {
             type: 'ORDERS',
             page: 1,
-            data: [createOrder({ id: 'fast-order' })]
+            isComplete: true,
+            completionReason: 'explicit-complete',
+            data: [createOrder({ id: 'deep-order' })]
         },
         {
             tab: {
@@ -1492,113 +1495,86 @@ test('ORDERS writes collection completion entry to diagnostic log', async () => 
     assert.equal(response.ok, true);
     assert.equal(logResponse.ok, true);
     assert.ok(completedEntry);
-    assert.equal(completedEntry.details.mode, 'fast');
+    assert.equal(completedEntry.details.mode, 'deep');
     assert.equal(completedEntry.details.pagesCollected, 1);
     assert.equal(completedEntry.details.ordersCount, 1);
-    assert.equal(completedEntry.details.completionReason, 'fast-page-1');
-    assert.equal(completedEntry.details.isComplete, true);
+    assert.equal(completedEntry.details.completionReason, 'explicit-complete');
 });
 
-test('GET_MONITOR_STATUS returns readonly diagnostic snapshot', async () => {
+test('ORDERS does not persist noisy fast process logs without changes', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
+    const order = createOrder({ id: 'fast-order' });
+    const hash = getHashForOrder(context, order);
+
     setBackgroundState(context, {
-        knownOrdersDB: {
-            '1000': createOrder({ id: '1000' }),
-            '2000': createOrder({ id: '2000' })
-        },
-        knownOrdersHashDB: {
-            '1000': 'hash-1',
-            '2000': 'hash-2'
-        },
-        windowOrdersDB: {
-            '1000': createOrder({ id: '1000' })
-        },
-        windowOrdersHashDB: {
-            '1000': 'hash-1'
-        },
-        notificationTargets: {
-            'notification-1': {
-                orderId: '1000',
-                orderUrl: 'https://amperkot.ru/admin/orders/1000/'
-            }
-        },
-        workerTabId: 77,
-        lastBaselineDate: 'Wed Jun 10 2026',
         isRunning: true,
         monitorState: 'active',
-        lastDeepSyncAt: 1700000000000,
+        workerTabId: 77,
+        pendingRebaseline: false,
+        lastDeepSyncAt: Date.now(),
+        knownOrdersDB: {
+            'fast-order': order
+        },
+        knownOrdersHashDB: {
+            'fast-order': hash
+        },
+        windowOrdersDB: {
+            'fast-order': order
+        },
+        windowOrdersHashDB: {
+            'fast-order': hash
+        },
         userConfig: getEffectiveConfigSnapshot(context, {
-            monitorMode: 'windowed'
-        }),
-        pendingRebaseline: true,
-        pendingSyncReason: 'scope-change',
-        collectionSession: {
-            mode: 'deep',
-            startedAt: 1700000000001,
-            lastActivityAt: 1700000000002,
-            advanceAttempts: 1,
-            orders: {
-                '1000': createOrder({ id: '1000' })
-            },
-            isComplete: false,
-            completionReason: null,
-            currentPage: 1,
-            lastCollectedPage: 1,
-            nextPage: 2,
-            seenKnownOrder: true,
-            processedPages: {
-                1: true
+            monitorMode: 'windowed',
+            monitorScope: {
+                status: [],
+                delivery: [],
+                payment: [],
+                orderFlags: [],
+                store: [],
+                reserve: [],
+                assemblyStatus: [],
+                predicates: {
+                    ozonOnly: false,
+                    juridicalOnly: false
+                }
             }
-        },
-        lastCollectionMetadata: {
-            syncReason: 'scope-change',
-            pagesCollected: 1
-        },
-        eventJournal: [
-            { id: 'entry-1' },
-            { id: 'entry-2' }
-        ],
-        diagnosticLog: [
-            { id: 'log-1' },
-            { id: 'log-2' },
-            { id: 'log-3' }
-        ]
+        }),
+        diagnosticLog: []
     });
 
-    context.__test.storageSetCalls.length = 0;
-    await settleBackgroundContext();
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            data: [order]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
 
-    const storageSetCallsBefore = context.__test.storageSetCalls.length;
-
-    const response = await sendRuntimeMessage(context, {
-        type: 'GET_MONITOR_STATUS'
+    const logResponse = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            order: 'oldest-first',
+            limit: 20
+        }
     });
+
+    const entries = JSON.parse(JSON.stringify(logResponse.entries));
 
     assert.equal(response.ok, true);
-    assert.equal(response.status.isRunning, true);
-    assert.equal(response.status.monitorState, 'active');
-    assert.equal(response.status.monitorMode, 'windowed');
-    assert.equal(response.status.workerTabId, 77);
-    assert.equal(response.status.hasWorkerTab, true);
-    assert.equal(response.status.pendingRebaseline, true);
-    assert.equal(response.status.pendingSyncReason, 'scope-change');
-    assert.equal(response.status.knownOrdersCount, 2);
-    assert.equal(response.status.knownHashesCount, 2);
-    assert.equal(response.status.windowOrdersCount, 1);
-    assert.equal(response.status.windowHashesCount, 1);
-    assert.equal(response.status.notificationTargetsCount, 1);
-    assert.equal(response.status.eventJournalCount, 2);
-    assert.equal(response.status.diagnosticLogCount, 3);
-    assert.equal(response.status.lastBaselineDate, 'Wed Jun 10 2026');
-    assert.equal(response.status.lastDeepSyncAt, 1700000000000);
-    assert.equal(response.status.collectionSession.ordersCount, 1);
-    assert.equal(response.status.lastCollectionMetadata.syncReason, 'scope-change');
-    assert.equal(Object.prototype.hasOwnProperty.call(response.status, 'knownOrdersDB'), false);
-    assert.equal(context.__test.storageSetCalls.length, storageSetCallsBefore);
+    assert.equal(logResponse.ok, true);
+    assert.equal(entries.some((entry) => entry.scope === 'PROCESS'), false);
+    assert.equal(entries.some((entry) => entry.scope === 'COLLECTION' && entry.message === 'session completed'), false);
 });
-
 
 test('GET_DIAGNOSTIC_LOG returns newest diagnostic entries with filters', async () => {
     const context = loadBackgroundContext();

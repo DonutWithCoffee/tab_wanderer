@@ -267,7 +267,9 @@ function logCollectionSessionCompleted(session, orders = []) {
         return;
     }
 
-    log('INFO', 'COLLECTION', 'session completed', {
+    const level = session.mode === 'deep' ? 'INFO' : 'DEBUG';
+
+    log(level, 'COLLECTION', 'session completed', {
         mode: session.mode || null,
         pagesCollected: Number(session.lastCollectedPage) || 0,
         ordersCount: Array.isArray(orders) ? orders.length : 0,
@@ -1005,7 +1007,8 @@ function processOrders(orders, options = {}) {
     let hasChanges = false;
     let hasStateUpdates = false;
 
-    log('INFO', 'PROCESS', `orders=${orders.length} testMode=${testMode}`);
+    const processLogLevel = !testMode && orders.length > 30 ? 'INFO' : 'DEBUG';
+    log(processLogLevel, 'PROCESS', `orders=${orders.length} testMode=${testMode}`);
 
     for (const order of orders) {
         if (!order.id) continue;
