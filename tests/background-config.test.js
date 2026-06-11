@@ -2443,3 +2443,59 @@ test('deep sync completes empty scoped first page without waiting for timeout', 
     assert.equal(state.lastCollectionMetadata.ordersCollected, 0);
     assert.equal(state.lastCollectionMetadata.completionReason, 'empty-first-page');
 });
+
+test('UPDATE_CONFIG records monitor scope change in event journal without notification', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 50,
+            monitorScope: createDefaultMonitorScope()
+        }),
+        monitorDictionaries: {
+            status: [{ id: '6806', label: 'Новый' }],
+            delivery: [],
+            payment: [],
+            orderFlags: [],
+            store: [],
+            reserve: [],
+            assemblyStatus: []
+        },
+        eventJournal: [],
+        pendingRebaseline: false
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: {
+            monitorMode: 'windowed',
+            deepSyncMaxPages: 50,
+            monitorScope: {
+                ...createDefaultMonitorScope(),
+                status: ['6806']
+            }
+        }
+    });
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(state.pendingRebaseline, true);
+    assert.equal(state.pendingSyncReason, 'scope-change');
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].eventType, 'scope-changed');
+    assert.equal(state.eventJournal[0].eventKind, 'scope-change');
+    assert.equal(state.eventJournal[0].syncReason, 'scope-change');
+    assert.deepEqual(state.eventJournal[0].changedFields, ['scope.status']);
+    assert.deepEqual(state.eventJournal[0].diff, [
+        {
+            field: 'scope.status',
+            before: ['Все'],
+            after: ['Новый']
+        }
+    ]);
+    assert.equal(state.eventJournal[0].notification.notify, false);
+});

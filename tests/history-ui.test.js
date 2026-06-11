@@ -31,6 +31,7 @@ class FakeElement extends FakeEventTarget {
         super();
         this.id = id;
         this.innerText = '';
+        this.value = '';
         this._innerHTML = '';
     }
 
@@ -64,15 +65,23 @@ function createHistoryDom() {
     const document = new FakeDocument();
 
     [
+        'historyOrderQuery',
+        'historyEventType',
+        'historyEventKind',
+        'historyChangedField',
+        'historyPeriod',
         'refreshHistory',
+        'resetHistoryFilters',
         'historyStatus',
         'historyList'
     ].forEach((id) => document.registerElement(id));
 
+    document.getElementById('historyPeriod').value = 'all';
+
     return document;
 }
 
-function loadHistoryContext(responseOverride) {
+function loadHistoryContext(responseOverride, setupDocument) {
     const source = fs.readFileSync(
         path.join(__dirname, '..', 'history.js'),
         'utf8'
@@ -81,13 +90,38 @@ function loadHistoryContext(responseOverride) {
     const sentMessages = [];
     const document = createHistoryDom();
 
+    if (typeof setupDocument === 'function') {
+        setupDocument(document);
+    }
+
     const defaultResponse = {
         ok: true,
-        storedTotal: 2,
-        total: 2,
-        returned: 2,
-        limit: 50,
+        storedTotal: 3,
+        total: 3,
+        returned: 3,
+        limit: 100,
         entries: [
+            {
+                id: 'scope-event',
+                createdAt: 1700000120000,
+                orderId: '',
+                orderUrl: '',
+                eventType: 'scope-changed',
+                eventKind: 'scope-change',
+                syncReason: 'scope-change',
+                changedFields: ['scope.status'],
+                diff: [
+                    {
+                        field: 'scope.status',
+                        before: ['Все'],
+                        after: ['Новый']
+                    }
+                ],
+                notification: {
+                    notify: false,
+                    reason: 'Scope changes are recorded in history without user notifications'
+                }
+            },
             {
                 id: 'event-2',
                 createdAt: 1700000060000,
@@ -119,6 +153,12 @@ function loadHistoryContext(responseOverride) {
                 syncReason: 'manual-start',
                 changedFields: [],
                 diff: [],
+                context: {
+                    status: 'Новый',
+                    delivery: 'Самовывоз',
+                    payment: 'Наличными в офисе',
+                    tags: ['ОЗОН']
+                },
                 notification: {
                     notify: true
                 }
@@ -168,17 +208,24 @@ function readHistoryHtml() {
     );
 }
 
-test('history page html contains skeleton containers', () => {
+test('history page html contains filters and readable timeline containers', () => {
     const html = readHistoryHtml();
 
     assert.match(html, /История изменений/);
+    assert.match(html, /id="historyOrderQuery"/);
+    assert.match(html, /id="historyEventType"/);
+    assert.match(html, /id="historyEventKind"/);
+    assert.match(html, /id="historyChangedField"/);
+    assert.match(html, /id="historyPeriod"/);
+    assert.match(html, /id="resetHistoryFilters"/);
     assert.match(html, /id="refreshHistory"/);
     assert.match(html, /id="historyStatus"/);
     assert.match(html, /id="historyList"/);
-    assert.match(html, /технический скелет страницы истории/);
+    assert.match(html, /Смена области мониторинга/);
+    assert.doesNotMatch(html, /технический скелет страницы истории/);
 });
 
-test('history page requests event journal and renders basic diff', () => {
+test('history page requests event journal and renders readable entries', () => {
     const context = loadHistoryContext();
     const document = context.__test.document;
 
@@ -186,17 +233,75 @@ test('history page requests event journal and renders basic diff', () => {
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.sentMessages[0])), {
         type: 'GET_EVENT_JOURNAL',
         options: {
-            limit: 50
+            limit: 100
         }
     });
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Events: 2, shown: 2');
+    assert.equal(
+        document.getElementById('historyStatus').innerText,
+        'Событий найдено: 3; показано: 3; всего сохранено: 3'
+    );
     assert.match(document.getElementById('historyList').innerHTML, /Заказ №1001-300326/);
     assert.match(document.getElementById('historyList').innerHTML, /Изменение заказа/);
+    assert.match(document.getElementById('historyList').innerHTML, /Живое наблюдение/);
+    assert.match(document.getElementById('historyList').innerHTML, /Обычный цикл/);
     assert.match(document.getElementById('historyList').innerHTML, /Статус/);
     assert.match(document.getElementById('historyList').innerHTML, /Новый/);
     assert.match(document.getElementById('historyList').innerHTML, /Оплачен/);
-    assert.match(document.getElementById('historyList').innerHTML, /уведомление: нет/);
+    assert.match(document.getElementById('historyList').innerHTML, /Уведомление: нет/);
+    assert.match(document.getElementById('historyList').innerHTML, /Область мониторинга/);
+    assert.match(document.getElementById('historyList').innerHTML, /Область: статус/);
+    assert.match(document.getElementById('historyList').innerHTML, /Самовывоз/);
+});
+
+test('history page sends selected filters to event journal request', () => {
+    const context = loadHistoryContext();
+    const document = context.__test.document;
+
+    document.getElementById('historyOrderQuery').value = '1001';
+    document.getElementById('historyEventType').value = 'order-changed';
+    document.getElementById('historyEventKind').value = 'live';
+    document.getElementById('historyChangedField').value = 'status';
+    document.getElementById('historyPeriod').value = '7d';
+
+    document.getElementById('refreshHistory').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('refreshHistory')
+    });
+
+    assert.equal(context.__test.sentMessages.length, 2);
+    assert.equal(context.__test.sentMessages[1].type, 'GET_EVENT_JOURNAL');
+    assert.equal(context.__test.sentMessages[1].options.limit, 100);
+    assert.equal(context.__test.sentMessages[1].options.orderQuery, '1001');
+    assert.equal(context.__test.sentMessages[1].options.eventType, 'order-changed');
+    assert.equal(context.__test.sentMessages[1].options.eventKind, 'live');
+    assert.equal(context.__test.sentMessages[1].options.changedField, 'status');
+    assert.equal(typeof context.__test.sentMessages[1].options.since, 'number');
+});
+
+test('history page reset filters clears controls and reloads journal', () => {
+    const context = loadHistoryContext(undefined, (document) => {
+        document.getElementById('historyOrderQuery').value = '1001';
+        document.getElementById('historyEventType').value = 'order-changed';
+        document.getElementById('historyPeriod').value = '24h';
+    });
+    const document = context.__test.document;
+
+    document.getElementById('resetHistoryFilters').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('resetHistoryFilters')
+    });
+
+    assert.equal(document.getElementById('historyOrderQuery').value, '');
+    assert.equal(document.getElementById('historyEventType').value, '');
+    assert.equal(document.getElementById('historyPeriod').value, 'all');
+    assert.equal(context.__test.sentMessages.length, 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.sentMessages[1])), {
+        type: 'GET_EVENT_JOURNAL',
+        options: {
+            limit: 100
+        }
+    });
 });
 
 test('history page shows empty state', () => {
@@ -205,14 +310,17 @@ test('history page shows empty state', () => {
         storedTotal: 0,
         total: 0,
         returned: 0,
-        limit: 50,
+        limit: 100,
         entries: []
     });
 
     const document = context.__test.document;
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Events: 0, shown: 0');
-    assert.match(document.getElementById('historyList').innerHTML, /История пока пуста/);
+    assert.equal(
+        document.getElementById('historyStatus').innerText,
+        'Событий найдено: 0; показано: 0; всего сохранено: 0'
+    );
+    assert.match(document.getElementById('historyList').innerHTML, /По выбранным фильтрам событий нет/);
 });
 
 test('history page refresh button reloads journal', () => {
@@ -236,6 +344,6 @@ test('history page shows load failure', () => {
 
     const document = context.__test.document;
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Failed to load history');
+    assert.equal(document.getElementById('historyStatus').innerText, 'Не удалось загрузить историю');
     assert.equal(document.getElementById('historyList').innerHTML, '');
 });

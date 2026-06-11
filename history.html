@@ -5,7 +5,7 @@
     <title>tab_wanderer history</title>
     <style>
         body {
-            max-width: 960px;
+            max-width: 1040px;
             margin: 16px auto;
             padding: 0 16px;
             font-family: Arial, sans-serif;
@@ -17,8 +17,36 @@
             line-height: 1.35;
         }
 
-        .toolbar {
+        .toolbar,
+        .history-filters {
             margin: 12px 0;
+        }
+
+        .history-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #fafafa;
+        }
+
+        .history-filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 13px;
+        }
+
+        .history-filter-field label {
+            font-weight: bold;
+        }
+
+        .history-filter-field input,
+        .history-filter-field select {
+            padding: 6px;
+            font-size: 13px;
         }
 
         #historyStatus {
@@ -28,9 +56,10 @@
 
         .history-entry {
             border: 1px solid #ccc;
-            border-radius: 4px;
+            border-radius: 6px;
             padding: 10px;
             margin-bottom: 10px;
+            background: #fff;
         }
 
         .history-entry-title {
@@ -39,7 +68,8 @@
         }
 
         .history-entry-meta,
-        .history-entry-context {
+        .history-entry-context,
+        .history-entry-notification {
             color: #555;
             font-size: 12px;
             margin-bottom: 6px;
@@ -49,7 +79,8 @@
             margin-top: 8px;
         }
 
-        .history-diff-row {
+        .history-diff-row,
+        .history-current-row {
             margin: 4px 0;
         }
 
@@ -67,15 +98,69 @@
 <h2>История изменений</h2>
 
 <p class="hint">
-    Это технический скелет страницы истории. Он нужен для проверки журнала событий.
-    Финальная читаемость, фильтры и визуальная полировка будут сделаны отдельно.
+    Минимальная рабочая история событий: фильтры, читаемая лента изменений и запись смены области мониторинга.
+    Финальная визуальная полировка будет сделана на pre-1.0 UI/UX этапе.
 </p>
 
+<section class="history-filters" aria-label="Фильтры истории">
+    <div class="history-filter-field">
+        <label for="historyOrderQuery">Заказ</label>
+        <input id="historyOrderQuery" type="search" placeholder="Номер или часть номера">
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyEventType">Тип события</label>
+        <select id="historyEventType">
+            <option value="">Все</option>
+            <option value="new-order">Новый заказ</option>
+            <option value="order-changed">Изменение заказа</option>
+            <option value="scope-changed">Смена области мониторинга</option>
+            <option value="direct-follow-up">Direct follow-up</option>
+        </select>
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyEventKind">Источник</label>
+        <select id="historyEventKind">
+            <option value="">Все</option>
+            <option value="live">Живое наблюдение</option>
+            <option value="catch-up">Catch-up после запуска</option>
+            <option value="scope-catch-up">Catch-up после смены области</option>
+            <option value="scope-change">Смена области</option>
+            <option value="direct-follow-up">Direct follow-up</option>
+        </select>
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyChangedField">Поле</label>
+        <select id="historyChangedField">
+            <option value="">Все</option>
+            <option value="status">Статус</option>
+            <option value="delivery">Доставка</option>
+            <option value="payment">Оплата</option>
+            <option value="city">Город</option>
+            <option value="tags">Теги</option>
+            <option value="scope">Область мониторинга</option>
+        </select>
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyPeriod">Период</label>
+        <select id="historyPeriod">
+            <option value="all">Всё сохранённое</option>
+            <option value="today">Сегодня</option>
+            <option value="24h">Последние 24 часа</option>
+            <option value="7d">Последние 7 дней</option>
+        </select>
+    </div>
+</section>
+
 <div class="toolbar">
-    <button id="refreshHistory">Refresh</button>
+    <button id="refreshHistory">Обновить</button>
+    <button id="resetHistoryFilters">Сбросить фильтры</button>
 </div>
 
-<div id="historyStatus">Loading...</div>
+<div id="historyStatus">Загрузка...</div>
 <div id="historyList"></div>
 
 <script src="history.js"></script>

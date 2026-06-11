@@ -435,6 +435,17 @@ function appendOrderEventToJournal(order, eventContext, notificationDecision, sy
     eventJournal = appendEventJournalEntry(eventJournal, entry);
 }
 
+function appendScopeChangeEventToJournal(prevScope, nextScope) {
+    const entry = createScopeChangeJournalEntry({
+        prevScope,
+        nextScope,
+        monitorDictionaries,
+        monitorMode: userConfig?.monitorMode
+    });
+
+    eventJournal = appendEventJournalEntry(eventJournal, entry);
+}
+
 function getMonitorStatusSnapshot() {
     return createMonitorStatusSnapshot({
         knownOrdersDB,
@@ -1178,6 +1189,7 @@ if (msg.type === 'UPDATE_CONFIG') {
         resetCollectionSession();
 
         if (scopeChanged) {
+            appendScopeChangeEventToJournal(prevConfig?.monitorScope, userConfig?.monitorScope);
             log('INFO', 'CONFIG', 'monitor scope changed', getMonitorScopeLogSummary(userConfig?.monitorScope));
         }
 

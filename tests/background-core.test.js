@@ -426,6 +426,70 @@ test('event journal helpers build compact before-after entries', () => {
     assert.equal(entry.coverage.pagesCollected, 1);
 });
 
+
+test('event journal helpers include readable new-order context and scope changes', () => {
+    const context = loadBackgroundContext();
+
+    const orderEntry = context.createEventJournalEntry({
+        createdAt: 1700000000000,
+        syncReason: 'normal',
+        order: {
+            id: '1000-300326',
+            status: 'Новый',
+            delivery: 'Самовывоз',
+            payment: 'Наличными в офисе',
+            city: 'Санкт-Петербург',
+            tags: ['ОЗОН']
+        },
+        eventContext: {
+            eventType: 'new-order',
+            isNewOrder: true,
+            changedFields: []
+        },
+        notificationDecision: { notify: true }
+    });
+
+    assert.equal(orderEntry.context.status, 'Новый');
+    assert.equal(orderEntry.context.delivery, 'Самовывоз');
+    assert.equal(orderEntry.context.payment, 'Наличными в офисе');
+    assert.deepEqual(orderEntry.context.tags, ['ОЗОН']);
+
+    const scopeEntry = context.createScopeChangeJournalEntry({
+        createdAt: 1700000000001,
+        prevScope: {
+            status: [],
+            delivery: []
+        },
+        nextScope: {
+            status: ['6806'],
+            delivery: ['9797']
+        },
+        monitorDictionaries: {
+            status: [{ id: '6806', label: 'Новый' }],
+            delivery: [{ id: '9797', label: 'Самовывоз' }]
+        },
+        monitorMode: 'windowed'
+    });
+
+    assert.equal(scopeEntry.eventType, 'scope-changed');
+    assert.equal(scopeEntry.eventKind, 'scope-change');
+    assert.equal(scopeEntry.syncReason, 'scope-change');
+    assert.deepEqual(JSON.parse(JSON.stringify(scopeEntry.changedFields)), ['scope.status', 'scope.delivery']);
+    assert.equal(scopeEntry.notification.notify, false);
+    assert.deepEqual(JSON.parse(JSON.stringify(scopeEntry.diff)), [
+        {
+            field: 'scope.status',
+            before: ['Все'],
+            after: ['Новый']
+        },
+        {
+            field: 'scope.delivery',
+            before: ['Все'],
+            after: ['Самовывоз']
+        }
+    ]);
+});
+
 test('event journal classifies catch-up and scope catch-up events', () => {
     const context = loadBackgroundContext();
 
@@ -462,23 +526,41 @@ test('event journal snapshot returns newest entries with filters and read limit'
 
     const snapshot = context.getEventJournalSnapshot(
         [
-            { id: '1', orderId: '1000', eventType: 'new-order', eventKind: 'live' },
-            { id: '2', orderId: '2000', eventType: 'order-changed', eventKind: 'catch-up' },
-            { id: '3', orderId: '1000', eventType: 'order-changed', eventKind: 'live' }
+            { id: '1', createdAt: 1000, orderId: '1000-300326', eventType: 'new-order', eventKind: 'live', changedFields: [] },
+            { id: '2', createdAt: 2000, orderId: '2000-300326', eventType: 'order-changed', eventKind: 'catch-up', changedFields: ['payment'] },
+            { id: '3', createdAt: 3000, orderId: '1001-300326', eventType: 'order-changed', eventKind: 'live', changedFields: ['status'] },
+            { id: '4', createdAt: 4000, orderId: '', eventType: 'scope-changed', eventKind: 'scope-change', changedFields: ['scope.status'] }
         ],
         {
-            orderId: '1000',
+            orderQuery: '100',
+            eventType: 'order-changed',
+            eventKind: 'live',
+            changedField: 'status',
+            since: 2500,
             limit: 1
         }
     );
 
-    assert.equal(snapshot.storedTotal, 3);
-    assert.equal(snapshot.total, 2);
+    assert.equal(snapshot.storedTotal, 4);
+    assert.equal(snapshot.total, 1);
     assert.equal(snapshot.returned, 1);
     assert.equal(snapshot.limit, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries)), [
-        { id: '3', orderId: '1000', eventType: 'order-changed', eventKind: 'live' }
+        { id: '3', createdAt: 3000, orderId: '1001-300326', eventType: 'order-changed', eventKind: 'live', changedFields: ['status'] }
     ]);
+
+    const scopeSnapshot = context.getEventJournalSnapshot(
+        [
+            { id: '1', createdAt: 1000, orderId: '1000-300326', eventType: 'order-changed', eventKind: 'live', changedFields: ['status'] },
+            { id: '2', createdAt: 2000, orderId: '', eventType: 'scope-changed', eventKind: 'scope-change', changedFields: ['scope.status'] }
+        ],
+        {
+            changedField: 'scope'
+        }
+    );
+
+    assert.equal(scopeSnapshot.total, 1);
+    assert.equal(scopeSnapshot.entries[0].id, '2');
 });
 
 test('event journal normalization trims old stored entries', () => {

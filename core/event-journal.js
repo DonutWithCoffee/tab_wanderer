@@ -1,7 +1,16 @@
+const JOURNAL_EVENT_TYPES = {
+    NEW_ORDER: 'new-order',
+    ORDER_CHANGED: 'order-changed',
+    SCOPE_CHANGED: 'scope-changed',
+    DIRECT_FOLLOW_UP: 'direct-follow-up'
+};
+
 const JOURNAL_EVENT_KINDS = {
     LIVE: 'live',
     CATCH_UP: 'catch-up',
-    SCOPE_CATCH_UP: 'scope-catch-up'
+    SCOPE_CATCH_UP: 'scope-catch-up',
+    SCOPE_CHANGE: 'scope-change',
+    DIRECT_FOLLOW_UP: 'direct-follow-up'
 };
 
 const DEFAULT_EVENT_JOURNAL_LIMIT = 500;
@@ -10,14 +19,28 @@ const DEFAULT_EVENT_JOURNAL_READ_LIMIT = 100;
 const EVENT_JOURNAL_CONTEXT_FIELDS = [
     'id',
     'orderUrl',
+    'status',
+    'delivery',
+    'payment',
+    'city',
+    'tags',
     'date',
     'phoneNormalized',
     'totalAmount',
     'productsDone',
     'productsTotal',
     'manager',
-    'contractor',
-    'city'
+    'contractor'
+];
+
+const MONITOR_SCOPE_JOURNAL_FIELDS = [
+    { key: 'status', field: 'scope.status', label: 'Статус', dictionaryKey: 'status' },
+    { key: 'delivery', field: 'scope.delivery', label: 'Доставка', dictionaryKey: 'delivery' },
+    { key: 'payment', field: 'scope.payment', label: 'Оплата', dictionaryKey: 'payment' },
+    { key: 'orderFlags', field: 'scope.orderFlags', label: 'Флаги', dictionaryKey: 'orderFlags' },
+    { key: 'store', field: 'scope.store', label: 'Склад', dictionaryKey: 'store' },
+    { key: 'reserve', field: 'scope.reserve', label: 'Резерв', dictionaryKey: 'reserve' },
+    { key: 'assemblyStatus', field: 'scope.assemblyStatus', label: 'Комплектация', dictionaryKey: 'assemblyStatus' }
 ];
 
 function getJournalEventKind(syncReason) {
@@ -112,7 +135,7 @@ function createEventJournalEntry({
 } = {}) {
     const safeOrder = order || {};
     const safeContext = eventContext || {};
-    const eventType = safeContext.eventType || (safeContext.isNewOrder ? 'new-order' : 'order-changed');
+    const eventType = safeContext.eventType || (safeContext.isNewOrder ? JOURNAL_EVENT_TYPES.NEW_ORDER : JOURNAL_EVENT_TYPES.ORDER_CHANGED);
     const changedFields = Array.isArray(safeContext.changedFields)
         ? safeContext.changedFields.map(field => String(field))
         : [];
@@ -147,6 +170,102 @@ function createEventJournalEntry({
     };
 }
 
+function normalizeScopeListForJournal(values) {
+    return Array.isArray(values)
+        ? values.map(value => String(value)).filter(Boolean).sort()
+        : [];
+}
+
+function getDictionaryLabelForScopeValue(dictionaries, dictionaryKey, value) {
+    const list = Array.isArray(dictionaries?.[dictionaryKey]) ? dictionaries[dictionaryKey] : [];
+    const match = list.find(item => String(item?.id || '') === String(value));
+
+    return match?.label || String(value);
+}
+
+function formatScopeListForJournal(scope, dictionaries, descriptor) {
+    const values = normalizeScopeListForJournal(scope?.[descriptor.key]);
+
+    if (!values.length) {
+        return ['Все'];
+    }
+
+    return values.map(value => getDictionaryLabelForScopeValue(dictionaries, descriptor.dictionaryKey, value));
+}
+
+function createScopeChangeDiff(prevScope = {}, nextScope = {}, dictionaries = {}) {
+    const diff = [];
+
+    for (const descriptor of MONITOR_SCOPE_JOURNAL_FIELDS) {
+        const beforeRaw = normalizeScopeListForJournal(prevScope?.[descriptor.key]);
+        const afterRaw = normalizeScopeListForJournal(nextScope?.[descriptor.key]);
+
+        if (JSON.stringify(beforeRaw) === JSON.stringify(afterRaw)) {
+            continue;
+        }
+
+        diff.push({
+            field: descriptor.field,
+            before: formatScopeListForJournal(prevScope, dictionaries, descriptor),
+            after: formatScopeListForJournal(nextScope, dictionaries, descriptor)
+        });
+    }
+
+    return diff;
+}
+
+function createScopeChangeJournalEntry({
+    prevScope,
+    nextScope,
+    monitorDictionaries,
+    monitorMode,
+    createdAt = Date.now()
+} = {}) {
+    const safeNextScope = nextScope || {};
+    const diff = createScopeChangeDiff(prevScope, safeNextScope, monitorDictionaries);
+    const changedFields = diff.map(item => item.field);
+
+    return {
+        id: buildEventJournalEntryId({
+            createdAt,
+            orderId: 'monitor-scope',
+            eventType: JOURNAL_EVENT_TYPES.SCOPE_CHANGED,
+            newHash: typeof getMonitorScopeSignature === 'function'
+                ? getMonitorScopeSignature(safeNextScope)
+                : JSON.stringify(safeNextScope)
+        }),
+        createdAt,
+        orderId: '',
+        orderUrl: '',
+        eventType: JOURNAL_EVENT_TYPES.SCOPE_CHANGED,
+        eventKind: JOURNAL_EVENT_KINDS.SCOPE_CHANGE,
+        syncReason: SYNC_REASONS.SCOPE_CHANGE,
+        changedFields,
+        diff,
+        context: {
+            monitorScope: {
+                before: cloneJournalValue(prevScope || {}),
+                after: cloneJournalValue(safeNextScope)
+            }
+        },
+        prevHash: null,
+        newHash: null,
+        monitorMode: typeof normalizeMonitorModeForMetadata === 'function'
+            ? normalizeMonitorModeForMetadata(monitorMode)
+            : String(monitorMode || 'windowed'),
+        monitorScopeSignature: typeof getMonitorScopeSignature === 'function'
+            ? getMonitorScopeSignature(safeNextScope)
+            : '',
+        coverage: null,
+        notification: createNotificationJournalSnapshot({
+            notify: false,
+            action: 'suppress',
+            ruleId: 'scope-change-no-notification',
+            reason: 'Scope changes are recorded in history without user notifications',
+            matchedFields: []
+        })
+    };
+}
 
 function normalizeJournalLimit(value, fallback = DEFAULT_EVENT_JOURNAL_READ_LIMIT) {
     const numeric = Number(value);
@@ -172,9 +291,41 @@ function normalizeEventJournal(journal, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
         .map(entry => cloneJournalValue(entry));
 }
 
+function normalizeJournalFilterText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function matchesJournalChangedField(entry, changedField) {
+    const filter = String(changedField || '').trim();
+
+    if (!filter) {
+        return true;
+    }
+
+    const fields = Array.isArray(entry.changedFields)
+        ? entry.changedFields.map(field => String(field))
+        : [];
+
+    if (filter === 'scope') {
+        return fields.some(field => field.startsWith('scope.'));
+    }
+
+    return fields.includes(filter);
+}
+
 function matchesJournalFilter(entry, filters = {}) {
     if (filters.orderId !== undefined && String(entry.orderId || '') !== String(filters.orderId)) {
         return false;
+    }
+
+    const orderQuery = normalizeJournalFilterText(filters.orderQuery || filters.query);
+
+    if (orderQuery) {
+        const orderId = normalizeJournalFilterText(entry.orderId);
+
+        if (!orderId.includes(orderQuery)) {
+            return false;
+        }
     }
 
     if (filters.eventType !== undefined && String(entry.eventType || '') !== String(filters.eventType)) {
@@ -182,6 +333,16 @@ function matchesJournalFilter(entry, filters = {}) {
     }
 
     if (filters.eventKind !== undefined && String(entry.eventKind || '') !== String(filters.eventKind)) {
+        return false;
+    }
+
+    if (!matchesJournalChangedField(entry, filters.changedField)) {
+        return false;
+    }
+
+    const since = Number(filters.since);
+
+    if (Number.isFinite(since) && since > 0 && Number(entry.createdAt || 0) < since) {
         return false;
     }
 
@@ -220,16 +381,20 @@ function appendEventJournalEntry(journal, entry, limit = DEFAULT_EVENT_JOURNAL_L
     return nextJournal.slice(nextJournal.length - safeLimit);
 }
 
+globalThis.JOURNAL_EVENT_TYPES = JOURNAL_EVENT_TYPES;
 globalThis.JOURNAL_EVENT_KINDS = JOURNAL_EVENT_KINDS;
 globalThis.DEFAULT_EVENT_JOURNAL_LIMIT = DEFAULT_EVENT_JOURNAL_LIMIT;
 globalThis.DEFAULT_EVENT_JOURNAL_READ_LIMIT = DEFAULT_EVENT_JOURNAL_READ_LIMIT;
 globalThis.EVENT_JOURNAL_CONTEXT_FIELDS = EVENT_JOURNAL_CONTEXT_FIELDS;
+globalThis.MONITOR_SCOPE_JOURNAL_FIELDS = MONITOR_SCOPE_JOURNAL_FIELDS;
 globalThis.getJournalEventKind = getJournalEventKind;
 globalThis.pickOrderContext = pickOrderContext;
 globalThis.buildChangedFieldDiff = buildChangedFieldDiff;
 globalThis.buildEventJournalEntryId = buildEventJournalEntryId;
 globalThis.createNotificationJournalSnapshot = createNotificationJournalSnapshot;
 globalThis.createEventJournalEntry = createEventJournalEntry;
+globalThis.createScopeChangeDiff = createScopeChangeDiff;
+globalThis.createScopeChangeJournalEntry = createScopeChangeJournalEntry;
 globalThis.normalizeJournalLimit = normalizeJournalLimit;
 globalThis.normalizeEventJournal = normalizeEventJournal;
 globalThis.matchesJournalFilter = matchesJournalFilter;
