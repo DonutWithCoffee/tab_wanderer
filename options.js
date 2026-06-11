@@ -644,8 +644,8 @@ function renderWatchedOrders(config = {}) {
     setText(
         'optionsWatchedOrdersStatus',
         watchedOrders.items.length
-            ? `Отслеживается заказов: ${watchedOrders.items.length}. Direct follow-up будет подключён следующим этапом.`
-            : 'Список пуст. Добавь номер заказа, чтобы подготовить его к direct follow-up.'
+            ? `Отслеживается заказов: ${watchedOrders.items.length}. Direct follow-up проверяет эти заказы напрямую при активном мониторинге.`
+            : 'Список пуст. Добавь номер заказа для прямого отслеживания.'
     );
 
     if (!listEl) {
@@ -676,6 +676,7 @@ function renderWatchedOrders(config = {}) {
         meta.innerText = [
             `статус: ${getWatchedOrderStatusLabel(item.status)}`,
             `добавлен: ${formatWatchedOrderTimestamp(item.addedAt)}`,
+            `первая проверка: ${formatWatchedOrderTimestamp(item.lastBaselineAt)}`,
             `последняя проверка: ${formatWatchedOrderTimestamp(item.lastCheckedAt)}`,
             `последнее событие: ${formatWatchedOrderTimestamp(item.lastEventAt)}`,
             item.lastError ? `ошибка: ${item.lastError}` : null
@@ -737,12 +738,13 @@ function addWatchedOrderFromUI() {
                     status: 'active',
                     addedAt: Date.now(),
                     lastCheckedAt: null,
+                    lastBaselineAt: null,
                     lastEventAt: null,
                     lastError: null
                 }
             ]
         },
-        'Отслеживаемый заказ добавлен. Direct follow-up будет подключён следующим этапом.'
+        'Отслеживаемый заказ добавлен. Первая успешная direct follow-up проверка станет baseline без уведомления.'
     );
 }
 

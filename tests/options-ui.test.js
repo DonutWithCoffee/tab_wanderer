@@ -475,7 +475,7 @@ test('options page adds watched order to config', () => {
         ['1000-300326', '2000-300326']
     );
     assert.equal(input.value, '');
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Отслеживаемый заказ добавлен. Direct follow-up будет подключён следующим этапом.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Отслеживаемый заказ добавлен. Первая успешная direct follow-up проверка станет baseline без уведомления.');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '2 заказа');
 });
 

@@ -158,6 +158,9 @@ async function completeDirectFollowUpCheck(orderId, result = {}) {
     const now = Date.now();
     const ok = result?.ok === true;
     const error = result?.error ? String(result.error) : null;
+    const directResult = ok && result?.order
+        ? processDirectFollowUpOrder(result.order, normalizedId, now)
+        : null;
 
     userConfig = {
         ...userConfig,
@@ -175,7 +178,10 @@ async function completeDirectFollowUpCheck(orderId, result = {}) {
 
     log(ok ? 'INFO' : 'WARN', 'DIRECT_FOLLOW_UP', ok ? 'checked' : 'failed', {
         orderId: normalizedId,
-        error: ok ? null : directFollowUpState.lastError
+        error: ok ? null : directFollowUpState.lastError,
+        result: directResult?.reason || null,
+        eventCreated: directResult?.eventCreated === true,
+        notified: directResult?.notified === true
     });
 
     const tabId = directWorkerTabId;
@@ -572,7 +578,7 @@ function recordCollectionMetadata(session, orders, reason = SYNC_REASONS.NORMAL)
     });
 }
 
-function appendOrderEventToJournal(order, eventContext, notificationDecision, syncReason = SYNC_REASONS.NORMAL) {
+function appendOrderEventToJournal(order, eventContext, notificationDecision, syncReason = SYNC_REASONS.NORMAL, coverageMetadata = lastCollectionMetadata) {
     const entry = createEventJournalEntry({
         order,
         eventContext,
@@ -580,7 +586,7 @@ function appendOrderEventToJournal(order, eventContext, notificationDecision, sy
         syncReason,
         monitorMode: userConfig?.monitorMode,
         monitorScope: userConfig?.monitorScope,
-        coverageMetadata: lastCollectionMetadata
+        coverageMetadata
     });
 
     eventJournal = appendEventJournalEntry(eventJournal, entry);
@@ -595,6 +601,142 @@ function appendScopeChangeEventToJournal(prevScope, nextScope) {
     });
 
     eventJournal = appendEventJournalEntry(eventJournal, entry);
+}
+
+
+function markWatchedOrderBaselineForDirectFollowUp(orderId, now = Date.now()) {
+    userConfig = {
+        ...userConfig,
+        watchedOrders: markWatchedOrderDirectBaseline(userConfig?.watchedOrders, orderId, now)
+    };
+}
+
+function markWatchedOrderEventForDirectFollowUp(orderId, now = Date.now()) {
+    userConfig = {
+        ...userConfig,
+        watchedOrders: markWatchedOrderEvent(userConfig?.watchedOrders, orderId, now)
+    };
+}
+
+function baselineDirectFollowUpOrder(order, orderId, now = Date.now()) {
+    const normalizedId = normalizeWatchedOrderId(orderId || order?.id);
+
+    if (!normalizedId || !order?.id) {
+        return {
+            baseline: false,
+            eventCreated: false,
+            notified: false,
+            reason: 'invalid-direct-order'
+        };
+    }
+
+    const hash = getHash(order);
+
+    knownOrdersDB[normalizedId] = order;
+    knownOrdersHashDB[normalizedId] = hash;
+    markWatchedOrderBaselineForDirectFollowUp(normalizedId, now);
+
+    log('INFO', 'DIRECT_FOLLOW_UP', 'baseline', {
+        orderId: normalizedId
+    });
+
+    return {
+        baseline: true,
+        eventCreated: false,
+        notified: false,
+        reason: 'direct-follow-up-baseline'
+    };
+}
+
+function processDirectFollowUpOrder(order, orderId, now = Date.now()) {
+    const normalizedId = normalizeWatchedOrderId(orderId || order?.id);
+
+    if (!normalizedId || !order?.id || normalizeWatchedOrderId(order.id) !== normalizedId) {
+        return {
+            ok: false,
+            eventCreated: false,
+            notified: false,
+            reason: 'invalid-direct-order'
+        };
+    }
+
+    const hasBaseline = hasWatchedOrderDirectBaseline(userConfig?.watchedOrders, normalizedId);
+    const prevOrder = knownOrdersDB[normalizedId] || null;
+    const prevHash = knownOrdersHashDB[normalizedId] || null;
+
+    if (!hasBaseline || !prevOrder || !prevHash) {
+        return {
+            ok: true,
+            ...baselineDirectFollowUpOrder(order, normalizedId, now)
+        };
+    }
+
+    const newHash = getHash(order);
+
+    if (newHash === prevHash) {
+        if (!areStoredOrdersEqual(prevOrder, order)) {
+            knownOrdersDB[normalizedId] = order;
+            knownOrdersHashDB[normalizedId] = newHash;
+        }
+
+        return {
+            ok: true,
+            eventCreated: false,
+            notified: false,
+            reason: 'direct-follow-up-no-change'
+        };
+    }
+
+    const changedFields = getChangedFields(prevOrder, order);
+    const eventContext = {
+        prevOrder,
+        prevHash,
+        newHash,
+        isNewOrder: false,
+        eventType: JOURNAL_EVENT_TYPES.ORDER_CHANGED,
+        eventKind: JOURNAL_EVENT_KINDS.DIRECT_FOLLOW_UP,
+        changedFields
+    };
+    const decision = evaluateNotification(order, eventContext, userConfig);
+
+    log('INFO', 'DIRECT_FOLLOW_UP', 'change event', {
+        orderId: normalizedId,
+        changedFields
+    });
+
+    appendOrderEventToJournal(
+        order,
+        eventContext,
+        decision,
+        SYNC_REASONS.DIRECT_FOLLOW_UP,
+        buildDirectFollowUpCoverageMetadata({ orderId: normalizedId, checkedAt: now })
+    );
+    markWatchedOrderEventForDirectFollowUp(normalizedId, now);
+
+    if (!decision.notify) {
+        log('INFO', 'RULES', {
+            id: normalizedId,
+            action: decision.action,
+            ruleId: decision.ruleId,
+            reason: decision.reason,
+            isNewOrder: false,
+            eventType: eventContext.eventType,
+            eventKind: eventContext.eventKind,
+            changedFields
+        });
+    } else {
+        notifyOrder(order, eventContext);
+    }
+
+    knownOrdersDB[normalizedId] = order;
+    knownOrdersHashDB[normalizedId] = newHash;
+
+    return {
+        ok: true,
+        eventCreated: true,
+        notified: decision.notify === true,
+        reason: decision.notify === true ? 'direct-follow-up-notified' : 'direct-follow-up-suppressed'
+    };
 }
 
 function getMonitorStatusSnapshot() {
@@ -1325,7 +1467,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
-                await completeDirectFollowUpCheck(expectedNormalizedId, { ok: true });
+                await completeDirectFollowUpCheck(expectedNormalizedId, { ok: true, order: parsedOrder });
                 send(createRuntimeOkResponse({ checked: true, orderId: expectedNormalizedId }));
                 return;
             }

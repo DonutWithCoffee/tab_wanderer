@@ -52,6 +52,10 @@ function getJournalEventKind(syncReason) {
         return JOURNAL_EVENT_KINDS.SCOPE_CATCH_UP;
     }
 
+    if (reason === SYNC_REASONS.DIRECT_FOLLOW_UP) {
+        return JOURNAL_EVENT_KINDS.DIRECT_FOLLOW_UP;
+    }
+
     if (
         reason === SYNC_REASONS.INITIAL ||
         reason === SYNC_REASONS.MANUAL_START ||

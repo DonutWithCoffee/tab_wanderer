@@ -6,6 +6,7 @@ const SYNC_REASONS = {
     SCOPE_CHANGE: 'scope-change',
     MODE_CHANGE: 'mode-change',
     WINDOW_SYNC: 'window-sync',
+    DIRECT_FOLLOW_UP: 'direct-follow-up',
     NORMAL: 'normal'
 };
 

@@ -283,6 +283,7 @@ test('getEffectiveConfig normalizes watched orders config', () => {
                 status: 'active',
                 addedAt: config.watchedOrders.items[0].addedAt,
                 lastCheckedAt: null,
+                lastBaselineAt: null,
                 lastEventAt: null,
                 lastError: null
             },
@@ -291,6 +292,7 @@ test('getEffectiveConfig normalizes watched orders config', () => {
                 status: 'unresolved',
                 addedAt: config.watchedOrders.items[1].addedAt,
                 lastCheckedAt: null,
+                lastBaselineAt: null,
                 lastEventAt: null,
                 lastError: 'not found'
             }

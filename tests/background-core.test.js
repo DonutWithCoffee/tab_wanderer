@@ -1125,6 +1125,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
                 status: 'active',
                 addedAt: 1700000000000,
                 lastCheckedAt: null,
+                lastBaselineAt: null,
                 lastEventAt: null,
                 lastError: null
             },
@@ -1133,6 +1134,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
                 status: 'active',
                 addedAt: 1700000001000,
                 lastCheckedAt: null,
+                lastBaselineAt: null,
                 lastEventAt: null,
                 lastError: null
             }
@@ -1235,6 +1237,13 @@ test('direct follow-up helpers select watched orders and update check status', (
     assert.equal(recovered.items[0].status, 'active');
     assert.equal(recovered.items[0].lastCheckedAt, 1700000006000);
     assert.equal(recovered.items[0].lastError, null);
+
+    const baselined = context.markWatchedOrderDirectBaseline(recovered, '1000-300326', 1700000007000);
+    const eventMarked = context.markWatchedOrderEvent(baselined, '1000-300326', 1700000008000);
+
+    assert.equal(context.hasWatchedOrderDirectBaseline(baselined, '1000-300326'), true);
+    assert.equal(eventMarked.items[0].lastBaselineAt, 1700000007000);
+    assert.equal(eventMarked.items[0].lastEventAt, 1700000008000);
 });
 
 test('monitor status snapshot exposes direct follow-up state without watched order payloads', () => {

@@ -104,6 +104,22 @@ function markWatchedOrderCheckResult(watchedOrders = {}, orderId, result = {}, n
     }), now);
 }
 
+
+function buildDirectFollowUpCoverageMetadata({ orderId, checkedAt = Date.now() } = {}) {
+    return {
+        collectedAt: Number(checkedAt) || Date.now(),
+        syncReason: SYNC_REASONS.DIRECT_FOLLOW_UP,
+        monitorMode: 'direct-follow-up',
+        monitorScopeSignature: `direct-follow-up:${normalizeWatchedOrderId(orderId)}`,
+        sessionMode: 'direct-follow-up',
+        pagesCollected: 1,
+        maxPages: 1,
+        ordersCollected: 1,
+        completionReason: 'direct-order-checked',
+        isComplete: true
+    };
+}
+
 globalThis.DIRECT_FOLLOW_UP_STATE = DIRECT_FOLLOW_UP_STATE;
 globalThis.normalizeDirectFollowUpTimestamp = normalizeDirectFollowUpTimestamp;
 globalThis.normalizeDirectFollowUpState = normalizeDirectFollowUpState;
@@ -112,3 +128,4 @@ globalThis.getActiveWatchedOrderItems = getActiveWatchedOrderItems;
 globalThis.selectNextDirectFollowUpItem = selectNextDirectFollowUpItem;
 globalThis.markWatchedOrderCheckStarted = markWatchedOrderCheckStarted;
 globalThis.markWatchedOrderCheckResult = markWatchedOrderCheckResult;
+globalThis.buildDirectFollowUpCoverageMetadata = buildDirectFollowUpCoverageMetadata;

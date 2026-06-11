@@ -23,7 +23,8 @@ const SYNC_REASON_LABELS = {
     'stale-resume': 'Возврат после долгого перерыва',
     'scope-change': 'Смена области мониторинга',
     'mode-change': 'Смена режима мониторинга',
-    'window-sync': 'Синхронизация окна'
+    'window-sync': 'Синхронизация окна',
+    'direct-follow-up': 'Direct follow-up'
 };
 
 const FIELD_LABELS = {

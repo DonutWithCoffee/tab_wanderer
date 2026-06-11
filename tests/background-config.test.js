@@ -2631,3 +2631,191 @@ test('DIRECT_ORDER from direct worker updates watched order status and closes di
     assert.equal(state.userConfig.watchedOrders.items[0].lastError, null);
     assert.deepEqual(context.__test.removedTabs, [88]);
 });
+
+test('DIRECT_ORDER first successful direct check baselines watched order without notification', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        knownOrdersDB: {},
+        knownOrdersHashDB: {},
+        eventJournal: [],
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: createOrder({ id: '1000-300326', status: 'Комплектуется' })
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+    const watchedItem = state.userConfig.watchedOrders.items[0];
+
+    assert.equal(response.ok, true);
+    assert.equal(response.checked, true);
+    assert.equal(state.knownOrdersDB['1000-300326'].status, 'Комплектуется');
+    assert.equal(state.eventJournal.length, 0);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.ok(watchedItem.lastBaselineAt > 0);
+    assert.ok(watchedItem.lastCheckedAt > 0);
+    assert.equal(watchedItem.lastEventAt, null);
+    assert.equal(watchedItem.lastError, null);
+});
+
+test('DIRECT_ORDER after direct baseline records event and notifies through shared rules', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({ id: '1000-300326', status: 'Новый' });
+    const nextOrder = createOrder({ id: '1000-300326', status: 'Комплектуется' });
+    const prevHash = getHashForOrder(context, prevOrder);
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        knownOrdersDB: {
+            '1000-300326': prevOrder
+        },
+        knownOrdersHashDB: {
+            '1000-300326': prevHash
+        },
+        eventJournal: [],
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326', lastBaselineAt: 1700000000000 }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: nextOrder
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+    const entry = state.eventJournal[0];
+    const watchedItem = state.userConfig.watchedOrders.items[0];
+
+    assert.equal(response.ok, true);
+    assert.equal(response.checked, true);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(context.__test.notifications[0].title, 'Заказ №1000-300326 изменён');
+    assert.equal(context.__test.notifications[0].message, 'Статус: Новый → Комплектуется');
+    assert.equal(state.knownOrdersDB['1000-300326'].status, 'Комплектуется');
+    assert.equal(entry.orderId, '1000-300326');
+    assert.equal(entry.eventType, 'order-changed');
+    assert.equal(entry.eventKind, 'direct-follow-up');
+    assert.equal(entry.syncReason, 'direct-follow-up');
+    assert.deepEqual(entry.changedFields, ['status']);
+    assert.equal(entry.notification.notify, true);
+    assert.ok(watchedItem.lastCheckedAt > 0);
+    assert.ok(watchedItem.lastEventAt > 0);
+    assert.equal(watchedItem.lastError, null);
+});
+
+test('DIRECT_ORDER tag-only direct change records history without notification', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({ id: '1000-300326', tags: ['Юрик'] });
+    const nextOrder = createOrder({ id: '1000-300326', tags: ['ОЗОН'] });
+    const prevHash = getHashForOrder(context, prevOrder);
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        knownOrdersDB: {
+            '1000-300326': prevOrder
+        },
+        knownOrdersHashDB: {
+            '1000-300326': prevHash
+        },
+        eventJournal: [],
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326', lastBaselineAt: 1700000000000 }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: nextOrder
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+    const entry = state.eventJournal[0];
+    const watchedItem = state.userConfig.watchedOrders.items[0];
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(entry.eventKind, 'direct-follow-up');
+    assert.deepEqual(entry.changedFields, ['tags']);
+    assert.equal(entry.notification.notify, false);
+    assert.equal(entry.notification.ruleId, 'notification-trigger-no-enabled-changed-fields');
+    assert.ok(watchedItem.lastEventAt > 0);
+});

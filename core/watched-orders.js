@@ -49,6 +49,7 @@ function normalizeWatchedOrderItem(value, now = Date.now()) {
         status: normalizeWatchedOrderStatus(source.status),
         addedAt: normalizeWatchedOrderTimestamp(source.addedAt) || now,
         lastCheckedAt: normalizeWatchedOrderTimestamp(source.lastCheckedAt),
+        lastBaselineAt: normalizeWatchedOrderTimestamp(source.lastBaselineAt),
         lastEventAt: normalizeWatchedOrderTimestamp(source.lastEventAt),
         lastError: source.lastError ? String(source.lastError) : null
     };
@@ -156,6 +157,55 @@ function removeWatchedOrderFromConfig(watchedOrders = {}, orderId) {
     };
 }
 
+
+function getWatchedOrderItem(watchedOrders = {}, orderId) {
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    return normalizeWatchedOrdersConfig(watchedOrders).items.find(item => item.id === normalizedId) || null;
+}
+
+function hasWatchedOrderDirectBaseline(watchedOrders = {}, orderId) {
+    const item = getWatchedOrderItem(watchedOrders, orderId);
+
+    return Number(item?.lastBaselineAt) > 0;
+}
+
+function markWatchedOrderDirectBaseline(watchedOrders = {}, orderId, now = Date.now()) {
+    const normalizedConfig = normalizeWatchedOrdersConfig(watchedOrders, now);
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    return {
+        items: normalizedConfig.items.map(item => {
+            if (item.id !== normalizedId) {
+                return item;
+            }
+
+            return normalizeWatchedOrderItem({
+                ...item,
+                lastBaselineAt: now
+            }, now) || item;
+        })
+    };
+}
+
+function markWatchedOrderEvent(watchedOrders = {}, orderId, now = Date.now()) {
+    const normalizedConfig = normalizeWatchedOrdersConfig(watchedOrders, now);
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    return {
+        items: normalizedConfig.items.map(item => {
+            if (item.id !== normalizedId) {
+                return item;
+            }
+
+            return normalizeWatchedOrderItem({
+                ...item,
+                lastEventAt: now
+            }, now) || item;
+        })
+    };
+}
+
 function createWatchedEventJournalOptions(options = {}, watchedOrders = {}) {
     const safeOptions = options && typeof options === 'object' ? options : {};
 
@@ -177,6 +227,10 @@ globalThis.normalizeWatchedOrderStatus = normalizeWatchedOrderStatus;
 globalThis.normalizeWatchedOrderItem = normalizeWatchedOrderItem;
 globalThis.normalizeWatchedOrdersConfig = normalizeWatchedOrdersConfig;
 globalThis.createWatchedOrderItem = createWatchedOrderItem;
+globalThis.getWatchedOrderItem = getWatchedOrderItem;
+globalThis.hasWatchedOrderDirectBaseline = hasWatchedOrderDirectBaseline;
+globalThis.markWatchedOrderDirectBaseline = markWatchedOrderDirectBaseline;
+globalThis.markWatchedOrderEvent = markWatchedOrderEvent;
 globalThis.getWatchedOrderIds = getWatchedOrderIds;
 globalThis.addWatchedOrderToConfig = addWatchedOrderToConfig;
 globalThis.removeWatchedOrderFromConfig = removeWatchedOrderFromConfig;
