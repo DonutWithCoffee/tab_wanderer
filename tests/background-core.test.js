@@ -921,3 +921,70 @@ test('collection model normalizes ORDERS message meta for legacy and explicit co
         }
     );
 });
+
+test('runtime api helpers build consistent safe responses', () => {
+    const context = loadBackgroundContext();
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.createRuntimeOkResponse({ value: 1 }))),
+        { ok: true, value: 1 }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.createRuntimeFailureResponse())),
+        { ok: false }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.createRuntimeErrorResponse(new Error('boom')))),
+        { ok: false, error: 'boom' }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.createRuntimeIgnoredResponse({ stalePage: true }))),
+        { ignored: true, stalePage: true }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.createWorkerCheckResponse({ isWorker: true, isRunning: 1 }))),
+        { isWorker: true, isRunning: false }
+    );
+});
+
+test('runtime api helpers wrap monitor, journal and diagnostic snapshots', () => {
+    const context = loadBackgroundContext();
+
+    const monitorResponse = context.createRuntimeMonitorStatusResponse({ isRunning: true });
+    assert.equal(monitorResponse.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(monitorResponse.status)), { isRunning: true });
+
+    const journalResponse = context.createRuntimeEventJournalResponse(
+        [
+            { id: '1', orderId: '1000' },
+            { id: '2', orderId: '2000' }
+        ],
+        { orderId: '2000' }
+    );
+    assert.equal(journalResponse.ok, true);
+    assert.equal(journalResponse.total, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(journalResponse.entries)), [
+        { id: '2', orderId: '2000' }
+    ]);
+
+    const diagnosticResponse = context.createRuntimeDiagnosticLogResponse(
+        Array.from({ length: 120 }, (_, index) => ({
+            id: String(index + 1),
+            createdAt: index + 1,
+            level: 'INFO',
+            scope: 'TEST',
+            message: `entry-${index + 1}`
+        })),
+        { mode: 'full', order: 'oldest-first' },
+        9
+    );
+    assert.equal(diagnosticResponse.ok, true);
+    assert.equal(diagnosticResponse.mode, 'full');
+    assert.equal(diagnosticResponse.returned, 120);
+    assert.equal(diagnosticResponse.droppedEntries, 9);
+    assert.equal(diagnosticResponse.entries[0].id, '1');
+});

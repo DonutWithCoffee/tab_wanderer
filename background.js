@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/runtime-api.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -1058,7 +1058,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 const isCorrectUrl = senderTab?.url?.includes(WORKER_MARK);
 
                 if (senderTabId === workerTabId) {
-                    send({ isWorker: true, isRunning });
+                    send(createWorkerCheckResponse({ isWorker: true, isRunning }));
                     return;
                 }
 
@@ -1070,47 +1070,31 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     log('INFO', 'WORKER', 'bind on init');
                     await save();
 
-                    send({ isWorker: true, isRunning });
+                    send(createWorkerCheckResponse({ isWorker: true, isRunning }));
                     return;
                 }
 
-                send({ isWorker: false, isRunning });
+                send(createWorkerCheckResponse({ isWorker: false, isRunning }));
                 return;
             }
 
             if (msg.type === 'GET_CONFIG') {
-                send({
-                    ok: true,
-                    userConfig,
-                    monitorDictionaries
-                });
+                send(createRuntimeConfigResponse(userConfig, monitorDictionaries));
                 return;
             }
 
             if (msg.type === 'GET_EVENT_JOURNAL') {
-                send({
-                    ok: true,
-                    ...getEventJournalSnapshot(eventJournal, msg.options || {})
-                });
+                send(createRuntimeEventJournalResponse(eventJournal, msg.options || {}));
                 return;
             }
 
             if (msg.type === 'GET_MONITOR_STATUS') {
-                send({
-                    ok: true,
-                    status: getMonitorStatusSnapshot()
-                });
+                send(createRuntimeMonitorStatusResponse(getMonitorStatusSnapshot()));
                 return;
             }
 
             if (msg.type === 'GET_DIAGNOSTIC_LOG') {
-                send({
-                    ok: true,
-                    ...getDiagnosticLogSnapshot(diagnosticLog, {
-                        ...(msg.options || {}),
-                        droppedEntries: diagnosticLogDroppedEntries
-                    })
-                });
+                send(createRuntimeDiagnosticLogResponse(diagnosticLog, msg.options || {}, diagnosticLogDroppedEntries));
                 return;
             }
 
@@ -1118,20 +1102,20 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 diagnosticLog = [];
                 diagnosticLogDroppedEntries = 0;
                 await chrome.storage.local.set({ diagnosticLog, diagnosticLogDroppedEntries });
-                send({ ok: true });
+                send(createRuntimeOkResponse());
                 return;
             }
 
             if (msg.type === 'DICTIONARIES') {
                 if (senderTabId !== workerTabId) {
-                    send({ ignored: true });
+                    send(createRuntimeIgnoredResponse());
                     return;
                 }
 
                 const nextDictionaries = normalizeDictionaries(msg.data);
 
                 if (areDictionariesEqual(monitorDictionaries, nextDictionaries)) {
-                    send({ ok: true, unchanged: true });
+                    send(createRuntimeOkResponse({ unchanged: true }));
                     return;
                 }
 
@@ -1145,7 +1129,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
                 await save();
 
-                send({ ok: true });
+                send(createRuntimeOkResponse());
                 return;
             }
 
@@ -1202,23 +1186,20 @@ if (msg.type === 'UPDATE_CONFIG') {
 
     await save();
 
-    send({
-        ok: true,
-        userConfig
-    });
+    send(createRuntimeUpdateConfigResponse(userConfig));
     return;
 }
 
             if (senderTab?.url?.startsWith(TARGET_URL) && senderTabId !== workerTabId) {
                 log('WARN', 'SECURITY', 'foreign tab tried to act as worker');
-                send({ isWorker: false, isRunning });
+                send(createWorkerCheckResponse({ isWorker: false, isRunning }));
                 return;
             }
 
 if (msg.type === 'START') {
     if (isRunning && workerTabId) {
         log('WARN', 'CONTROL', 'START ignored (already running)');
-        send({ ok: true });
+        send(createRuntimeOkResponse());
         return;
     }
 
@@ -1249,7 +1230,7 @@ if (msg.type === 'START') {
 
     await save();
 
-    send({ ok: true });
+    send(createRuntimeOkResponse());
     return;
 }
 
@@ -1271,7 +1252,7 @@ if (msg.type === 'STOP') {
 
     await save();
 
-    send({ ok: true });
+    send(createRuntimeOkResponse());
     return;
 }
 
@@ -1283,18 +1264,18 @@ if (msg.type === 'ORDERS') {
     }
 
     if (!isRunning && !isTest) {
-        send({ ignored: true });
+        send(createRuntimeIgnoredResponse());
         return;
     }
 
     if (!isTest && senderTabId !== workerTabId) {
-        send({ ignored: true });
+        send(createRuntimeIgnoredResponse());
         return;
     }
 
     if (isTest) {
         processOrders(msg.data, { testMode: true });
-        send({ ok: true });
+        send(createRuntimeOkResponse());
         return;
     }
 
@@ -1312,12 +1293,11 @@ if (isFastCollectionPageMismatch(sessionMode, meta.page)) {
 
     const redirected = await goToCollectionPage(1);
 
-    send({
-        ok: true,
+    send(createRuntimeCollectionResponse({
         collecting: true,
         redirected,
         stalePage: true
-    });
+    }));
     return;
 }
 
@@ -1328,7 +1308,7 @@ const collected = collectPageIntoCollectionSession(session, msg.data, {
 });
 
 if (!collected) {
-    send({ ok: true, collecting: true, duplicate: true });
+    send(createRuntimeCollectionResponse({ collecting: true, duplicate: true }));
     return;
 }
 
@@ -1339,12 +1319,11 @@ if (!decision.complete) {
 
     const advanceResult = await advanceCollectionPage();
 
-    send({
-        ok: true,
+    send(createRuntimeCollectionResponse({
         collecting: !advanceResult.aborted,
         advanced: advanceResult.ok,
         aborted: advanceResult.aborted
-    });
+    }));
     return;
 }
 
@@ -1387,16 +1366,16 @@ if (pendingRebaseline) {
     await save();
 }
 
-    send({ ok: true });
+    send(createRuntimeOkResponse());
     return;
 }
 
-            send({ ok: false });
+            send(createRuntimeFailureResponse());
         } catch (err) {
             console.error('[BG][ERROR]', err);
 
             try {
-                send({ ok: false, error: err.message });
+                send(createRuntimeErrorResponse(err));
             } catch {}
         }
     })();
