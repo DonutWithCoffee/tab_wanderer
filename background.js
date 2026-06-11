@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js');
+importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -36,23 +36,6 @@ const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const COLLECTION_TIMEOUT_MS = 60000;
 const COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER = 2;
 
-function createCollectionSession(mode = 'fast') {
-    return {
-        mode,
-        startedAt: Date.now(),
-        lastActivityAt: Date.now(),
-        advanceAttempts: 0,
-        orders: {},
-        isComplete: false,
-        completionReason: null,
-        currentPage: 1,
-        lastCollectedPage: 0,
-        nextPage: 2,
-        seenKnownOrder: false,
-        processedPages: {}
-    };
-}
-
 function getConfiguredDeepSyncMaxPages() {
     if (typeof normalizeDeepSyncMaxPages === 'function') {
         return normalizeDeepSyncMaxPages(userConfig?.deepSyncMaxPages);
@@ -61,16 +44,12 @@ function getConfiguredDeepSyncMaxPages() {
     return Number(userConfig?.deepSyncMaxPages) || 30;
 }
 
-function getCollectionMaxAdvanceAttempts() {
-    return getCollectionPolicy().maxPages + COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER;
-}
-
 function getCollectionPolicy() {
     const monitorMode = String(userConfig?.monitorMode || 'windowed');
 
     if (monitorMode === 'active') {
         return {
-            sessionMode: 'fast',
+            sessionMode: COLLECTION_SESSION_MODES.FAST,
             deepSyncDue: false,
             maxPages: 1
         };
@@ -80,47 +59,20 @@ function getCollectionPolicy() {
         || (Date.now() - lastDeepSyncAt) >= DEEP_SYNC_INTERVAL_MS;
 
     return {
-        sessionMode: deepSyncDue ? 'deep' : 'fast',
+        sessionMode: deepSyncDue ? COLLECTION_SESSION_MODES.DEEP : COLLECTION_SESSION_MODES.FAST,
         deepSyncDue,
         maxPages: getConfiguredDeepSyncMaxPages()
     };
+}
+
+function getCollectionMaxAdvanceAttempts() {
+    return getCollectionPolicy().maxPages + COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER;
 }
 
 function getCollectionSessionMode() {
     return getCollectionPolicy().sessionMode;
 }
 
-function collectPageIntoSession(session, orders, page = 1) {
-session.processedPages = session.processedPages || {};
-
-if (session.processedPages[page]) {
-    log('DEBUG', 'COLLECTION', 'duplicate page ignored', page);
-    return false;
-}
-
-session.processedPages[page] = true;
-session.lastActivityAt = Date.now();
-
-    session.currentPage = page;
-
-    if (page > session.lastCollectedPage) {
-        session.lastCollectedPage = page;
-    }
-
-    session.nextPage = page + 1;
-
-    orders.forEach(order => {
-        if (!order.id) return;
-
-        session.orders[order.id] = order;
-
-        if (knownOrdersDB[order.id]) {
-            session.seenKnownOrder = true;
-        }
-    });
-
-    return true;
-}
 
 async function goToCollectionPage(page) {
     if (!workerTabId) {
@@ -178,53 +130,8 @@ async function advanceCollectionPage() {
     return { ok, aborted: false };
 }
 
-function shouldCompleteSession(session, meta) {
-    if (!session) {
-        return {
-            complete: false,
-            reason: null
-        };
-    }
-
-    const policy = getCollectionPolicy();
-
-    if (session.mode === 'fast') {
-        return {
-            complete: true,
-            reason: 'fast-page-1'
-        };
-    }
-
-    if (session.lastCollectedPage >= policy.maxPages) {
-        return {
-            complete: true,
-            reason: 'deep-sync-page-limit'
-        };
-    }
-
-    if (meta.isComplete) {
-        return {
-            complete: true,
-            reason: meta.completionReason || 'explicit-complete'
-        };
-    }
-
-    return {
-        complete: false,
-        reason: null
-    };
-}
-
-function finalizeSession(session) {
-    return Object.values(session.orders || {});
-}
-
 function resetCollectionSession() {
     collectionSession = null;
-}
-
-function isFastCollectionPageMismatch(sessionMode, page) {
-    return sessionMode === 'fast' && Number(page) !== 1;
 }
 
 async function returnWorkerToFirstPageAfterDeepSession(session) {
@@ -265,49 +172,14 @@ function shouldEmitEvents() {
     return monitorState === 'active' && pendingRebaseline !== true;
 }
 
-function completeCollectionSession(session, reason = 'legacy-single-page') {
-    if (!session) {
-        return [];
-    }
-
-    session.isComplete = true;
-    session.completionReason = reason;
-
-    return finalizeSession(session);
-}
-
 function logCollectionSessionCompleted(session, orders = []) {
     if (!session) {
         return;
     }
 
-    const level = session.mode === 'deep' ? 'INFO' : 'DEBUG';
+    const level = session.mode === COLLECTION_SESSION_MODES.DEEP ? 'INFO' : 'DEBUG';
 
-    log(level, 'COLLECTION', 'session completed', {
-        mode: session.mode || null,
-        pagesCollected: Number(session.lastCollectedPage) || 0,
-        ordersCount: Array.isArray(orders) ? orders.length : 0,
-        completionReason: session.completionReason || null,
-        isComplete: session.isComplete === true
-    });
-}
-
-function normalizeOrdersMessageMeta(msg = {}) {
-    const rawPage = Number(msg.page);
-    const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
-
-    const hasCompletionFlag = typeof msg.isComplete === 'boolean';
-    const isComplete = hasCompletionFlag ? msg.isComplete : true;
-
-    const completionReason = typeof msg.completionReason === 'string' && msg.completionReason.trim()
-        ? msg.completionReason.trim()
-        : (hasCompletionFlag && msg.isComplete ? 'explicit-complete' : 'legacy-single-page');
-
-    return {
-        page,
-        isComplete,
-        completionReason
-    };
+    log(level, 'COLLECTION', 'session completed', createCollectionSessionLogDetails(session, orders));
 }
 
 function buildOrdersUrl(monitorScope = {}, page = 1) {
@@ -1450,14 +1322,17 @@ if (isFastCollectionPageMismatch(sessionMode, meta.page)) {
 }
 
 const session = ensureCollectionSession();
-const collected = collectPageIntoSession(session, msg.data, meta.page);
+const collected = collectPageIntoCollectionSession(session, msg.data, {
+    page: meta.page,
+    knownOrdersDB
+});
 
 if (!collected) {
     send({ ok: true, collecting: true, duplicate: true });
     return;
 }
 
-const decision = shouldCompleteSession(session, meta);
+const decision = shouldCompleteCollectionSession(session, meta, getCollectionPolicy());
 
 if (!decision.complete) {
     await save();

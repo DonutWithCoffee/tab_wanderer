@@ -797,3 +797,127 @@ test('config log summary hides raw config details and keeps support counts', () 
     ]);
     assert.equal(Object.prototype.hasOwnProperty.call(summary, 'rules'), false);
 });
+
+test('collection model creates deterministic session snapshots', () => {
+    const context = loadBackgroundContext();
+    const session = JSON.parse(JSON.stringify(context.createCollectionSession('deep', 1700000000000)));
+
+    assert.deepEqual(session, {
+        mode: 'deep',
+        startedAt: 1700000000000,
+        lastActivityAt: 1700000000000,
+        advanceAttempts: 0,
+        orders: {},
+        isComplete: false,
+        completionReason: null,
+        currentPage: 1,
+        lastCollectedPage: 0,
+        nextPage: 2,
+        seenKnownOrder: false,
+        processedPages: {}
+    });
+});
+
+test('collection model collects pages, detects known intersections and duplicates', () => {
+    const context = loadBackgroundContext();
+    const session = context.createCollectionSession('deep', 1700000000000);
+
+    const collected = context.collectPageIntoCollectionSession(
+        session,
+        [
+            { id: '1000-300326', status: 'Новый' },
+            { id: '1001-300326', status: 'Комплектуется' }
+        ],
+        {
+            page: 3,
+            now: 1700000001000,
+            knownOrdersDB: {
+                '1001-300326': { id: '1001-300326' }
+            }
+        }
+    );
+
+    assert.equal(collected, true);
+    assert.equal(session.currentPage, 3);
+    assert.equal(session.lastCollectedPage, 3);
+    assert.equal(session.nextPage, 4);
+    assert.equal(session.lastActivityAt, 1700000001000);
+    assert.equal(session.seenKnownOrder, true);
+    assert.deepEqual(Object.keys(session.orders).sort(), ['1000-300326', '1001-300326']);
+
+    const duplicate = context.collectPageIntoCollectionSession(session, [], { page: 3 });
+
+    assert.equal(duplicate, false);
+    assert.deepEqual(Object.keys(session.processedPages), ['3']);
+});
+
+test('collection model completion policy preserves fast, page limit and pagination completion semantics', () => {
+    const context = loadBackgroundContext();
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.shouldCompleteCollectionSession(
+            { mode: 'fast', lastCollectedPage: 1 },
+            { isComplete: false },
+            { maxPages: 50 }
+        ))),
+        {
+            complete: true,
+            reason: 'fast-page-1'
+        }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.shouldCompleteCollectionSession(
+            { mode: 'deep', lastCollectedPage: 50 },
+            { isComplete: false },
+            { maxPages: 50 }
+        ))),
+        {
+            complete: true,
+            reason: 'deep-sync-page-limit'
+        }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.shouldCompleteCollectionSession(
+            { mode: 'deep', lastCollectedPage: 3 },
+            { isComplete: true, completionReason: 'pagination-last-page' },
+            { maxPages: 50 }
+        ))),
+        {
+            complete: true,
+            reason: 'pagination-last-page'
+        }
+    );
+});
+
+test('collection model normalizes ORDERS message meta for legacy and explicit completion', () => {
+    const context = loadBackgroundContext();
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.normalizeOrdersMessageMeta({}))),
+        {
+            page: 1,
+            isComplete: true,
+            completionReason: 'legacy-single-page'
+        }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.normalizeOrdersMessageMeta({ page: '4', isComplete: false }))),
+        {
+            page: 4,
+            isComplete: false,
+            completionReason: 'legacy-single-page'
+        }
+    );
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.normalizeOrdersMessageMeta({ page: 0, isComplete: true }))),
+        {
+            page: 1,
+            isComplete: true,
+            completionReason: 'explicit-complete'
+        }
+    );
+});
