@@ -618,6 +618,71 @@ test('diagnostic log append keeps newest entries within limit', () => {
     ]);
 });
 
+test('diagnostic log retention reports dropped entries by count and bytes', () => {
+    const context = loadBackgroundContext();
+
+    const byCount = context.appendDiagnosticLogEntryWithRetention(
+        [
+            { id: '1', message: 'old' },
+            { id: '2', message: 'middle' }
+        ],
+        { id: '3', message: 'new' },
+        { maxEntries: 2 }
+    );
+
+    assert.equal(byCount.dropped, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(byCount.entries)), [
+        { id: '2', message: 'middle' },
+        { id: '3', message: 'new' }
+    ]);
+
+    const byBytes = context.applyDiagnosticLogRetention(
+        [
+            { id: '1', message: 'x'.repeat(300) },
+            { id: '2', message: 'y'.repeat(300) },
+            { id: '3', message: 'z'.repeat(300) },
+            { id: '4', message: 'short' }
+        ],
+        { maxEntries: 10, maxBytes: 1000 }
+    );
+
+    assert.ok(byBytes.dropped > 0);
+    assert.equal(byBytes.entries[byBytes.entries.length - 1].id, '4');
+    assert.ok(byBytes.retainedBytes <= byBytes.maxBytes);
+});
+
+test('diagnostic log full snapshot returns all retained entries without preview limit', () => {
+    const context = loadBackgroundContext();
+    const entries = Array.from({ length: 120 }, (_, index) => ({
+        id: String(index + 1),
+        createdAt: index + 1,
+        level: 'INFO',
+        scope: 'TEST',
+        message: `entry-${index + 1}`
+    }));
+
+    const preview = context.getDiagnosticLogSnapshot(entries, {
+        limit: 100,
+        order: 'oldest-first'
+    });
+    const full = context.getDiagnosticLogSnapshot(entries, {
+        mode: 'full',
+        order: 'oldest-first',
+        droppedEntries: 7
+    });
+
+    assert.equal(preview.mode, 'preview');
+    assert.equal(preview.returned, 100);
+    assert.equal(preview.entries[0].id, '21');
+    assert.equal(full.mode, 'full');
+    assert.equal(full.returned, 120);
+    assert.equal(full.entries[0].id, '1');
+    assert.equal(full.entries[119].id, '120');
+    assert.equal(full.droppedEntries, 7);
+    assert.equal(full.retention.maxEntries, context.DEFAULT_DIAGNOSTIC_LOG_LIMIT);
+    assert.equal(full.retention.maxBytes, context.DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES);
+});
+
 test('monitor scope log summary hides raw predicate details', () => {
     const context = loadBackgroundContext();
 

@@ -180,6 +180,16 @@ function loadPopupContext(overrides = {}) {
 
                     if (msg.type === 'GET_DIAGNOSTIC_LOG') {
                         response = JSON.parse(JSON.stringify(diagnosticLog));
+
+                        if (msg.options?.mode === 'full') {
+                            response.mode = 'full';
+                            response.retainedTotal = response.storedTotal || response.total || response.returned || 0;
+                            response.retention = response.retention || {
+                                maxEntries: 5000,
+                                maxBytes: 2000000,
+                                droppedEntries: 0
+                            };
+                        }
                     }
 
                     if (msg.type === 'START' || msg.type === 'STOP') {
@@ -299,13 +309,20 @@ test('popup downloads diagnostic log from quick action', () => {
         target: document.getElementById('downloadDiagnosticLog')
     });
 
-    assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 1);
+    const logMessages = getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG');
+
+    assert.equal(logMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(logMessages[0].options)), {
+        mode: 'full',
+        order: 'oldest-first'
+    });
 
     const createdLinks = document.createdElements.filter((element) => element.tagName === 'A');
 
     assert.equal(createdLinks.length, 1);
     assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
     assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /Exported log entries/);
     assert.match(decodeURIComponent(createdLinks[0].href), /CONTROL START/);
     assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Diagnostic log prepared.');
 });

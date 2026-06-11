@@ -204,6 +204,7 @@ function setBackgroundState(context, state = {}) {
         lastCollectionMetadata = __testState.lastCollectionMetadata ?? null;
         eventJournal = Array.isArray(__testState.eventJournal) ? __testState.eventJournal : [];
         diagnosticLog = Array.isArray(__testState.diagnosticLog) ? __testState.diagnosticLog : [];
+        diagnosticLogDroppedEntries = __testState.diagnosticLogDroppedEntries ?? 0;
         isDiagnosticLogReady = __testState.isDiagnosticLogReady ?? true;
     `);
 
@@ -229,7 +230,8 @@ function getBackgroundState(context) {
         monitorDictionaries,
         lastCollectionMetadata,
         eventJournal,
-        diagnosticLog
+        diagnosticLog,
+        diagnosticLogDroppedEntries
     })`);
 
     return JSON.parse(snapshot);

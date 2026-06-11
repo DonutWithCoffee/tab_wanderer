@@ -558,12 +558,22 @@ function getChronologicalDiagnosticLogEntries(entries = []) {
 
 function buildDiagnosticLogText(snapshot = {}, status = currentMonitorStatus || {}) {
     const entries = getChronologicalDiagnosticLogEntries(snapshot.entries);
+    const mode = snapshot.mode === 'full' ? 'full' : 'preview';
+    const droppedEntries = getNumber(snapshot.droppedEntries || snapshot.retention?.droppedEntries);
+    const retention = snapshot.retention || {};
     const header = [
         'tab_wanderer diagnostic log',
         ...buildMonitorStatusLogHeader(status),
-        `Returned log entries: ${getNumber(snapshot.returned)} / ${getNumber(snapshot.total)}`,
+        mode === 'full'
+            ? `Exported log entries: ${getNumber(snapshot.returned)} / ${getNumber(snapshot.retainedTotal || snapshot.total)} retained`
+            : `Returned log entries: ${getNumber(snapshot.returned)} / ${getNumber(snapshot.total)}`,
+        `Preview limit: ${getNumber(snapshot.previewLimit || 100)}`,
+        `Retention entries limit: ${getNumber(retention.maxEntries || snapshot.retentionMaxEntries || 5000)}`,
+        `Retention bytes limit: ${getNumber(retention.maxBytes || snapshot.retentionMaxBytes || 2000000)}`,
+        `Dropped old entries: ${droppedEntries}`,
+        droppedEntries > 0 ? 'Note: older diagnostic entries were removed by retention policy.' : '',
         ''
-    ];
+    ].filter(line => line !== '');
 
     if (!entries.length) {
         return [
@@ -669,16 +679,25 @@ function downloadTextFile(filename, text) {
 }
 
 function downloadDiagnosticLog() {
-    const text = lastDiagnosticLogText || '';
+    setText('optionsDiagnosticLogStatus', 'Подготовка полного диагностического лога...');
 
-    if (!text) {
-        setText('optionsDiagnosticLogStatus', 'Лог ещё не загружен.');
-        return;
-    }
+    send({
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            mode: 'full',
+            order: 'oldest-first'
+        }
+    }, (res) => {
+        if (!res?.ok) {
+            setText('optionsDiagnosticLogStatus', 'Не удалось загрузить полный диагностический лог.');
+            return;
+        }
 
-    const downloaded = downloadTextFile(buildDiagnosticLogFilename(), text);
+        const text = buildDiagnosticLogText(res);
+        const downloaded = downloadTextFile(buildDiagnosticLogFilename(), text);
 
-    setText('optionsDiagnosticLogStatus', downloaded ? 'Файл лога подготовлен для скачивания.' : 'Не удалось подготовить файл лога.');
+        setText('optionsDiagnosticLogStatus', downloaded ? 'Полный файл лога подготовлен для скачивания.' : 'Не удалось подготовить файл лога.');
+    });
 }
 
 function clearDiagnosticLog() {

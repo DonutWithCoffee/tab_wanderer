@@ -1903,7 +1903,8 @@ test('CLEAR_DIAGNOSTIC_LOG clears persistent diagnostic log', async () => {
     setBackgroundState(context, {
         diagnosticLog: [
             { id: '1', createdAt: 1, level: 'INFO', scope: 'CONTROL', message: 'START', details: null }
-        ]
+        ],
+        diagnosticLogDroppedEntries: 3
     });
 
     const response = await sendRuntimeMessage(context, {
@@ -1914,7 +1915,57 @@ test('CLEAR_DIAGNOSTIC_LOG clears persistent diagnostic log', async () => {
 
     assert.equal(response.ok, true);
     assert.deepEqual(JSON.parse(JSON.stringify(state.diagnosticLog)), []);
+    assert.equal(state.diagnosticLogDroppedEntries, 0);
     assert.deepEqual(JSON.parse(JSON.stringify(lastStorageSet.diagnosticLog)), []);
+    assert.equal(lastStorageSet.diagnosticLogDroppedEntries, 0);
+});
+
+test('GET_DIAGNOSTIC_LOG full mode returns all retained entries and retention metadata', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const diagnosticLog = Array.from({ length: 120 }, (_, index) => ({
+        id: String(index + 1),
+        createdAt: index + 1,
+        level: 'INFO',
+        scope: 'TEST',
+        message: `entry-${index + 1}`,
+        details: null
+    }));
+
+    setBackgroundState(context, {
+        diagnosticLog,
+        diagnosticLogDroppedEntries: 5
+    });
+
+    const preview = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            limit: 100,
+            order: 'oldest-first'
+        }
+    });
+    const full = await sendRuntimeMessage(context, {
+        type: 'GET_DIAGNOSTIC_LOG',
+        options: {
+            mode: 'full',
+            order: 'oldest-first'
+        }
+    });
+
+    assert.equal(preview.ok, true);
+    assert.equal(preview.mode, 'preview');
+    assert.equal(preview.returned, 100);
+    assert.equal(preview.entries[0].id, '21');
+    assert.equal(full.ok, true);
+    assert.equal(full.mode, 'full');
+    assert.equal(full.returned, 120);
+    assert.equal(full.retainedTotal, 120);
+    assert.equal(full.entries[0].id, '1');
+    assert.equal(full.entries[119].id, '120');
+    assert.equal(full.droppedEntries, 5);
+    assert.equal(full.retention.maxEntries, context.DEFAULT_DIAGNOSTIC_LOG_LIMIT);
+    assert.equal(full.retention.maxBytes, context.DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES);
 });
 
 test('UPDATE_CONFIG diagnostic log stores sanitized config summaries', async () => {

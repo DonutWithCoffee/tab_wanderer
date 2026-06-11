@@ -229,7 +229,21 @@ function loadOptionsContext(overrides = {}) {
         ok: true,
         status: JSON.parse(JSON.stringify(defaultMonitorStatus))
     }));
-    const getDiagnosticLogResponse = overrides.getDiagnosticLogResponse || (() => JSON.parse(JSON.stringify(defaultDiagnosticLog)));
+    const getDiagnosticLogResponse = overrides.getDiagnosticLogResponse || ((msg) => {
+        const response = JSON.parse(JSON.stringify(defaultDiagnosticLog));
+
+        if (msg.options?.mode === 'full') {
+            response.mode = 'full';
+            response.retainedTotal = response.storedTotal || response.total || response.returned || 0;
+            response.retention = response.retention || {
+                maxEntries: 5000,
+                maxBytes: 2000000,
+                droppedEntries: 0
+            };
+        }
+
+        return response;
+    });
     const clearDiagnosticLogResponse = overrides.clearDiagnosticLogResponse || (() => ({ ok: true }));
     const clipboardWrites = [];
     const navigator = overrides.navigator || {
@@ -476,12 +490,19 @@ test('options page prepares diagnostic log txt download', () => {
         target: document.getElementById('optionsDownloadDiagnosticLog')
     });
 
+    const logMessages = getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG');
     const createdLinks = document.createdElements.filter((element) => element.tagName === 'A');
 
+    assert.equal(logMessages.length, 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(logMessages[1].options)), {
+        mode: 'full',
+        order: 'oldest-first'
+    });
     assert.equal(createdLinks.length, 1);
     assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
     assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
-    assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Файл лога подготовлен для скачивания.');
+    assert.match(decodeURIComponent(createdLinks[0].href), /Exported log entries/);
+    assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Полный файл лога подготовлен для скачивания.');
 });
 
 test('options page copies diagnostic log when clipboard is available', async () => {

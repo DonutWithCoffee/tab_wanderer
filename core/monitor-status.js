@@ -81,6 +81,7 @@ function createMonitorStatusSnapshot(state = {}) {
         notificationTargetsCount: countObjectKeys(state.notificationTargets),
         eventJournalCount: eventJournal.length,
         diagnosticLogCount: diagnosticLog.length,
+        diagnosticLogDroppedEntries: Number(state.diagnosticLogDroppedEntries) || 0,
         lastBaselineDate: state.lastBaselineDate || null,
         lastDeepSyncAt: Number(state.lastDeepSyncAt) || 0,
         lastCollectionMetadata: state.lastCollectionMetadata

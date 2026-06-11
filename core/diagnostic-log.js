@@ -5,8 +5,9 @@ const DIAGNOSTIC_LOG_LEVELS = {
     ERROR: 'ERROR'
 };
 
-const DEFAULT_DIAGNOSTIC_LOG_LIMIT = 500;
+const DEFAULT_DIAGNOSTIC_LOG_LIMIT = 5000;
 const DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT = 100;
+const DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES = 2000000;
 const DIAGNOSTIC_LOG_MAX_STRING_LENGTH = 300;
 const DIAGNOSTIC_LOG_MAX_ARRAY_ITEMS = 20;
 const DIAGNOSTIC_LOG_MAX_OBJECT_KEYS = 30;
@@ -167,27 +168,71 @@ function createDiagnosticLogEntry({
     };
 }
 
-function normalizeDiagnosticLog(log, limit = DEFAULT_DIAGNOSTIC_LOG_LIMIT) {
-    const safeLog = Array.isArray(log) ? log.filter(Boolean) : [];
-    const safeLimit = normalizeDiagnosticLogLimit(limit, DEFAULT_DIAGNOSTIC_LOG_LIMIT);
-    const trimmed = safeLog.length <= safeLimit
-        ? safeLog
-        : safeLog.slice(safeLog.length - safeLimit);
+function normalizeDiagnosticLogMaxBytes(value, fallback = DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES) {
+    const numeric = Number(value);
+    const safeFallback = Math.max(1000, Number(fallback) || DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES);
 
-    return trimmed.map(entry => cloneDiagnosticLogValue(entry));
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return safeFallback;
+    }
+
+    return Math.max(1000, Math.floor(numeric));
 }
 
-function appendDiagnosticLogEntry(log, entry, limit = DEFAULT_DIAGNOSTIC_LOG_LIMIT) {
-    const safeLimit = normalizeDiagnosticLogLimit(limit, DEFAULT_DIAGNOSTIC_LOG_LIMIT);
+function getDiagnosticLogApproxBytes(log) {
+    try {
+        return JSON.stringify(Array.isArray(log) ? log : []).length;
+    } catch (_err) {
+        return DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES + 1;
+    }
+}
+
+function applyDiagnosticLogRetention(log, options = {}) {
+    const safeLog = Array.isArray(log) ? log.filter(Boolean) : [];
+    const safeLimit = normalizeDiagnosticLogLimit(
+        options.maxEntries ?? options.limit,
+        DEFAULT_DIAGNOSTIC_LOG_LIMIT
+    );
+    const safeMaxBytes = normalizeDiagnosticLogMaxBytes(
+        options.maxBytes,
+        DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES
+    );
+    let entries = safeLog.map(entry => cloneDiagnosticLogValue(entry));
+    let dropped = 0;
+
+    if (entries.length > safeLimit) {
+        dropped += entries.length - safeLimit;
+        entries = entries.slice(entries.length - safeLimit);
+    }
+
+    while (entries.length > 0 && getDiagnosticLogApproxBytes(entries) > safeMaxBytes) {
+        entries.shift();
+        dropped += 1;
+    }
+
+    return {
+        entries,
+        dropped,
+        maxEntries: safeLimit,
+        maxBytes: safeMaxBytes,
+        retainedBytes: getDiagnosticLogApproxBytes(entries)
+    };
+}
+
+function normalizeDiagnosticLog(log, limit = DEFAULT_DIAGNOSTIC_LOG_LIMIT) {
+    return applyDiagnosticLogRetention(log, { maxEntries: limit }).entries;
+}
+
+function appendDiagnosticLogEntryWithRetention(log, entry, options = {}) {
     const nextLog = Array.isArray(log) ? log.slice() : [];
 
     nextLog.push(cloneDiagnosticLogValue(entry));
 
-    if (nextLog.length <= safeLimit) {
-        return nextLog;
-    }
+    return applyDiagnosticLogRetention(nextLog, options);
+}
 
-    return nextLog.slice(nextLog.length - safeLimit);
+function appendDiagnosticLogEntry(log, entry, limit = DEFAULT_DIAGNOSTIC_LOG_LIMIT) {
+    return appendDiagnosticLogEntryWithRetention(log, entry, { maxEntries: limit }).entries;
 }
 
 function matchesDiagnosticLogFilter(entry, filters = {}) {
@@ -202,23 +247,50 @@ function matchesDiagnosticLogFilter(entry, filters = {}) {
     return true;
 }
 
+function normalizeDiagnosticLogDroppedEntries(value) {
+    const numeric = Number(value);
+
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
 function getDiagnosticLogSnapshot(log, options = {}) {
     const safeOptions = options || {};
-    const safeLog = normalizeDiagnosticLog(log, DEFAULT_DIAGNOSTIC_LOG_LIMIT);
+    const retention = applyDiagnosticLogRetention(log, {
+        maxEntries: safeOptions.maxEntries,
+        maxBytes: safeOptions.maxBytes
+    });
+    const safeLog = retention.entries;
     const filtered = safeLog.filter(entry => matchesDiagnosticLogFilter(entry, safeOptions));
-    const limit = normalizeDiagnosticLogLimit(safeOptions.limit, DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT);
-    const limitedEntries = filtered.slice(Math.max(0, filtered.length - limit));
+    const fullMode = safeOptions.mode === 'full' || safeOptions.full === true;
+    const limit = fullMode
+        ? filtered.length
+        : normalizeDiagnosticLogLimit(safeOptions.limit, DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT);
+    const limitedEntries = fullMode
+        ? filtered
+        : filtered.slice(Math.max(0, filtered.length - limit));
     const orderedEntries = safeOptions.order === 'oldest-first'
         ? limitedEntries
         : limitedEntries.slice().reverse();
     const entries = orderedEntries.map(entry => cloneDiagnosticLogValue(entry));
+    const externalDroppedEntries = normalizeDiagnosticLogDroppedEntries(safeOptions.droppedEntries);
+    const droppedEntries = externalDroppedEntries + retention.dropped;
 
     return {
         storedTotal: safeLog.length,
+        retainedTotal: safeLog.length,
         total: filtered.length,
         returned: entries.length,
         limit,
+        previewLimit: DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT,
+        mode: fullMode ? 'full' : 'preview',
         order: safeOptions.order === 'oldest-first' ? 'oldest-first' : 'newest-first',
+        droppedEntries,
+        retention: {
+            maxEntries: retention.maxEntries,
+            maxBytes: retention.maxBytes,
+            retainedBytes: retention.retainedBytes,
+            droppedEntries
+        },
         entries
     };
 }
@@ -282,6 +354,7 @@ function getConfigLogSummary(config = {}) {
 globalThis.DIAGNOSTIC_LOG_LEVELS = DIAGNOSTIC_LOG_LEVELS;
 globalThis.DEFAULT_DIAGNOSTIC_LOG_LIMIT = DEFAULT_DIAGNOSTIC_LOG_LIMIT;
 globalThis.DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT = DEFAULT_DIAGNOSTIC_LOG_READ_LIMIT;
+globalThis.DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES = DEFAULT_DIAGNOSTIC_LOG_MAX_BYTES;
 globalThis.DIAGNOSTIC_LOG_SENSITIVE_KEYS = DIAGNOSTIC_LOG_SENSITIVE_KEYS;
 globalThis.normalizeDiagnosticLogLevel = normalizeDiagnosticLogLevel;
 globalThis.shouldPersistDiagnosticLogLevel = shouldPersistDiagnosticLogLevel;
@@ -290,9 +363,14 @@ globalThis.cloneDiagnosticLogValue = cloneDiagnosticLogValue;
 globalThis.normalizeDiagnosticLogLimit = normalizeDiagnosticLogLimit;
 globalThis.buildDiagnosticLogEntryId = buildDiagnosticLogEntryId;
 globalThis.createDiagnosticLogEntry = createDiagnosticLogEntry;
+globalThis.normalizeDiagnosticLogMaxBytes = normalizeDiagnosticLogMaxBytes;
+globalThis.getDiagnosticLogApproxBytes = getDiagnosticLogApproxBytes;
+globalThis.applyDiagnosticLogRetention = applyDiagnosticLogRetention;
 globalThis.normalizeDiagnosticLog = normalizeDiagnosticLog;
+globalThis.appendDiagnosticLogEntryWithRetention = appendDiagnosticLogEntryWithRetention;
 globalThis.appendDiagnosticLogEntry = appendDiagnosticLogEntry;
 globalThis.matchesDiagnosticLogFilter = matchesDiagnosticLogFilter;
+globalThis.normalizeDiagnosticLogDroppedEntries = normalizeDiagnosticLogDroppedEntries;
 globalThis.getDiagnosticLogSnapshot = getDiagnosticLogSnapshot;
 globalThis.getDiagnosticArrayCount = getDiagnosticArrayCount;
 globalThis.getMonitorScopeLogSummary = getMonitorScopeLogSummary;
