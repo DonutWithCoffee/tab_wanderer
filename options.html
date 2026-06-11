@@ -163,6 +163,43 @@
             margin-top: 12px;
         }
 
+        .inline-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin: 12px 0;
+        }
+
+        .inline-form input[type="text"] {
+            min-width: 240px;
+            padding: 8px;
+            font-size: 14px;
+        }
+
+        .watched-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .watched-order-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        .watched-order-meta {
+            color: #555;
+            font-size: 12px;
+        }
+
         .log-preview {
             box-sizing: border-box;
             width: 100%;
@@ -301,6 +338,22 @@
             <p id="optionsScopeHint" class="muted">Справочники появятся после запуска мониторинга.</p>
         </section>
 
+
+        <section class="card">
+            <h2>Отслеживаемые заказы</h2>
+            <p class="muted">
+                Watchlist хранит конкретные номера заказов для будущего direct follow-up.
+                На этом этапе это конфигурация, UI и фильтр истории; прямой обход карточек будет добавлен следующим шагом.
+            </p>
+            <div class="inline-form">
+                <label for="optionsWatchedOrderInput">Номер заказа</label>
+                <input id="optionsWatchedOrderInput" type="text" placeholder="Например: 1234-110626">
+                <button id="optionsAddWatchedOrder" type="button">Добавить</button>
+            </div>
+            <p id="optionsWatchedOrdersStatus" class="muted">Загрузка списка...</p>
+            <div id="optionsWatchedOrdersList" class="watched-list"></div>
+        </section>
+
         <section class="card">
             <h2>Диагностика монитора</h2>
             <p class="muted">
@@ -357,6 +410,10 @@
                 <div>
                     <h3>Уведомления</h3>
                     <p id="optionsNotificationSummary" class="summary-value">—</p>
+                </div>
+                <div>
+                    <h3>Отслеживаемые заказы</h3>
+                    <p id="optionsWatchedOrdersSummary" class="summary-value">—</p>
                 </div>
             </div>
         </section>

@@ -1,4 +1,4 @@
-importScripts('version.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/runtime-api.js');
+importScripts('version.js', 'core/watched-orders.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/runtime-api.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -485,7 +485,8 @@ function getEffectiveUserConfig(storedConfig) {
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
-        monitorScope: normalizeMonitorScope(safe.monitorScope)
+        monitorScope: normalizeMonitorScope(safe.monitorScope),
+        watchedOrders: normalizeWatchedOrdersConfig(safe.watchedOrders)
     };
 }
 
@@ -1105,7 +1106,10 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'GET_EVENT_JOURNAL') {
-                send(createRuntimeEventJournalResponse(eventJournal, msg.options || {}));
+                send(createRuntimeEventJournalResponse(
+                    eventJournal,
+                    createWatchedEventJournalOptions(msg.options || {}, userConfig?.watchedOrders)
+                ));
                 return;
             }
 

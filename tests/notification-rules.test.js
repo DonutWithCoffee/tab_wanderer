@@ -261,3 +261,39 @@ test('getEffectiveConfig normalizes deep sync max pages', () => {
     assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: -5 }).deepSyncMaxPages, 1);
     assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: 'abc' }).deepSyncMaxPages, 50);
 });
+
+test('getEffectiveConfig normalizes watched orders config', () => {
+    const context = loadRulesContext();
+
+    const config = context.getEffectiveConfig({
+        watchedOrders: {
+            items: [
+                { id: '1000-300326' },
+                { id: '1000-300326' },
+                { id: 'bad' },
+                { id: '2000-300326', status: 'unresolved', lastError: 'not found' }
+            ]
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(config.watchedOrders)), {
+        items: [
+            {
+                id: '1000-300326',
+                status: 'active',
+                addedAt: config.watchedOrders.items[0].addedAt,
+                lastCheckedAt: null,
+                lastEventAt: null,
+                lastError: null
+            },
+            {
+                id: '2000-300326',
+                status: 'unresolved',
+                addedAt: config.watchedOrders.items[1].addedAt,
+                lastCheckedAt: null,
+                lastEventAt: null,
+                lastError: 'not found'
+            }
+        ]
+    });
+});

@@ -336,6 +336,19 @@ function matchesJournalFilter(entry, filters = {}) {
         return false;
     }
 
+    if (filters.watchedOnly === true) {
+        const watchedSet = new Set((Array.isArray(filters.watchedOrderIds) ? filters.watchedOrderIds : [])
+            .map(id => typeof normalizeWatchedOrderId === 'function' ? normalizeWatchedOrderId(id) : String(id || '').trim())
+            .filter(Boolean));
+        const orderId = typeof normalizeWatchedOrderId === 'function'
+            ? normalizeWatchedOrderId(entry.orderId)
+            : String(entry.orderId || '').trim();
+
+        if (!watchedSet.size || !orderId || !watchedSet.has(orderId)) {
+            return false;
+        }
+    }
+
     if (!matchesJournalChangedField(entry, filters.changedField)) {
         return false;
     }

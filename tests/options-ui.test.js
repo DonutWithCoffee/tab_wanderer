@@ -124,6 +124,11 @@ function createOptionsDom() {
         'optionsScopeReserveList',
         'optionsScopeAssemblyStatusList',
         'optionsScopeHint',
+        'optionsWatchedOrderInput',
+        'optionsAddWatchedOrder',
+        'optionsWatchedOrdersStatus',
+        'optionsWatchedOrdersList',
+        'optionsWatchedOrdersSummary',
         'optionsDiagnosticsRuntime',
         'optionsDiagnosticsWorker',
         'optionsDiagnosticsOrders',
@@ -173,6 +178,18 @@ function loadOptionsContext(overrides = {}) {
             store: [],
             reserve: [],
             assemblyStatus: []
+        },
+        watchedOrders: {
+            items: [
+                {
+                    id: '1000-300326',
+                    status: 'active',
+                    addedAt: 1700000000000,
+                    lastCheckedAt: null,
+                    lastEventAt: null,
+                    lastError: null
+                }
+            ]
         }
     };
     const defaultDictionaries = {
@@ -404,6 +421,10 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsScopePaymentList"/);
     assert.match(html, /id="optionsScopeOrderFlagsList"/);
     assert.match(html, /id="optionsScopeHint"/);
+    assert.match(html, /id="optionsWatchedOrderInput"/);
+    assert.match(html, /id="optionsAddWatchedOrder"/);
+    assert.match(html, /id="optionsWatchedOrdersList"/);
+    assert.match(html, /id="optionsWatchedOrdersSummary"/);
     assert.match(html, /id="optionsDiagnosticLogDetails"/);
     assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
@@ -430,7 +451,51 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsScopeDictionaryOrderFlags').innerText, 'Флаги: Срочный, Проблемный');
     assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено');
+    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ');
+    assert.match(document.getElementById('optionsWatchedOrdersStatus').innerText, /Отслеживается заказов: 1/);
+    assert.match(document.getElementById('optionsWatchedOrdersList').children[0].children[0].children[0].innerText, /Заказ №1000-300326/);
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 50/);
+});
+
+
+test('options page adds watched order to config', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const input = document.getElementById('optionsWatchedOrderInput');
+    const addButton = document.getElementById('optionsAddWatchedOrder');
+
+    input.value = ' 2000-300326 ';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items.map(item => item.id))),
+        ['1000-300326', '2000-300326']
+    );
+    assert.equal(input.value, '');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Отслеживаемый заказ добавлен. Direct follow-up будет подключён следующим этапом.');
+    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '2 заказа');
+});
+
+test('options page rejects duplicate or invalid watched order ids without saving', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const input = document.getElementById('optionsWatchedOrderInput');
+    const addButton = document.getElementById('optionsAddWatchedOrder');
+
+    input.value = 'bad';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(document.getElementById('optionsWatchedOrdersStatus').innerText, 'Введите номер заказа в формате 1234-110626.');
+
+    input.value = '1000-300326';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(document.getElementById('optionsWatchedOrdersStatus').innerText, 'Заказ №1000-300326 уже есть в списке.');
 });
 
 test('options page autosaves monitor mode changes', () => {

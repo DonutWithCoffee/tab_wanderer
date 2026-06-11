@@ -1105,3 +1105,92 @@ test('runtime api helpers wrap monitor, journal and diagnostic snapshots', () =>
     assert.equal(diagnosticResponse.droppedEntries, 9);
     assert.equal(diagnosticResponse.entries[0].id, '1');
 });
+
+test('watched orders helpers normalize, deduplicate and validate order ids', () => {
+    const context = loadBackgroundContext();
+
+    const normalized = context.normalizeWatchedOrdersConfig({
+        items: [
+            { id: ' 1000-300326 ', status: 'active', addedAt: 1700000000000 },
+            { id: '1000-300326', status: 'unresolved' },
+            { id: 'bad-order-id' },
+            '2000-300326'
+        ]
+    }, 1700000001000);
+
+    assert.deepEqual(JSON.parse(JSON.stringify(normalized)), {
+        items: [
+            {
+                id: '1000-300326',
+                status: 'active',
+                addedAt: 1700000000000,
+                lastCheckedAt: null,
+                lastEventAt: null,
+                lastError: null
+            },
+            {
+                id: '2000-300326',
+                status: 'active',
+                addedAt: 1700000001000,
+                lastCheckedAt: null,
+                lastEventAt: null,
+                lastError: null
+            }
+        ]
+    });
+
+    const added = context.addWatchedOrderToConfig(normalized, '3000-300326', 1700000002000);
+
+    assert.equal(added.added, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.getWatchedOrderIds(added.config))), [
+        '1000-300326',
+        '2000-300326',
+        '3000-300326'
+    ]);
+    assert.equal(context.addWatchedOrderToConfig(added.config, 'bad').invalid, true);
+    assert.equal(context.addWatchedOrderToConfig(added.config, '1000-300326').duplicate, true);
+});
+
+test('event journal watched-only filter returns only configured watched order entries', () => {
+    const context = loadBackgroundContext();
+    const journal = [
+        { orderId: '1000-300326', eventType: 'new-order', createdAt: 1 },
+        { orderId: '2000-300326', eventType: 'order-changed', createdAt: 2 },
+        { orderId: '', eventType: 'scope-changed', createdAt: 3 }
+    ];
+
+    const snapshot = context.getEventJournalSnapshot(journal, {
+        watchedOnly: true,
+        watchedOrderIds: ['2000-300326'],
+        limit: 10
+    });
+
+    assert.equal(snapshot.total, 1);
+    assert.equal(snapshot.entries.length, 1);
+    assert.equal(snapshot.entries[0].orderId, '2000-300326');
+
+    const emptySnapshot = context.getEventJournalSnapshot(journal, {
+        watchedOnly: true,
+        watchedOrderIds: [],
+        limit: 10
+    });
+
+    assert.equal(emptySnapshot.total, 0);
+});
+
+test('monitor status snapshot exposes watched orders count without order payloads', () => {
+    const context = loadBackgroundContext();
+    const status = context.createMonitorStatusSnapshot({
+        userConfig: context.getEffectiveConfig({
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' },
+                    { id: '2000-300326' }
+                ]
+            }
+        })
+    });
+
+    assert.equal(status.watchedOrdersCount, 2);
+    assert.equal(Object.prototype.hasOwnProperty.call(status, 'watchedOrders'), false);
+});

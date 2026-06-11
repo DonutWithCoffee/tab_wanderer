@@ -152,6 +152,7 @@ function buildHistoryFilters() {
     const eventKind = getElementValue('historyEventKind');
     const changedField = getElementValue('historyChangedField');
     const period = getElementValue('historyPeriod') || 'all';
+    const watchedOnly = getElementValue('historyWatchedOnly') === '1';
     const since = getPeriodSince(period);
 
     if (orderQuery) {
@@ -172,6 +173,10 @@ function buildHistoryFilters() {
 
     if (since) {
         options.since = since;
+    }
+
+    if (watchedOnly) {
+        options.watchedOnly = true;
     }
 
     return options;
@@ -317,6 +322,7 @@ function resetHistoryFilters() {
     setElementValue('historyEventKind', '');
     setElementValue('historyChangedField', '');
     setElementValue('historyPeriod', 'all');
+    setElementValue('historyWatchedOnly', '');
     loadHistory();
 }
 
@@ -328,7 +334,8 @@ function bindHistoryControls() {
         'historyEventType',
         'historyEventKind',
         'historyChangedField',
-        'historyPeriod'
+        'historyPeriod',
+        'historyWatchedOnly'
     ];
 
     if (refreshBtn) {

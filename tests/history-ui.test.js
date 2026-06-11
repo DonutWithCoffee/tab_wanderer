@@ -70,6 +70,7 @@ function createHistoryDom() {
         'historyEventKind',
         'historyChangedField',
         'historyPeriod',
+        'historyWatchedOnly',
         'refreshHistory',
         'resetHistoryFilters',
         'historyStatus',
@@ -77,6 +78,7 @@ function createHistoryDom() {
     ].forEach((id) => document.registerElement(id));
 
     document.getElementById('historyPeriod').value = 'all';
+    document.getElementById('historyWatchedOnly').value = '';
 
     return document;
 }
@@ -217,6 +219,7 @@ test('history page html contains filters and readable timeline containers', () =
     assert.match(html, /id="historyEventKind"/);
     assert.match(html, /id="historyChangedField"/);
     assert.match(html, /id="historyPeriod"/);
+    assert.match(html, /id="historyWatchedOnly"/);
     assert.match(html, /id="resetHistoryFilters"/);
     assert.match(html, /id="refreshHistory"/);
     assert.match(html, /id="historyStatus"/);
@@ -263,6 +266,7 @@ test('history page sends selected filters to event journal request', () => {
     document.getElementById('historyEventKind').value = 'live';
     document.getElementById('historyChangedField').value = 'status';
     document.getElementById('historyPeriod').value = '7d';
+    document.getElementById('historyWatchedOnly').value = '1';
 
     document.getElementById('refreshHistory').dispatchEvent({
         type: 'click',
@@ -277,6 +281,7 @@ test('history page sends selected filters to event journal request', () => {
     assert.equal(context.__test.sentMessages[1].options.eventKind, 'live');
     assert.equal(context.__test.sentMessages[1].options.changedField, 'status');
     assert.equal(typeof context.__test.sentMessages[1].options.since, 'number');
+    assert.equal(context.__test.sentMessages[1].options.watchedOnly, true);
 });
 
 test('history page reset filters clears controls and reloads journal', () => {
@@ -284,6 +289,7 @@ test('history page reset filters clears controls and reloads journal', () => {
         document.getElementById('historyOrderQuery').value = '1001';
         document.getElementById('historyEventType').value = 'order-changed';
         document.getElementById('historyPeriod').value = '24h';
+        document.getElementById('historyWatchedOnly').value = '1';
     });
     const document = context.__test.document;
 
@@ -295,6 +301,7 @@ test('history page reset filters clears controls and reloads journal', () => {
     assert.equal(document.getElementById('historyOrderQuery').value, '');
     assert.equal(document.getElementById('historyEventType').value, '');
     assert.equal(document.getElementById('historyPeriod').value, 'all');
+    assert.equal(document.getElementById('historyWatchedOnly').value, '');
     assert.equal(context.__test.sentMessages.length, 2);
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.sentMessages[1])), {
         type: 'GET_EVENT_JOURNAL',

@@ -27,6 +27,9 @@ const DEFAULT_CONFIG = {
             ozonOnly: false,
             juridicalOnly: false
         }
+    },
+    watchedOrders: {
+        items: []
     }
 };
 
@@ -121,7 +124,10 @@ function getEffectiveConfig(config = {}) {
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
-        monitorScope: normalizeMonitorScope(safeConfig.monitorScope)
+        monitorScope: normalizeMonitorScope(safeConfig.monitorScope),
+        watchedOrders: typeof normalizeWatchedOrdersConfig === 'function'
+            ? normalizeWatchedOrdersConfig(safeConfig.watchedOrders)
+            : (safeConfig.watchedOrders || DEFAULT_CONFIG.watchedOrders)
     };
 }
 

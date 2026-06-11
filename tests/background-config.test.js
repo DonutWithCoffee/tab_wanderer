@@ -2499,3 +2499,36 @@ test('UPDATE_CONFIG records monitor scope change in event journal without notifi
     ]);
     assert.equal(state.eventJournal[0].notification.notify, false);
 });
+
+test('GET_EVENT_JOURNAL can filter entries to watched orders from user config', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '2000-300326' }
+                ]
+            }
+        }),
+        eventJournal: [
+            { orderId: '1000-300326', eventType: 'new-order', eventKind: 'live', createdAt: 1 },
+            { orderId: '2000-300326', eventType: 'order-changed', eventKind: 'live', createdAt: 2 },
+            { orderId: '', eventType: 'scope-changed', eventKind: 'scope-change', createdAt: 3 }
+        ]
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'GET_EVENT_JOURNAL',
+        options: {
+            watchedOnly: true,
+            limit: 10
+        }
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.total, 1);
+    assert.equal(response.entries.length, 1);
+    assert.equal(response.entries[0].orderId, '2000-300326');
+});

@@ -64,6 +64,9 @@ function createMonitorStatusSnapshot(state = {}) {
     const workerTabId = state.workerTabId ?? null;
     const eventJournal = Array.isArray(state.eventJournal) ? state.eventJournal : [];
     const diagnosticLog = Array.isArray(state.diagnosticLog) ? state.diagnosticLog : [];
+    const watchedOrdersCount = typeof getWatchedOrderIds === 'function'
+        ? getWatchedOrderIds(userConfig.watchedOrders).length
+        : 0;
     const hasKnownOrders = countObjectKeys(state.knownOrdersDB) > 0;
     const pendingSyncAction = typeof getPendingSyncAction === 'function'
         ? getPendingSyncAction({
@@ -88,6 +91,7 @@ function createMonitorStatusSnapshot(state = {}) {
         windowOrdersCount: countObjectKeys(state.windowOrdersDB),
         windowHashesCount: countObjectKeys(state.windowOrdersHashDB),
         notificationTargetsCount: countObjectKeys(state.notificationTargets),
+        watchedOrdersCount,
         eventJournalCount: eventJournal.length,
         diagnosticLogCount: diagnosticLog.length,
         diagnosticLogDroppedEntries: Number(state.diagnosticLogDroppedEntries) || 0,

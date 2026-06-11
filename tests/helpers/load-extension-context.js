@@ -159,6 +159,7 @@ function createBaseContext(overrides = {}) {
 
 function loadRulesContext(overrides = {}) {
     const context = createBaseContext(overrides);
+    runScript('core/watched-orders.js', context);
     runScript('notification-rules.js', context);
     return context;
 }
@@ -166,6 +167,7 @@ function loadRulesContext(overrides = {}) {
 function loadBackgroundContext(overrides = {}) {
     const context = createBaseContext(overrides);
     runScript('version.js', context);
+    runScript('core/watched-orders.js', context);
     runScript('notification-rules.js', context);
     runScript('core/order-model.js', context);
     runScript('core/collection-model.js', context);
