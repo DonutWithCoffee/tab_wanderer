@@ -105,9 +105,22 @@ function createRow({
 function createDocumentStub({
     headers = [],
     rows = [],
-    paginationHrefs = []
+    paginationHrefs = [],
+    bodyText = '',
+    tags = [],
+    hasLock = false
 }) {
     return {
+        body: {
+            innerText: bodyText
+        },
+        querySelector(selector) {
+            if (selector === '.fa-lock' && hasLock) {
+                return {};
+            }
+
+            return null;
+        },
         querySelectorAll(selector) {
             if (selector === 'thead th') {
                 return headers.map(createHeaderCell);
@@ -119,6 +132,10 @@ function createDocumentStub({
 
             if (selector === 'a[href*="page="]') {
                 return paginationHrefs.map(createPaginationLink);
+            }
+
+            if (selector === '.label, .badge') {
+                return tags.map(createTag);
             }
 
             return [];

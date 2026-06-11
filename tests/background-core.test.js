@@ -1194,3 +1194,71 @@ test('monitor status snapshot exposes watched orders count without order payload
     assert.equal(status.watchedOrdersCount, 2);
     assert.equal(Object.prototype.hasOwnProperty.call(status, 'watchedOrders'), false);
 });
+
+test('direct follow-up helpers select watched orders and update check status', () => {
+    const context = loadBackgroundContext();
+    const watchedOrders = context.normalizeWatchedOrdersConfig({
+        items: [
+            { id: '1000-300326' },
+            { id: '2000-300326' }
+        ]
+    }, 1700000000000);
+
+    const url = context.createDirectFollowUpUrl('1000-300326', {
+        baseUrl: 'https://amperkot.ru/admin/orders/',
+        marker: '#direct=1'
+    });
+
+    assert.equal(url, 'https://amperkot.ru/admin/orders/1000-300326/#direct=1');
+
+    const first = context.selectNextDirectFollowUpItem(watchedOrders, { nextIndex: 0 });
+    const second = context.selectNextDirectFollowUpItem(watchedOrders, { nextIndex: first.nextIndex });
+
+    assert.equal(first.item.id, '1000-300326');
+    assert.equal(first.nextIndex, 1);
+    assert.equal(second.item.id, '2000-300326');
+    assert.equal(second.nextIndex, 0);
+
+    const failed = context.markWatchedOrderCheckResult(watchedOrders, '1000-300326', {
+        ok: false,
+        error: 'parse failed'
+    }, 1700000005000);
+
+    assert.equal(failed.items[0].status, 'unresolved');
+    assert.equal(failed.items[0].lastCheckedAt, 1700000005000);
+    assert.equal(failed.items[0].lastError, 'parse failed');
+
+    const recovered = context.markWatchedOrderCheckResult(failed, '1000-300326', {
+        ok: true
+    }, 1700000006000);
+
+    assert.equal(recovered.items[0].status, 'active');
+    assert.equal(recovered.items[0].lastCheckedAt, 1700000006000);
+    assert.equal(recovered.items[0].lastError, null);
+});
+
+test('monitor status snapshot exposes direct follow-up state without watched order payloads', () => {
+    const context = loadBackgroundContext();
+    const status = context.createMonitorStatusSnapshot({
+        directWorkerTabId: 42,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 1,
+            lastStartedAt: 1700000000000
+        },
+        userConfig: context.getEffectiveConfig({
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    assert.equal(status.hasDirectWorkerTab, true);
+    assert.equal(status.directWorkerTabId, 42);
+    assert.equal(status.directFollowUpState.state, 'checking');
+    assert.equal(status.directFollowUpState.currentOrderId, '1000-300326');
+    assert.equal(status.watchedOrdersCount, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(status, 'watchedOrders'), false);
+});

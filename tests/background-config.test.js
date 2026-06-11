@@ -2532,3 +2532,102 @@ test('GET_EVENT_JOURNAL can filter entries to watched orders from user config', 
     assert.equal(response.entries.length, 1);
     assert.equal(response.entries[0].orderId, '2000-300326');
 });
+
+test('direct follow-up tick opens separate direct worker for watched order', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: null,
+        directFollowUpState: null,
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const started = await context.runDirectFollowUpTick();
+    const state = getBackgroundState(context);
+
+    assert.equal(started, true);
+    assert.equal(context.__test.createdTabs.length, 1);
+    assert.equal(
+        context.__test.createdTabs[0].url,
+        'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+    );
+    assert.equal(context.__test.createdTabs[0].active, false);
+    assert.equal(state.directWorkerTabId, 1);
+    assert.equal(state.directFollowUpState.currentOrderId, '1000-300326');
+    assert.equal(state.workerTabId, 77);
+});
+
+test('DIRECT_ORDER from direct worker updates watched order status and closes direct tab', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const checkResponse = await sendRuntimeMessage(
+        context,
+        { type: 'CHECK_DIRECT_WORKER' },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    assert.equal(checkResponse.ok, true);
+    assert.equal(checkResponse.isDirectWorker, true);
+    assert.equal(checkResponse.orderId, '1000-300326');
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: createOrder({ id: '1000-300326', status: 'Комплектуется' })
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(response.checked, true);
+    assert.equal(state.directWorkerTabId, null);
+    assert.equal(state.directFollowUpState.currentOrderId, null);
+    assert.equal(state.userConfig.watchedOrders.items[0].status, 'active');
+    assert.ok(state.userConfig.watchedOrders.items[0].lastCheckedAt > 0);
+    assert.equal(state.userConfig.watchedOrders.items[0].lastError, null);
+    assert.deepEqual(context.__test.removedTabs, [88]);
+});

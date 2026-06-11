@@ -62,6 +62,10 @@ function createCollectionSessionStatusSnapshot(session) {
 function createMonitorStatusSnapshot(state = {}) {
     const userConfig = state.userConfig || {};
     const workerTabId = state.workerTabId ?? null;
+    const directWorkerTabId = state.directWorkerTabId ?? null;
+    const directFollowUpState = typeof normalizeDirectFollowUpState === 'function'
+        ? normalizeDirectFollowUpState(state.directFollowUpState)
+        : null;
     const eventJournal = Array.isArray(state.eventJournal) ? state.eventJournal : [];
     const diagnosticLog = Array.isArray(state.diagnosticLog) ? state.diagnosticLog : [];
     const watchedOrdersCount = typeof getWatchedOrderIds === 'function'
@@ -83,6 +87,9 @@ function createMonitorStatusSnapshot(state = {}) {
         deepSyncMaxPages: normalizeMonitorStatusDeepSyncMaxPages(userConfig),
         workerTabId,
         hasWorkerTab: workerTabId !== null && workerTabId !== undefined,
+        directWorkerTabId,
+        hasDirectWorkerTab: directWorkerTabId !== null && directWorkerTabId !== undefined,
+        directFollowUpState,
         pendingRebaseline: state.pendingRebaseline === true,
         pendingSyncReason: state.pendingSyncReason || null,
         pendingSyncAction,

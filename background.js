@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/watched-orders.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/runtime-api.js');
+importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/runtime-api.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -6,6 +6,8 @@ let windowOrdersDB = {};
 let windowOrdersHashDB = {};
 let notificationTargets = {};
 let workerTabId = null;
+let directWorkerTabId = null;
+let directFollowUpState = normalizeDirectFollowUpState();
 let lastBaselineDate = null;
 let isRunning = false;
 let monitorState = 'uninitialized';
@@ -31,6 +33,9 @@ let workerRetryTimer = null;
 
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
+const DIRECT_WORKER_MARK = '#tab_wanderer_direct_worker=1';
+const DIRECT_FOLLOW_UP_INTERVAL_MS = 2 * 60 * 1000;
+const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
 const FAST_POLL_INTERVAL_MS = 15000;
 const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const COLLECTION_TIMEOUT_MS = 60000;
@@ -73,6 +78,150 @@ function getCollectionSessionMode() {
     return getCollectionPolicy().sessionMode;
 }
 
+
+
+function buildDirectFollowUpOrderUrl(orderId) {
+    return createDirectFollowUpUrl(orderId, {
+        baseUrl: TARGET_URL,
+        marker: DIRECT_WORKER_MARK
+    });
+}
+
+async function getMarkedDirectWorkerTabs() {
+    const tabs = await chrome.tabs.query({});
+
+    return tabs.filter(tab => {
+        return !!tab.url && tab.url.includes(DIRECT_WORKER_MARK);
+    });
+}
+
+async function cleanupDirectWorkerTabs() {
+    const tabs = await getMarkedDirectWorkerTabs();
+
+    for (const tab of tabs) {
+        try {
+            await chrome.tabs.remove(tab.id);
+        } catch {}
+    }
+}
+
+function getDirectFollowUpSelection() {
+    return selectNextDirectFollowUpItem(userConfig?.watchedOrders, directFollowUpState);
+}
+
+async function startDirectFollowUpCheck(orderId, nextIndex = 0) {
+    const url = buildDirectFollowUpOrderUrl(orderId);
+
+    if (!url) {
+        return false;
+    }
+
+    await cleanupDirectWorkerTabs();
+
+    const now = Date.now();
+    const tab = await chrome.tabs.create({
+        url,
+        active: false,
+        pinned: true
+    });
+
+    directWorkerTabId = tab.id;
+    directFollowUpState = normalizeDirectFollowUpState({
+        currentOrderId: orderId,
+        nextIndex,
+        lastStartedAt: now,
+        lastCompletedAt: directFollowUpState?.lastCompletedAt,
+        lastError: null
+    });
+    userConfig = {
+        ...userConfig,
+        watchedOrders: markWatchedOrderCheckStarted(userConfig?.watchedOrders, orderId, now)
+    };
+
+    log('INFO', 'DIRECT_FOLLOW_UP', 'worker created', {
+        orderId: normalizeWatchedOrderId(orderId),
+        tabId: directWorkerTabId
+    });
+
+    await save();
+
+    return true;
+}
+
+async function completeDirectFollowUpCheck(orderId, result = {}) {
+    const normalizedId = normalizeWatchedOrderId(orderId || directFollowUpState?.currentOrderId);
+
+    if (!normalizedId) {
+        return false;
+    }
+
+    const now = Date.now();
+    const ok = result?.ok === true;
+    const error = result?.error ? String(result.error) : null;
+
+    userConfig = {
+        ...userConfig,
+        watchedOrders: markWatchedOrderCheckResult(userConfig?.watchedOrders, normalizedId, {
+            ok,
+            error
+        }, now)
+    };
+
+    directFollowUpState = normalizeDirectFollowUpState({
+        nextIndex: directFollowUpState?.nextIndex,
+        lastCompletedAt: now,
+        lastError: ok ? null : (error || 'Direct follow-up failed')
+    });
+
+    log(ok ? 'INFO' : 'WARN', 'DIRECT_FOLLOW_UP', ok ? 'checked' : 'failed', {
+        orderId: normalizedId,
+        error: ok ? null : directFollowUpState.lastError
+    });
+
+    const tabId = directWorkerTabId;
+    directWorkerTabId = null;
+
+    if (tabId) {
+        try {
+            await chrome.tabs.remove(tabId);
+        } catch {}
+    }
+
+    await save();
+
+    return true;
+}
+
+async function runDirectFollowUpTick() {
+    if (!isRunning || monitorState !== 'active' || directWorkerTabId || directFollowUpState?.currentOrderId) {
+        return false;
+    }
+
+    const selection = getDirectFollowUpSelection();
+
+    if (!selection.item) {
+        return false;
+    }
+
+    return startDirectFollowUpCheck(selection.item.id, selection.nextIndex);
+}
+
+async function handleDirectFollowUpTimeout() {
+    if (!directWorkerTabId || !directFollowUpState?.currentOrderId) {
+        return false;
+    }
+
+    const startedAt = Number(directFollowUpState.lastStartedAt) || 0;
+
+    if (!startedAt || (Date.now() - startedAt) <= DIRECT_FOLLOW_UP_TIMEOUT_MS) {
+        return false;
+    }
+
+    return completeDirectFollowUpCheck(directFollowUpState.currentOrderId, {
+        ok: false,
+        error: 'direct follow-up timeout'
+    });
+}
 
 async function goToCollectionPage(page) {
     if (!workerTabId) {
@@ -349,6 +498,8 @@ function logState(scope = 'STATE') {
         monitorState,
         lastDeepSyncAt,
         workerTabId,
+        directWorkerTabId,
+        directFollowUpState,
         pendingRebaseline,
         pendingSyncReason,
         lastCollectionMetadata,
@@ -454,6 +605,8 @@ function getMonitorStatusSnapshot() {
         windowOrdersHashDB,
         notificationTargets,
         workerTabId,
+        directWorkerTabId,
+        directFollowUpState,
         lastBaselineDate,
         isRunning,
         monitorState,
@@ -555,6 +708,8 @@ async function save() {
         notificationTargets,
         lastBaselineDate,
         workerTabId,
+        directWorkerTabId,
+        directFollowUpState,
         isRunning,
         monitorState,
         lastDeepSyncAt,
@@ -580,6 +735,8 @@ async function load() {
         'windowOrdersHashDB',
         'notificationTargets',
         'lastBaselineDate',
+        'directWorkerTabId',
+        'directFollowUpState',
         'isRunning',
         'monitorState',
         'lastDeepSyncAt',
@@ -616,6 +773,8 @@ async function load() {
     diagnosticLogDroppedEntries = normalizeDiagnosticLogDroppedEntries(d.diagnosticLogDroppedEntries) + diagnosticLogRetention.dropped;
     isDiagnosticLogReady = true;
 
+    directWorkerTabId = null;
+    directFollowUpState = normalizeDirectFollowUpState(d.directFollowUpState);
     workerTabId = null;
 
     if (isRunning) {
@@ -625,6 +784,12 @@ async function load() {
             lastCollectionAt: lastCollectionMetadata?.collectedAt
         }));
         resetCollectionSession();
+        directWorkerTabId = null;
+        directFollowUpState = normalizeDirectFollowUpState({
+            nextIndex: directFollowUpState?.nextIndex,
+            lastCompletedAt: directFollowUpState?.lastCompletedAt,
+            lastError: directFollowUpState?.currentOrderId ? 'direct follow-up reset on recovery' : directFollowUpState?.lastError
+        });
     }
 
     log('INFO', 'INIT', 'state loaded');
@@ -649,7 +814,7 @@ async function cleanupOldWorkers() {
         for (const tab of tabs) {
             if (!tab.url) continue;
 
-            if (tab.url.includes(WORKER_MARK)) {
+            if (tab.url.includes(WORKER_MARK) || tab.url.includes(DIRECT_WORKER_MARK)) {
                 try {
                     await chrome.tabs.remove(tab.id);
                     log('INFO', 'CLEANUP', `removed worker ${tab.id}`);
@@ -770,6 +935,19 @@ async function ensureWorkerTab() {
 
 // ---------- TAB EVENTS ----------
 chrome.tabs.onRemoved.addListener((tabId) => {
+    if (tabId === directWorkerTabId) {
+        directWorkerTabId = null;
+
+        if (directFollowUpState?.currentOrderId) {
+            directFollowUpState = normalizeDirectFollowUpState({
+                nextIndex: directFollowUpState.nextIndex,
+                lastStartedAt: directFollowUpState.lastStartedAt,
+                lastCompletedAt: directFollowUpState.lastCompletedAt,
+                lastError: 'direct worker tab closed'
+            });
+        }
+    }
+
     if (tabId === workerTabId) {
         workerTabId = null;
 
@@ -1041,6 +1219,8 @@ function processOrders(orders, options = {}) {
 
 // ---------- WATCHDOG ----------
 setInterval(() => {
+    handleDirectFollowUpTimeout();
+
     if (collectionSession) {
     const idle = Date.now() - (collectionSession.lastActivityAt || 0);
 
@@ -1068,6 +1248,10 @@ setInterval(() => {
         ensureWorkerTab();
     }
 }, 30000);
+
+setInterval(() => {
+    runDirectFollowUpTick();
+}, DIRECT_FOLLOW_UP_INTERVAL_MS);
 
 // ---------- MESSAGES ----------
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
@@ -1097,6 +1281,52 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 }
 
                 send(createWorkerCheckResponse({ isWorker: false, isRunning }));
+                return;
+            }
+
+            if (msg.type === 'CHECK_DIRECT_WORKER') {
+                const isCorrectUrl = senderTab?.url?.includes(DIRECT_WORKER_MARK);
+                const currentOrderId = directFollowUpState?.currentOrderId || null;
+
+                if (senderTabId === directWorkerTabId && isCorrectUrl) {
+                    send(createRuntimeOkResponse({
+                        isDirectWorker: true,
+                        isRunning,
+                        orderId: currentOrderId
+                    }));
+                    return;
+                }
+
+                send(createRuntimeOkResponse({
+                    isDirectWorker: false,
+                    isRunning,
+                    orderId: currentOrderId
+                }));
+                return;
+            }
+
+            if (msg.type === 'DIRECT_ORDER') {
+                if (senderTabId !== directWorkerTabId) {
+                    send(createRuntimeIgnoredResponse());
+                    return;
+                }
+
+                const expectedOrderId = directFollowUpState?.currentOrderId || msg.orderId;
+                const parsedOrder = msg.data && typeof msg.data === 'object' ? msg.data : null;
+                const parsedOrderId = normalizeWatchedOrderId(parsedOrder?.id || msg.orderId || expectedOrderId);
+                const expectedNormalizedId = normalizeWatchedOrderId(expectedOrderId);
+
+                if (msg.error || !parsedOrder || parsedOrderId !== expectedNormalizedId) {
+                    await completeDirectFollowUpCheck(expectedNormalizedId, {
+                        ok: false,
+                        error: msg.error || 'direct order parse failed'
+                    });
+                    send(createRuntimeOkResponse({ checked: false }));
+                    return;
+                }
+
+                await completeDirectFollowUpCheck(expectedNormalizedId, { ok: true });
+                send(createRuntimeOkResponse({ checked: true, orderId: expectedNormalizedId }));
                 return;
             }
 
@@ -1282,7 +1512,19 @@ if (msg.type === 'STOP') {
         } catch {}
     }
 
+    if (directWorkerTabId) {
+        try {
+            await chrome.tabs.remove(directWorkerTabId);
+        } catch {}
+    }
+
     workerTabId = null;
+    directWorkerTabId = null;
+    directFollowUpState = normalizeDirectFollowUpState({
+        nextIndex: directFollowUpState?.nextIndex,
+        lastCompletedAt: directFollowUpState?.lastCompletedAt,
+        lastError: directFollowUpState?.currentOrderId ? 'direct follow-up stopped' : directFollowUpState?.lastError
+    });
 
     await save();
 

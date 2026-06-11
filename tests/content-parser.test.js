@@ -31,7 +31,8 @@ function loadContentContext(documentStub) {
         document: documentStub,
         window: {
             location: {
-                origin: 'https://amperkot.ru'
+                origin: 'https://amperkot.ru',
+                href: 'https://amperkot.ru/admin/orders/1000-300326/'
             }
         },
         location: {
@@ -466,4 +467,48 @@ test('getOrdersCompletionMeta completes empty first page and pagination last pag
             completionReason: null
         }
     );
+});
+
+test('parseOrderDetails extracts watched order payload from order page text', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            bodyText: [
+                'Заказ 1000-300326',
+                'Статус заказа',
+                'Комплектуется',
+                'Доставка: Самовывоз',
+                'Оплата: Наличными в офисе',
+                'Дата заказа: 11 июн. 2026 12:00',
+                'Телефон: +7 (921) 324-15-66',
+                'Сумма заказа: 12 350',
+                'Товаров: 3 / 5',
+                'Менеджер: Иванов',
+                'Город: Санкт-Петербург',
+                'Контрагент: ООО Ромашка'
+            ].join('\n'),
+            tags: ['Юрик'],
+            hasLock: true
+        })
+    );
+
+    const order = context.parseOrderDetails('1000-300326');
+
+    assert.deepEqual(JSON.parse(JSON.stringify(order)), {
+        id: '1000-300326',
+        internalId: '1000-300326',
+        status: 'Комплектуется',
+        delivery: 'Самовывоз',
+        payment: 'Наличными в офисе',
+        date: '11 июн. 2026 12:00',
+        phoneNormalized: '79213241566',
+        totalAmount: 12350,
+        productsDone: 3,
+        productsTotal: 5,
+        manager: 'Иванов',
+        city: 'Санкт-Петербург',
+        contractor: 'ООО Ромашка',
+        orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/',
+        hasAutoreserve: true,
+        tags: ['Юрик']
+    });
 });

@@ -370,6 +370,138 @@ function sendOrders() {
     });
 }
 
+
+function getOrderIdFromLocation() {
+    try {
+        const url = new URL(window.location.href);
+        const match = url.pathname.match(/\/admin\/orders\/([^/]+)\/?$/);
+
+        return match ? normalizeCellText(match[1]) : '';
+    } catch {
+        return '';
+    }
+}
+
+function getPageTextLines() {
+    const text = document.body?.innerText || '';
+
+    return String(text)
+        .split(/\r?\n/)
+        .map(normalizeCellText)
+        .filter(Boolean);
+}
+
+function normalizeLabelText(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/[:：]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function findDetailValueByLabels(labels = []) {
+    const normalizedLabels = labels.map(normalizeLabelText).filter(Boolean);
+    const lines = getPageTextLines();
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const normalizedLine = normalizeLabelText(line);
+
+        for (const label of normalizedLabels) {
+            if (normalizedLine === label) {
+                return lines[index + 1] || '';
+            }
+
+            if (normalizedLine.startsWith(`${label} `)) {
+                return line.slice(label.length).replace(/^\s*[:：-]?\s*/, '').trim();
+            }
+
+            const colonMatch = line.match(/^([^:：]+)[:：]\s*(.+)$/);
+
+            if (colonMatch && normalizeLabelText(colonMatch[1]) === label) {
+                return normalizeCellText(colonMatch[2]);
+            }
+        }
+    }
+
+    return '';
+}
+
+function parseOrderDetails(expectedOrderId = '') {
+    const id = normalizeCellText(expectedOrderId || getOrderIdFromLocation());
+
+    if (!id) {
+        return null;
+    }
+
+    const rawUrl = (() => {
+        try {
+            const url = new URL(window.location.href);
+            url.hash = '';
+            return url.toString();
+        } catch {
+            return '';
+        }
+    })();
+
+    const totalAmountText = findDetailValueByLabels(['Сумма', 'Сумма заказа', 'Итого']);
+    const productsText = findDetailValueByLabels(['Товаров', 'Товары', 'Состав заказа']);
+    const productsProgress = parseProductsProgress(productsText);
+
+    const tags = Array.from(document.querySelectorAll('.label, .badge') || [])
+        .map(el => normalizeCellText(el.innerText || ''))
+        .filter(Boolean);
+
+    return {
+        id,
+        internalId: id,
+        status: findDetailValueByLabels(['Статус заказа', 'Статус']),
+        delivery: findDetailValueByLabels(['Доставка', 'Способ доставки']),
+        payment: findDetailValueByLabels(['Оплата', 'Способ оплаты']),
+        date: findDetailValueByLabels(['Дата заказа', 'Создан', 'Дата']),
+        phoneNormalized: normalizePhone(findDetailValueByLabels(['Телефон', 'Телефон клиента'])),
+        totalAmount: parseIntegerValue(totalAmountText),
+        productsDone: productsProgress.productsDone,
+        productsTotal: productsProgress.productsTotal,
+        manager: findDetailValueByLabels(['Менеджер']),
+        city: findDetailValueByLabels(['Город']),
+        contractor: findDetailValueByLabels(['Контрагент', 'Юридическое лицо']),
+        orderUrl: rawUrl,
+        hasAutoreserve: !!document.querySelector('.fa-lock'),
+        tags
+    };
+}
+
+function sendDirectOrder(expectedOrderId = '') {
+    const order = parseOrderDetails(expectedOrderId);
+    const orderId = expectedOrderId || order?.id || getOrderIdFromLocation();
+
+    sendWithRetry({
+        type: 'DIRECT_ORDER',
+        orderId,
+        data: order,
+        error: order ? null : 'direct order parse failed'
+    });
+}
+
+function initDirectWorker() {
+    chrome.runtime.sendMessage({ type: 'CHECK_DIRECT_WORKER' }, (res) => {
+        if (chrome.runtime.lastError) {
+            log('ERROR', 'DIRECT', chrome.runtime.lastError.message);
+            return;
+        }
+
+        if (!res?.isDirectWorker || !res?.isRunning) {
+            log('DEBUG', 'DIRECT', 'not direct worker');
+            return;
+        }
+
+        log('INFO', 'DIRECT', 'direct worker active', res.orderId || '');
+        sendDirectOrder(res.orderId || '');
+    });
+}
+
 // ---------- CONTROL ----------
 function startWorkerLoop() {
     if (reloadTimer) {
@@ -407,8 +539,9 @@ function init() {
         }
 
         if (!res?.isWorker) {
-            log('DEBUG', 'INIT', 'not worker, idle mode');
+            log('DEBUG', 'INIT', 'not list worker, checking direct role');
             stopWorkerLoop();
+            initDirectWorker();
             return;
         }
 

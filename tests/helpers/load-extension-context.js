@@ -160,6 +160,7 @@ function createBaseContext(overrides = {}) {
 function loadRulesContext(overrides = {}) {
     const context = createBaseContext(overrides);
     runScript('core/watched-orders.js', context);
+    runScript('core/direct-follow-up.js', context);
     runScript('notification-rules.js', context);
     return context;
 }
@@ -168,6 +169,7 @@ function loadBackgroundContext(overrides = {}) {
     const context = createBaseContext(overrides);
     runScript('version.js', context);
     runScript('core/watched-orders.js', context);
+    runScript('core/direct-follow-up.js', context);
     runScript('notification-rules.js', context);
     runScript('core/order-model.js', context);
     runScript('core/collection-model.js', context);
@@ -196,6 +198,8 @@ function setBackgroundState(context, state = {}) {
         windowOrdersHashDB = __testState.windowOrdersHashDB || {};
         notificationTargets = __testState.notificationTargets || {};
         workerTabId = __testState.workerTabId ?? null;
+        directWorkerTabId = __testState.directWorkerTabId ?? null;
+        directFollowUpState = __testState.directFollowUpState ?? normalizeDirectFollowUpState();
         lastBaselineDate = __testState.lastBaselineDate ?? null;
         isRunning = __testState.isRunning ?? false;
         monitorState = __testState.monitorState ?? 'uninitialized';
@@ -223,6 +227,8 @@ function getBackgroundState(context) {
         windowOrdersHashDB,
         notificationTargets,
         workerTabId,
+        directWorkerTabId,
+        directFollowUpState,
         lastBaselineDate,
         isRunning,
         monitorState,
