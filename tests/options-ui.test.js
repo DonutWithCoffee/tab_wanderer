@@ -109,6 +109,8 @@ function createOptionsDom() {
         'optionsNotifyFieldDelivery',
         'optionsNotifyFieldPayment',
         'optionsNotifyFieldCity',
+        'optionsSuppressLegalEntityPayment',
+        'optionsSuppressOzon',
         'optionsScopeDictionaryStatus',
         'optionsScopeDictionaryDelivery',
         'optionsScopeDictionaryPayment',
@@ -169,6 +171,10 @@ function loadOptionsContext(overrides = {}) {
                 payment: true,
                 city: true
             }
+        },
+        notificationSuppressors: {
+            ignoreLegalEntityPayment: false,
+            ignoreOzon: false
         },
         monitorScope: {
             status: ['6806'],
@@ -416,6 +422,8 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsDeepSyncMaxPages"/);
     assert.match(html, /id="optionsNotifyNewOrders"/);
     assert.match(html, /id="optionsNotifyChangedOrders"/);
+    assert.match(html, /id="optionsSuppressLegalEntityPayment"/);
+    assert.match(html, /id="optionsSuppressOzon"/);
     assert.match(html, /id="optionsScopeStatusList"/);
     assert.match(html, /id="optionsScopeDeliveryList"/);
     assert.match(html, /id="optionsScopePaymentList"/);
@@ -444,13 +452,15 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
     assert.equal(document.getElementById('optionsNotifyNewOrders').checked, true);
     assert.equal(document.getElementById('optionsNotifyFieldStatus').checked, true);
+    assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
+    assert.equal(document.getElementById('optionsSuppressOzon').checked, false);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Windowed: первая страница + deep sync');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
     assert.equal(document.getElementById('optionsScopeDictionaryOrderFlags').innerText, 'Флаги: Срочный, Проблемный');
     assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
-    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено');
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ');
     assert.match(document.getElementById('optionsWatchedOrdersStatus').innerText, /Отслеживается заказов: 1/);
     assert.match(document.getElementById('optionsWatchedOrdersList').children[0].children[0].children[0].innerText, /Заказ №1000-300326/);
@@ -587,8 +597,32 @@ test('options page autosaves notification trigger settings', () => {
     assert.equal(updateMessages.length, 2);
     assert.equal(updateMessages[0].userConfig.notificationTriggers.newOrders, false);
     assert.equal(updateMessages[1].userConfig.notificationTriggers.changedFields.payment, false);
-    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 3 включено');
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 3 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки уведомлений сохранены.');
+});
+
+
+
+test('options page autosaves quick notification suppressors', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const legalToggle = document.getElementById('optionsSuppressLegalEntityPayment');
+    const ozonToggle = document.getElementById('optionsSuppressOzon');
+
+    legalToggle.checked = true;
+    legalToggle.dispatchEvent({ type: 'change', target: legalToggle });
+    ozonToggle.checked = true;
+    ozonToggle.dispatchEvent({ type: 'change', target: ozonToggle });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 2);
+    assert.equal(updateMessages[0].userConfig.notificationSuppressors.ignoreLegalEntityPayment, true);
+    assert.equal(updateMessages[0].userConfig.notificationSuppressors.ignoreOzon, false);
+    assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreLegalEntityPayment, true);
+    assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreOzon, true);
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Быстрые подавления уведомлений сохранены.');
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: игнорируются; ОЗОН: игнорируется');
 });
 
 test('options page disables changed field controls when changed order trigger is off', () => {

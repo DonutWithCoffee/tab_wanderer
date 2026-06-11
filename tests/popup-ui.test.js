@@ -34,6 +34,7 @@ class FakeElement extends FakeEventTarget {
         this.innerText = '';
         this.textContent = '';
         this.value = '';
+        this.checked = false;
         this.href = '';
         this.download = '';
         this.clicked = false;
@@ -107,6 +108,9 @@ function createPopupDom() {
         'openOptions',
         'openHistory',
         'downloadDiagnosticLog',
+        'popupIgnoreLegalEntityPayment',
+        'popupIgnoreOzon',
+        'quickSuppressStatus',
         'diagnosticLogStatus'
     ]) {
         document.registerElement(id);
@@ -135,6 +139,13 @@ function loadPopupContext(overrides = {}) {
         windowHashesCount: 10,
         diagnosticLogCount: 2,
         eventJournalCount: 1
+    };
+    const popupConfig = overrides.userConfig || {
+        monitorMode: 'windowed',
+        notificationSuppressors: {
+            ignoreLegalEntityPayment: false,
+            ignoreOzon: false
+        }
     };
     const diagnosticLog = overrides.diagnosticLog || {
         ok: true,
@@ -176,6 +187,15 @@ function loadPopupContext(overrides = {}) {
 
                     if (msg.type === 'GET_MONITOR_STATUS') {
                         response = { ok: true, status: JSON.parse(JSON.stringify(monitorStatus)) };
+                    }
+
+                    if (msg.type === 'GET_CONFIG') {
+                        response = { ok: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
+                    }
+
+                    if (msg.type === 'UPDATE_CONFIG') {
+                        Object.assign(popupConfig, JSON.parse(JSON.stringify(msg.userConfig || {})));
+                        response = { ok: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
                     }
 
                     if (msg.type === 'GET_DIAGNOSTIC_LOG') {
@@ -230,6 +250,8 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="openOptions"/);
     assert.match(html, /id="openHistory"/);
     assert.match(html, /id="downloadDiagnosticLog"/);
+    assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
+    assert.match(html, /id="popupIgnoreOzon"/);
     assert.doesNotMatch(html, /id="applyConfig"/);
     assert.doesNotMatch(html, /id="resetConfig"/);
     assert.doesNotMatch(html, /id="monitorModeWindowed"/);
@@ -242,6 +264,7 @@ test('popup loads monitor status and toggles running state through one button', 
     const document = context.__test.document;
 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
+    assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
     assert.equal(document.getElementById('version').innerText, 'v0.9.8-test');
     assert.equal(document.getElementById('status').innerText, 'Статус: RUNNING');
     assert.equal(document.getElementById('toggleMonitor').innerText, 'Stop monitoring');
@@ -298,6 +321,28 @@ test('popup opens options and history pages', () => {
             active: true
         }
     ]);
+});
+
+
+
+test('popup quick suppressor toggles update config only for notifications', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+    const legalToggle = document.getElementById('popupIgnoreLegalEntityPayment');
+
+    assert.equal(legalToggle.checked, false);
+    assert.equal(document.getElementById('popupIgnoreOzon').checked, false);
+
+    legalToggle.dispatchEvent({ type: 'change', target: legalToggle });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.notificationSuppressors)), {
+        ignoreLegalEntityPayment: true,
+        ignoreOzon: false
+    });
+    assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Быстрые фильтры сохранены.');
 });
 
 test('popup downloads diagnostic log from quick action', () => {

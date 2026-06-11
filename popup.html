@@ -56,6 +56,33 @@
             font-size: 12px;
             line-height: 1.35;
         }
+
+        .quick-settings {
+            margin: 12px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f8f8f8;
+        }
+
+        .quick-settings-title {
+            margin: 0 0 8px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin: 6px 0;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
+        .checkbox-row input {
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body>
@@ -63,6 +90,19 @@
 
     <div id="version"></div>
     <div id="status">Статус: ...</div>
+
+    <div class="quick-settings">
+        <p class="quick-settings-title">Быстрые фильтры уведомлений</p>
+        <label class="checkbox-row">
+            <input type="checkbox" id="popupIgnoreLegalEntityPayment">
+            Игнорировать юриков
+        </label>
+        <label class="checkbox-row">
+            <input type="checkbox" id="popupIgnoreOzon">
+            Игнорировать ОЗОН
+        </label>
+        <div id="quickSuppressStatus" class="hint">Загрузка фильтров...</div>
+    </div>
 
     <div class="actions-group">
         <button id="toggleMonitor">Start monitoring</button>

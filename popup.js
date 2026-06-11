@@ -4,6 +4,23 @@ let currentMonitorStatus = {
     monitorMode: 'windowed'
 };
 
+let currentPopupConfig = {
+    notificationSuppressors: {
+        ignoreLegalEntityPayment: false,
+        ignoreOzon: false
+    }
+};
+
+const POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS = {
+    ignoreLegalEntityPayment: false,
+    ignoreOzon: false
+};
+
+const POPUP_SUPPRESSOR_CONTROLS = [
+    { key: 'ignoreLegalEntityPayment', id: 'popupIgnoreLegalEntityPayment' },
+    { key: 'ignoreOzon', id: 'popupIgnoreOzon' }
+];
+
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
         console.log('[POPUP]', msg.type, res);
@@ -35,6 +52,83 @@ function getTextValue(value, fallback = '—') {
 
 function getYesNo(value) {
     return value ? 'да' : 'нет';
+}
+
+function getBooleanConfigValue(value, fallback) {
+    return value === undefined ? fallback : Boolean(value);
+}
+
+function getPopupNotificationSuppressors(config = {}) {
+    const suppressors = config?.notificationSuppressors || {};
+
+    return {
+        ignoreLegalEntityPayment: getBooleanConfigValue(
+            suppressors.ignoreLegalEntityPayment,
+            POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreLegalEntityPayment
+        ),
+        ignoreOzon: getBooleanConfigValue(
+            suppressors.ignoreOzon,
+            POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreOzon
+        )
+    };
+}
+
+function setChecked(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.checked = Boolean(value);
+    }
+}
+
+function updateQuickSuppressorControls(config = {}) {
+    const suppressors = getPopupNotificationSuppressors(config);
+
+    for (const control of POPUP_SUPPRESSOR_CONTROLS) {
+        setChecked(control.id, suppressors[control.key]);
+    }
+}
+
+function loadPopupConfig() {
+    send({ type: 'GET_CONFIG' }, (res) => {
+        if (!res?.ok) {
+            setText('quickSuppressStatus', 'Не удалось загрузить быстрые фильтры.');
+            return;
+        }
+
+        currentPopupConfig = res.userConfig || currentPopupConfig;
+        updateQuickSuppressorControls(currentPopupConfig);
+        setText('quickSuppressStatus', 'Быстрые фильтры управляют только уведомлениями.');
+    });
+}
+
+function savePopupConfig(nextConfig, successMessage = 'Быстрые фильтры сохранены.') {
+    setText('quickSuppressStatus', 'Сохраняем быстрые фильтры...');
+
+    send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
+        if (!res?.ok) {
+            updateQuickSuppressorControls(currentPopupConfig);
+            setText('quickSuppressStatus', 'Ошибка сохранения быстрых фильтров.');
+            return;
+        }
+
+        currentPopupConfig = res.userConfig || nextConfig;
+        updateQuickSuppressorControls(currentPopupConfig);
+        setText('quickSuppressStatus', successMessage);
+    });
+}
+
+function toggleQuickSuppressor(key) {
+    const suppressors = getPopupNotificationSuppressors(currentPopupConfig);
+    const nextConfig = {
+        ...currentPopupConfig,
+        notificationSuppressors: {
+            ...suppressors,
+            [key]: !suppressors[key]
+        }
+    };
+
+    savePopupConfig(nextConfig);
 }
 
 function getStatusLabel(status = {}) {
@@ -304,6 +398,8 @@ function bindNavigationActions() {
     const openOptionsBtn = document.getElementById('openOptions');
     const openHistoryBtn = document.getElementById('openHistory');
     const downloadDiagnosticLogBtn = document.getElementById('downloadDiagnosticLog');
+    const popupIgnoreLegalEntityPayment = document.getElementById('popupIgnoreLegalEntityPayment');
+    const popupIgnoreOzon = document.getElementById('popupIgnoreOzon');
 
     if (toggleMonitorBtn) {
         toggleMonitorBtn.addEventListener('click', () => {
@@ -331,6 +427,18 @@ function bindNavigationActions() {
             downloadDiagnosticLogFromPopup();
         });
     }
+
+    if (popupIgnoreLegalEntityPayment) {
+        popupIgnoreLegalEntityPayment.addEventListener('change', () => {
+            toggleQuickSuppressor('ignoreLegalEntityPayment');
+        });
+    }
+
+    if (popupIgnoreOzon) {
+        popupIgnoreOzon.addEventListener('change', () => {
+            toggleQuickSuppressor('ignoreOzon');
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -339,4 +447,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bindNavigationActions();
     loadMonitorStatus();
+    loadPopupConfig();
 });

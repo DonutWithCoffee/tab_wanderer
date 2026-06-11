@@ -15,6 +15,10 @@ const DEFAULT_CONFIG = {
             city: true
         }
     },
+    notificationSuppressors: {
+        ignoreLegalEntityPayment: false,
+        ignoreOzon: false
+    },
     monitorScope: {
         status: [],
         delivery: [],
@@ -108,6 +112,20 @@ function normalizeNotificationTriggers(triggers = {}) {
     };
 }
 
+function normalizeNotificationSuppressors(suppressors = {}) {
+    const safeSuppressors = suppressors || {};
+    const defaultSuppressors = DEFAULT_CONFIG.notificationSuppressors;
+
+    return {
+        ignoreLegalEntityPayment: safeSuppressors.ignoreLegalEntityPayment === undefined
+            ? defaultSuppressors.ignoreLegalEntityPayment
+            : Boolean(safeSuppressors.ignoreLegalEntityPayment),
+        ignoreOzon: safeSuppressors.ignoreOzon === undefined
+            ? defaultSuppressors.ignoreOzon
+            : Boolean(safeSuppressors.ignoreOzon)
+    };
+}
+
 function getEffectiveConfig(config = {}) {
     const safeConfig = config || {};
     const configWithoutRules = { ...safeConfig };
@@ -124,6 +142,7 @@ function getEffectiveConfig(config = {}) {
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
+        notificationSuppressors: normalizeNotificationSuppressors(safeConfig.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safeConfig.monitorScope),
         watchedOrders: typeof normalizeWatchedOrdersConfig === 'function'
             ? normalizeWatchedOrdersConfig(safeConfig.watchedOrders)
@@ -151,6 +170,59 @@ function getContextChangedFields(context) {
 
 function hasEnabledChangedField(changedFields, changedFieldConfig = {}) {
     return changedFields.some(field => changedFieldConfig[field] === true);
+}
+
+function normalizeNotificationRuleText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getNormalizedOrderTags(order = {}) {
+    return Array.isArray(order.tags)
+        ? order.tags.map(normalizeNotificationRuleText).filter(Boolean)
+        : [];
+}
+
+function isLegalEntityPaymentOrder(order = {}) {
+    return normalizeNotificationRuleText(order.payment) === 'безналичный расчет для юридических лиц';
+}
+
+function isOzonOrder(order = {}) {
+    const contractor = normalizeNotificationRuleText(order.contractor);
+    const tags = getNormalizedOrderTags(order);
+
+    if (contractor.includes('ozon') || contractor.includes('озон')) {
+        return true;
+    }
+
+    return tags.some(tag => tag.includes('ozon') || tag.includes('озон'));
+}
+
+function evaluateNotificationSuppressors(order = {}, context = {}, effectiveConfig) {
+    const suppressors = effectiveConfig.notificationSuppressors || DEFAULT_CONFIG.notificationSuppressors;
+
+    if (suppressors.ignoreLegalEntityPayment && isLegalEntityPaymentOrder(order)) {
+        return buildTriggerDecision(
+            'notification-suppressor-legal-entity-payment',
+            'Legal entity payment notifications are suppressed by user setting',
+            context,
+            effectiveConfig
+        );
+    }
+
+    if (suppressors.ignoreOzon && isOzonOrder(order)) {
+        return buildTriggerDecision(
+            'notification-suppressor-ozon',
+            'Ozon order notifications are suppressed by user setting',
+            context,
+            effectiveConfig
+        );
+    }
+
+    return null;
 }
 
 function evaluateNotificationTriggers(context = {}, effectiveConfig) {
@@ -201,6 +273,12 @@ function evaluateNotification(order, context = {}, config = DEFAULT_CONFIG) {
         return triggerDecision;
     }
 
+    const suppressorDecision = evaluateNotificationSuppressors(order, context, effectiveConfig);
+
+    if (suppressorDecision) {
+        return suppressorDecision;
+    }
+
     return {
         notify: true,
         action: 'notify',
@@ -212,3 +290,8 @@ function evaluateNotification(order, context = {}, config = DEFAULT_CONFIG) {
     };
 }
 self.normalizeDeepSyncMaxPages = normalizeDeepSyncMaxPages;
+self.normalizeNotificationSuppressors = normalizeNotificationSuppressors;
+self.normalizeNotificationRuleText = normalizeNotificationRuleText;
+self.isLegalEntityPaymentOrder = isLegalEntityPaymentOrder;
+self.isOzonOrder = isOzonOrder;
+self.evaluateNotificationSuppressors = evaluateNotificationSuppressors;

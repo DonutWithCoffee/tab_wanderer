@@ -299,3 +299,94 @@ test('getEffectiveConfig normalizes watched orders config', () => {
         ]
     });
 });
+
+test('getEffectiveConfig normalizes notification suppressor defaults', () => {
+    const context = loadRulesContext();
+
+    const defaultConfig = context.getEffectiveConfig({});
+    const mixedConfig = context.getEffectiveConfig({
+        notificationSuppressors: {
+            ignoreLegalEntityPayment: 1,
+            ignoreOzon: 0
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(defaultConfig.notificationSuppressors)), {
+        ignoreLegalEntityPayment: false,
+        ignoreOzon: false
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(mixedConfig.notificationSuppressors)), {
+        ignoreLegalEntityPayment: true,
+        ignoreOzon: false
+    });
+});
+
+test('evaluateNotification suppresses legal entity payment only when quick suppressor is enabled', () => {
+    const context = loadRulesContext();
+    const order = createOrder({ payment: 'Безналичный расчет для юридических лиц' });
+    const eventContext = {
+        eventType: 'new-order',
+        isNewOrder: true,
+        changedFields: []
+    };
+
+    const enabledDecision = context.evaluateNotification(order, eventContext, {
+        notificationSuppressors: {
+            ignoreLegalEntityPayment: true
+        }
+    });
+    const disabledDecision = context.evaluateNotification(order, eventContext, {
+        notificationSuppressors: {
+            ignoreLegalEntityPayment: false
+        }
+    });
+
+    assert.equal(enabledDecision.notify, false);
+    assert.equal(enabledDecision.ruleId, 'notification-suppressor-legal-entity-payment');
+    assert.equal(disabledDecision.notify, true);
+    assert.equal(disabledDecision.ruleId, null);
+});
+
+test('evaluateNotification suppresses Ozon orders only when quick suppressor is enabled', () => {
+    const context = loadRulesContext();
+    const eventContext = {
+        eventType: 'new-order',
+        isNewOrder: true,
+        changedFields: []
+    };
+
+    const contractorDecision = context.evaluateNotification(
+        createOrder({ contractor: 'OZON (ОЗОН)' }),
+        eventContext,
+        {
+            notificationSuppressors: {
+                ignoreOzon: true
+            }
+        }
+    );
+    const tagDecision = context.evaluateNotification(
+        createOrder({ tags: ['ОЗОН'] }),
+        eventContext,
+        {
+            notificationSuppressors: {
+                ignoreOzon: true
+            }
+        }
+    );
+    const disabledDecision = context.evaluateNotification(
+        createOrder({ tags: ['ОЗОН'] }),
+        eventContext,
+        {
+            notificationSuppressors: {
+                ignoreOzon: false
+            }
+        }
+    );
+
+    assert.equal(contractorDecision.notify, false);
+    assert.equal(contractorDecision.ruleId, 'notification-suppressor-ozon');
+    assert.equal(tagDecision.notify, false);
+    assert.equal(tagDecision.ruleId, 'notification-suppressor-ozon');
+    assert.equal(disabledDecision.notify, true);
+    assert.equal(disabledDecision.ruleId, null);
+});

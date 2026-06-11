@@ -20,6 +20,16 @@ const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
     }
 };
 
+const OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS = {
+    ignoreLegalEntityPayment: false,
+    ignoreOzon: false
+};
+
+const OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS = [
+    { key: 'ignoreLegalEntityPayment', id: 'optionsSuppressLegalEntityPayment' },
+    { key: 'ignoreOzon', id: 'optionsSuppressOzon' }
+];
+
 const OPTIONS_VISIBLE_CHANGED_FIELDS = [
     { key: 'status', id: 'optionsNotifyFieldStatus' },
     { key: 'delivery', id: 'optionsNotifyFieldDelivery' },
@@ -271,6 +281,21 @@ function normalizeDeepSyncMaxPages(value) {
     return integer;
 }
 
+function getNotificationSuppressors(config = {}) {
+    const suppressors = config?.notificationSuppressors || {};
+
+    return {
+        ignoreLegalEntityPayment: getBooleanConfigValue(
+            suppressors.ignoreLegalEntityPayment,
+            OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreLegalEntityPayment
+        ),
+        ignoreOzon: getBooleanConfigValue(
+            suppressors.ignoreOzon,
+            OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreOzon
+        )
+    };
+}
+
 function getNotificationTriggers(config = {}) {
     const triggers = config?.notificationTriggers || {};
     const changedFields = triggers.changedFields || {};
@@ -381,12 +406,15 @@ function getScopeSummary(config = {}, dictionaries = {}) {
 
 function getNotificationSummary(config = {}) {
     const triggers = getNotificationTriggers(config);
+    const suppressors = getNotificationSuppressors(config);
     const enabledFields = Object.values(triggers.changedFields).filter(Boolean).length;
 
     return [
         `Новые заказы: ${triggers.newOrders ? 'включены' : 'выключены'}`,
         `Изменения заказов: ${triggers.changedOrders ? 'включены' : 'выключены'}`,
-        `Поля изменений: ${enabledFields} включено`
+        `Поля изменений: ${enabledFields} включено`,
+        `Юрики: ${suppressors.ignoreLegalEntityPayment ? 'игнорируются' : 'уведомляются'}`,
+        `ОЗОН: ${suppressors.ignoreOzon ? 'игнорируется' : 'уведомляется'}`
     ].join('; ');
 }
 
@@ -501,6 +529,7 @@ function setNotificationFieldControlsDisabled(disabled) {
 
 function renderSettings(config = {}) {
     const triggers = getNotificationTriggers(config);
+    const suppressors = getNotificationSuppressors(config);
 
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
@@ -512,6 +541,10 @@ function renderSettings(config = {}) {
 
     for (const field of OPTIONS_VISIBLE_CHANGED_FIELDS) {
         setChecked(field.id, triggers.changedFields[field.key]);
+    }
+
+    for (const suppressor of OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS) {
+        setChecked(suppressor.id, suppressors[suppressor.key]);
     }
 
     setNotificationFieldControlsDisabled(!triggers.changedOrders);
@@ -787,6 +820,25 @@ function saveNotificationTriggersFromUI(successMessage = 'Настройки у�
     saveConfig(nextConfig, successMessage);
 }
 
+function collectNotificationSuppressorsFromUI(baseConfig = {}) {
+    const suppressors = getNotificationSuppressors(baseConfig);
+
+    for (const suppressor of OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS) {
+        suppressors[suppressor.key] = getChecked(suppressor.id);
+    }
+
+    return suppressors;
+}
+
+function saveNotificationSuppressorsFromUI(successMessage = 'Быстрые подавления уведомлений сохранены.') {
+    const nextConfig = {
+        ...currentConfig,
+        notificationSuppressors: collectNotificationSuppressorsFromUI(currentConfig)
+    };
+
+    saveConfig(nextConfig, successMessage);
+}
+
 function bindSettingsAutosave() {
     const monitorMode = document.getElementById('optionsMonitorModeSelect');
     const deepSyncMaxPages = document.getElementById('optionsDeepSyncMaxPages');
@@ -808,6 +860,7 @@ function bindSettingsAutosave() {
         'optionsNotifyChangedOrders',
         ...OPTIONS_VISIBLE_CHANGED_FIELDS.map((field) => field.id)
     ];
+    const suppressorControlIds = OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS.map((item) => item.id);
 
     const addWatchedOrderButton = document.getElementById('optionsAddWatchedOrder');
     const watchedOrderInput = document.getElementById('optionsWatchedOrderInput');
@@ -830,6 +883,16 @@ function bindSettingsAutosave() {
         if (control) {
             control.addEventListener('change', () => {
                 saveNotificationTriggersFromUI();
+            });
+        }
+    }
+
+    for (const id of suppressorControlIds) {
+        const control = document.getElementById(id);
+
+        if (control) {
+            control.addEventListener('change', () => {
+                saveNotificationSuppressorsFromUI();
             });
         }
     }

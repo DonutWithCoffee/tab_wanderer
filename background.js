@@ -780,6 +780,7 @@ function getEffectiveUserConfig(storedConfig) {
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
+        notificationSuppressors: normalizeNotificationSuppressors(safe.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safe.monitorScope),
         watchedOrders: normalizeWatchedOrdersConfig(safe.watchedOrders)
     };

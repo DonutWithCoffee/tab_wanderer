@@ -647,3 +647,38 @@ test('processOrders notification for new order keeps compact current-state messa
     );
     assert.equal(context.__test.notifications[0].message.includes('79213241566'), false);
 });
+
+test('processOrders suppresses quick-filtered legal entity notification but keeps state and history', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        status: 'Новый',
+        payment: 'Безналичный расчет для юридических лиц'
+    });
+    const nextOrder = createOrder({
+        status: 'Оплачен',
+        payment: 'Безналичный расчет для юридических лиц'
+    });
+
+    setBackgroundState(
+        context,
+        createStateWithKnownAndWindow(context, prevOrder, {
+            notificationSuppressors: {
+                ignoreLegalEntityPayment: true
+            }
+        })
+    );
+
+    context.__testOrders = [nextOrder];
+    runExpression(context, 'processOrders(__testOrders)');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.knownOrdersDB[prevOrder.id].status, 'Оплачен');
+    assert.equal(state.windowOrdersDB[prevOrder.id].status, 'Оплачен');
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.eventJournal[0].notification.notify, false);
+    assert.equal(state.eventJournal[0].notification.ruleId, 'notification-suppressor-legal-entity-payment');
+});
