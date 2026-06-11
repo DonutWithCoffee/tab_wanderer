@@ -18,12 +18,63 @@ function log(level, scope, ...args) {
 
 let reloadTimer = null;
 let lastSentPage = null;
+let runtimeMessagingDisabled = false;
+
+function isExtensionContextInvalidatedError(error) {
+    return String(error?.message || error || '')
+        .toLowerCase()
+        .includes('extension context invalidated');
+}
+
+function handleRuntimeMessagingError(scope, error) {
+    if (!isExtensionContextInvalidatedError(error)) {
+        return false;
+    }
+
+    runtimeMessagingDisabled = true;
+    stopWorkerLoop();
+    log('DEBUG', scope, 'extension context invalidated, stopping content worker');
+
+    return true;
+}
+
+function getRuntimeLastError() {
+    try {
+        return chrome.runtime.lastError || null;
+    } catch (error) {
+        return error;
+    }
+}
+
+function sendRuntimeMessage(payload, callback, scope = 'SEND') {
+    if (runtimeMessagingDisabled) {
+        log('DEBUG', scope, 'runtime messaging disabled, skip', payload?.type);
+        return false;
+    }
+
+    try {
+        chrome.runtime.sendMessage(payload, callback);
+        return true;
+    } catch (error) {
+        if (handleRuntimeMessagingError(scope, error)) {
+            return false;
+        }
+
+        throw error;
+    }
+}
 
 // ---------- RETRY SEND ----------
 function sendWithRetry(payload, retries = 3) {
-    chrome.runtime.sendMessage(payload, (response) => {
-        if (chrome.runtime.lastError) {
-            log('WARN', 'SEND', 'retry...', chrome.runtime.lastError.message);
+    sendRuntimeMessage(payload, (response) => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError) {
+            if (handleRuntimeMessagingError('SEND', runtimeError)) {
+                return;
+            }
+
+            log('WARN', 'SEND', 'retry...', runtimeError.message);
 
             if (retries > 0) {
                 setTimeout(() => sendWithRetry(payload, retries - 1), 1000);
@@ -486,9 +537,14 @@ function sendDirectOrder(expectedOrderId = '') {
 }
 
 function initDirectWorker() {
-    chrome.runtime.sendMessage({ type: 'CHECK_DIRECT_WORKER' }, (res) => {
-        if (chrome.runtime.lastError) {
-            log('ERROR', 'DIRECT', chrome.runtime.lastError.message);
+    sendRuntimeMessage({ type: 'CHECK_DIRECT_WORKER' }, (res) => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError) {
+            if (!handleRuntimeMessagingError('DIRECT', runtimeError)) {
+                log('ERROR', 'DIRECT', runtimeError.message);
+            }
+
             return;
         }
 
@@ -499,7 +555,7 @@ function initDirectWorker() {
 
         log('INFO', 'DIRECT', 'direct worker active', res.orderId || '');
         sendDirectOrder(res.orderId || '');
-    });
+    }, 'DIRECT');
 }
 
 // ---------- CONTROL ----------
@@ -532,9 +588,14 @@ function stopWorkerLoop() {
 
 // ---------- INIT ----------
 function init() {
-    chrome.runtime.sendMessage({ type: 'CHECK_WORKER' }, (res) => {
-        if (chrome.runtime.lastError) {
-            log('ERROR', 'INIT', chrome.runtime.lastError.message);
+    sendRuntimeMessage({ type: 'CHECK_WORKER' }, (res) => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError) {
+            if (!handleRuntimeMessagingError('INIT', runtimeError)) {
+                log('ERROR', 'INIT', runtimeError.message);
+            }
+
             return;
         }
 
@@ -552,7 +613,7 @@ function init() {
         }
 
         startWorkerLoop();
-    });
+    }, 'INIT');
 }
 
 function getCurrentPageFromUrl() {

@@ -5,43 +5,45 @@ const path = require('path');
 const vm = require('vm');
 const { createDocumentStub } = require('./helpers/content-dom-stub');
 
-function loadContentContext(documentStub) {
+function loadContentContext(documentStub, overrides = {}) {
     const source = fs.readFileSync(
         path.join(__dirname, '..', 'content.js'),
         'utf8'
     );
 
+    const runtime = overrides.runtime || {
+        lastError: null,
+        sendMessage: (_payload, callback) => {
+            if (typeof callback === 'function') {
+                callback({ isWorker: false, isRunning: false });
+            }
+        }
+    };
+
     const context = {
         URL,
-        console: {
+        console: overrides.console || {
             log: () => {},
             warn: () => {},
             error: () => {}
         },
         chrome: {
-            runtime: {
-                lastError: null,
-                sendMessage: (_payload, callback) => {
-                    if (typeof callback === 'function') {
-                        callback({ isWorker: false, isRunning: false });
-                    }
-                }
-            }
+            runtime
         },
         document: documentStub,
         window: {
-            location: {
+            location: overrides.windowLocation || {
                 origin: 'https://amperkot.ru',
                 href: 'https://amperkot.ru/admin/orders/1000-300326/'
             }
         },
         location: {
-            reload: () => {}
+            reload: overrides.reload || (() => {})
         },
-        setTimeout: () => 0,
-        clearTimeout: () => {},
-        setInterval: () => 0,
-        clearInterval: () => {}
+        setTimeout: overrides.setTimeout || (() => 0),
+        clearTimeout: overrides.clearTimeout || (() => {}),
+        setInterval: overrides.setInterval || (() => 0),
+        clearInterval: overrides.clearInterval || (() => {})
     };
 
     context.globalThis = context;
@@ -511,4 +513,57 @@ test('parseOrderDetails extracts watched order payload from order page text', ()
         hasAutoreserve: true,
         tags: ['Юрик']
     });
+});
+
+
+test('content runtime messaging ignores extension context invalidated throws', () => {
+    let sendCalls = 0;
+    let timeoutCalls = 0;
+
+    const runtime = {
+        lastError: null,
+        sendMessage: () => {
+            sendCalls += 1;
+            throw new Error('Extension context invalidated.');
+        }
+    };
+
+    const context = loadContentContext(createDocumentStub({ headers: [] }), {
+        runtime,
+        setTimeout: () => {
+            timeoutCalls += 1;
+            return 0;
+        }
+    });
+
+    assert.doesNotThrow(() => context.sendWithRetry({ type: 'ORDERS' }));
+    assert.equal(sendCalls, 1);
+    assert.equal(timeoutCalls, 0);
+});
+
+test('content runtime messaging does not retry invalidated lastError callbacks', () => {
+    let sendCalls = 0;
+    let timeoutCalls = 0;
+
+    const runtime = {
+        lastError: { message: 'Extension context invalidated.' },
+        sendMessage: (_payload, callback) => {
+            sendCalls += 1;
+            if (typeof callback === 'function') {
+                callback(null);
+            }
+        }
+    };
+
+    const context = loadContentContext(createDocumentStub({ headers: [] }), {
+        runtime,
+        setTimeout: () => {
+            timeoutCalls += 1;
+            return 0;
+        }
+    });
+
+    assert.doesNotThrow(() => context.sendWithRetry({ type: 'ORDERS' }));
+    assert.equal(sendCalls, 1);
+    assert.equal(timeoutCalls, 0);
 });
