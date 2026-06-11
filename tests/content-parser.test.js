@@ -320,6 +320,66 @@ test('parseDictionaries extracts monitor dictionaries from checkbox groups', () 
                             };
                         }
                     }
+                ],
+                'input[type="checkbox"][name="flag[]"]': [
+                    {
+                        value: '1',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector() {
+                                    return null;
+                                },
+                                innerText: 'Срочный'
+                            };
+                        }
+                    }
+                ],
+                'input[type="checkbox"][name="store[]"]': [
+                    {
+                        value: '4',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector() {
+                                    return null;
+                                },
+                                innerText: 'Основной склад'
+                            };
+                        }
+                    }
+                ],
+                'input[type="checkbox"][name="reserve[]"]': [
+                    {
+                        value: '1',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector() {
+                                    return null;
+                                },
+                                innerText: 'В резерве'
+                            };
+                        }
+                    }
+                ],
+                'input[type="checkbox"][name="assembly_status[]"]': [
+                    {
+                        value: 'yes',
+                        closest(target) {
+                            if (target !== 'label') return null;
+
+                            return {
+                                querySelector() {
+                                    return null;
+                                },
+                                innerText: 'Скомплектован'
+                            };
+                        }
+                    }
                 ]
             };
 
@@ -333,7 +393,11 @@ test('parseDictionaries extracts monitor dictionaries from checkbox groups', () 
     assert.deepEqual(JSON.parse(JSON.stringify(dictionaries)), {
         status: [{ id: '6806', label: 'Ожидает оплаты' }],
         delivery: [{ id: '9797', label: 'Самовывоз' }],
-        payment: [{ id: '9791', label: 'Наличными в офисе' }]
+        payment: [{ id: '9791', label: 'Наличными в офисе' }],
+        orderFlags: [{ id: '1', label: 'Срочный' }],
+        store: [{ id: '4', label: 'Основной склад' }],
+        reserve: [{ id: '1', label: 'В резерве' }],
+        assemblyStatus: [{ id: 'yes', label: 'Скомплектован' }]
     });
 });
 test('parsePaginationState detects whether next page exists', () => {

@@ -39,6 +39,14 @@ class FakeElement extends FakeEventTarget {
         this.download = '';
         this.clicked = false;
         this.style = {};
+        this.children = [];
+        this.className = '';
+        this.type = '';
+    }
+
+    appendChild(child) {
+        this.children.push(child);
+        return child;
     }
 
     click() {
@@ -104,6 +112,18 @@ function createOptionsDom() {
         'optionsScopeDictionaryStatus',
         'optionsScopeDictionaryDelivery',
         'optionsScopeDictionaryPayment',
+        'optionsScopeDictionaryOrderFlags',
+        'optionsScopeDictionaryStore',
+        'optionsScopeDictionaryReserve',
+        'optionsScopeDictionaryAssemblyStatus',
+        'optionsScopeStatusList',
+        'optionsScopeDeliveryList',
+        'optionsScopePaymentList',
+        'optionsScopeOrderFlagsList',
+        'optionsScopeStoreList',
+        'optionsScopeReserveList',
+        'optionsScopeAssemblyStatusList',
+        'optionsScopeHint',
         'optionsDiagnosticsRuntime',
         'optionsDiagnosticsWorker',
         'optionsDiagnosticsOrders',
@@ -148,7 +168,11 @@ function loadOptionsContext(overrides = {}) {
         monitorScope: {
             status: ['6806'],
             delivery: ['9797'],
-            payment: ['9791']
+            payment: ['9791'],
+            orderFlags: ['1'],
+            store: [],
+            reserve: [],
+            assemblyStatus: []
         }
     };
     const defaultDictionaries = {
@@ -159,7 +183,21 @@ function loadOptionsContext(overrides = {}) {
             { id: '9797', label: 'Самовывоз' }
         ],
         payment: [
-            { id: '9791', label: 'Наличными в офисе' }
+            { id: '9791', label: 'Наличными в офисе' },
+            { id: '9793', label: 'Безналичный расчёт' }
+        ],
+        orderFlags: [
+            { id: '1', label: 'Срочный' },
+            { id: '2', label: 'Проблемный' }
+        ],
+        store: [
+            { id: '4', label: 'Основной склад' }
+        ],
+        reserve: [
+            { id: '1', label: 'В резерве' }
+        ],
+        assemblyStatus: [
+            { id: 'yes', label: 'Скомплектован' }
         ]
     };
     const defaultMonitorStatus = {
@@ -325,6 +363,10 @@ function getSentMessagesByType(context, type) {
     return context.__test.sentMessages.filter((msg) => msg.type === type);
 }
 
+function findCreatedInput(context, id) {
+    return context.__test.document.createdElements.slice().reverse().find((element) => element.id === id) || null;
+}
+
 test('options page contains autosave settings and support diagnostics sections', () => {
     const html = readOptionsHtml();
 
@@ -333,6 +375,11 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsDeepSyncMaxPages"/);
     assert.match(html, /id="optionsNotifyNewOrders"/);
     assert.match(html, /id="optionsNotifyChangedOrders"/);
+    assert.match(html, /id="optionsScopeStatusList"/);
+    assert.match(html, /id="optionsScopeDeliveryList"/);
+    assert.match(html, /id="optionsScopePaymentList"/);
+    assert.match(html, /id="optionsScopeOrderFlagsList"/);
+    assert.match(html, /id="optionsScopeHint"/);
     assert.match(html, /id="optionsDiagnosticLogDetails"/);
     assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
@@ -355,7 +402,9 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Windowed: первая страница + deep sync');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
-    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе');
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
+    assert.equal(document.getElementById('optionsScopeDictionaryOrderFlags').innerText, 'Флаги: Срочный, Проблемный');
+    assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено');
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 50/);
 });
@@ -376,6 +425,37 @@ test('options page autosaves monitor mode changes', () => {
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), ['6806']);
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Active: только первая страница');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Режим мониторинга сохранён.');
+});
+
+test('options page autosaves monitor scope changes and keeps empty group as all', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const selectedStatus = findCreatedInput(context, 'optionsScope_status_0');
+    const selectedFlag = findCreatedInput(context, 'optionsScope_orderFlags_0');
+    const initialSecondPayment = findCreatedInput(context, 'optionsScope_payment_1');
+
+    assert.equal(selectedStatus.checked, true);
+    assert.equal(selectedFlag.checked, true);
+    assert.equal(initialSecondPayment.checked, false);
+
+    selectedStatus.checked = false;
+    selectedStatus.dispatchEvent({ type: 'change', target: selectedStatus });
+
+    const secondPayment = findCreatedInput(context, 'optionsScope_payment_1');
+
+    secondPayment.checked = true;
+    secondPayment.dispatchEvent({ type: 'change', target: secondPayment });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), []);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.payment)), ['9791']);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.orderFlags)), ['1']);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[1].userConfig.monitorScope.status)), []);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[1].userConfig.monitorScope.payment)), ['9791', '9793']);
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
 });
 
 test('options page autosaves and clamps deep sync max pages', () => {

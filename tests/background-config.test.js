@@ -1373,7 +1373,11 @@ test('DICTIONARIES stores normalized payload from worker tab', async () => {
             data: {
                 status: [{ id: 6806, label: ' Ожидает оплаты ' }],
                 delivery: [{ id: 9797, label: ' Самовывоз ' }],
-                payment: [{ id: 9791, label: ' Наличными в офисе ' }]
+                payment: [{ id: 9791, label: ' Наличными в офисе ' }],
+                orderFlags: [{ id: 1, label: ' Срочный ' }],
+                store: [{ id: 4, label: ' Основной склад ' }],
+                reserve: [{ id: 1, label: ' В резерве ' }],
+                assemblyStatus: [{ id: 'yes', label: ' Скомплектован ' }]
             }
         },
         {
@@ -1395,6 +1399,18 @@ test('DICTIONARIES stores normalized payload from worker tab', async () => {
     ]);
     assert.deepEqual(state.monitorDictionaries.payment, [
         { id: '9791', label: 'Наличными в офисе' }
+    ]);
+    assert.deepEqual(state.monitorDictionaries.orderFlags, [
+        { id: '1', label: 'Срочный' }
+    ]);
+    assert.deepEqual(state.monitorDictionaries.store, [
+        { id: '4', label: 'Основной склад' }
+    ]);
+    assert.deepEqual(state.monitorDictionaries.reserve, [
+        { id: '1', label: 'В резерве' }
+    ]);
+    assert.deepEqual(state.monitorDictionaries.assemblyStatus, [
+        { id: 'yes', label: 'Скомплектован' }
     ]);
     assert.equal(typeof state.monitorDictionaries.updatedAt, 'number');
 });

@@ -504,7 +504,25 @@ function normalizeDictionaries(raw) {
         status: normalizeGroup(safe.status),
         delivery: normalizeGroup(safe.delivery),
         payment: normalizeGroup(safe.payment),
+        orderFlags: normalizeGroup(safe.orderFlags),
+        store: normalizeGroup(safe.store),
+        reserve: normalizeGroup(safe.reserve),
+        assemblyStatus: normalizeGroup(safe.assemblyStatus),
         updatedAt: Date.now()
+    };
+}
+
+function getComparableDictionariesSnapshot(dictionaries = {}) {
+    const safe = dictionaries || {};
+
+    return {
+        status: safe.status || [],
+        delivery: safe.delivery || [],
+        payment: safe.payment || [],
+        orderFlags: safe.orderFlags || [],
+        store: safe.store || [],
+        reserve: safe.reserve || [],
+        assemblyStatus: safe.assemblyStatus || []
     };
 }
 
@@ -512,15 +530,7 @@ function areDictionariesEqual(prev, next) {
     if (!prev && !next) return true;
     if (!prev || !next) return false;
 
-    return JSON.stringify({
-        status: prev.status || [],
-        delivery: prev.delivery || [],
-        payment: prev.payment || []
-    }) === JSON.stringify({
-        status: next.status || [],
-        delivery: next.delivery || [],
-        payment: next.payment || []
-    });
+    return JSON.stringify(getComparableDictionariesSnapshot(prev)) === JSON.stringify(getComparableDictionariesSnapshot(next));
 }
 
 // ---------- STORAGE ----------
@@ -1124,7 +1134,11 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 log('INFO', 'DICT', 'updated', {
                     status: monitorDictionaries.status.length,
                     delivery: monitorDictionaries.delivery.length,
-                    payment: monitorDictionaries.payment.length
+                    payment: monitorDictionaries.payment.length,
+                    orderFlags: monitorDictionaries.orderFlags.length,
+                    store: monitorDictionaries.store.length,
+                    reserve: monitorDictionaries.reserve.length,
+                    assemblyStatus: monitorDictionaries.assemblyStatus.length
                 });
 
                 await save();

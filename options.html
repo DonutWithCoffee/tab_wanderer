@@ -122,6 +122,25 @@
             margin: 12px 0;
         }
 
+        .scope-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+        }
+
+        .scope-group {
+            padding: 12px;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        .scope-list {
+            display: grid;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
         .field-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -237,24 +256,49 @@
         </section>
 
         <section class="card">
-            <h2>Справочники области мониторинга</h2>
+            <h2>Область мониторинга</h2>
             <p class="muted">
-                Значения приходят из админки после запуска мониторинга. Сейчас блок работает только в режиме чтения.
+                Эти фильтры определяют, какие заказы попадают в сбор. Пустой выбор в группе означает “все”.
+                При изменении области расширение сделает безопасную перебазировку без потока уведомлений.
             </p>
-            <div class="dictionary-grid">
-                <div>
+            <div class="scope-grid">
+                <div class="scope-group">
                     <h3>Статус</h3>
                     <p id="optionsScopeDictionaryStatus" class="dictionary-value">—</p>
+                    <div id="optionsScopeStatusList" class="scope-list"></div>
                 </div>
-                <div>
+                <div class="scope-group">
                     <h3>Доставка</h3>
                     <p id="optionsScopeDictionaryDelivery" class="dictionary-value">—</p>
+                    <div id="optionsScopeDeliveryList" class="scope-list"></div>
                 </div>
-                <div>
+                <div class="scope-group">
                     <h3>Оплата</h3>
                     <p id="optionsScopeDictionaryPayment" class="dictionary-value">—</p>
+                    <div id="optionsScopePaymentList" class="scope-list"></div>
+                </div>
+                <div class="scope-group">
+                    <h3>Флаги заказа</h3>
+                    <p id="optionsScopeDictionaryOrderFlags" class="dictionary-value">—</p>
+                    <div id="optionsScopeOrderFlagsList" class="scope-list"></div>
+                </div>
+                <div class="scope-group">
+                    <h3>Склад / магазин</h3>
+                    <p id="optionsScopeDictionaryStore" class="dictionary-value">—</p>
+                    <div id="optionsScopeStoreList" class="scope-list"></div>
+                </div>
+                <div class="scope-group">
+                    <h3>Резерв</h3>
+                    <p id="optionsScopeDictionaryReserve" class="dictionary-value">—</p>
+                    <div id="optionsScopeReserveList" class="scope-list"></div>
+                </div>
+                <div class="scope-group">
+                    <h3>Комплектация</h3>
+                    <p id="optionsScopeDictionaryAssemblyStatus" class="dictionary-value">—</p>
+                    <div id="optionsScopeAssemblyStatusList" class="scope-list"></div>
                 </div>
             </div>
+            <p id="optionsScopeHint" class="muted">Справочники появятся после запуска мониторинга.</p>
         </section>
 
         <section class="card">

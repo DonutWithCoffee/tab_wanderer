@@ -20,10 +20,21 @@ const OPTIONS_VISIBLE_CHANGED_FIELDS = [
     { key: 'city', id: 'optionsNotifyFieldCity' }
 ];
 
+const OPTIONS_SCOPE_GROUPS = [
+    { key: 'status', title: 'Статус', dictionaryId: 'optionsScopeDictionaryStatus', containerId: 'optionsScopeStatusList' },
+    { key: 'delivery', title: 'Доставка', dictionaryId: 'optionsScopeDictionaryDelivery', containerId: 'optionsScopeDeliveryList' },
+    { key: 'payment', title: 'Оплата', dictionaryId: 'optionsScopeDictionaryPayment', containerId: 'optionsScopePaymentList' },
+    { key: 'orderFlags', title: 'Флаги', dictionaryId: 'optionsScopeDictionaryOrderFlags', containerId: 'optionsScopeOrderFlagsList' },
+    { key: 'store', title: 'Склад', dictionaryId: 'optionsScopeDictionaryStore', containerId: 'optionsScopeStoreList' },
+    { key: 'reserve', title: 'Резерв', dictionaryId: 'optionsScopeDictionaryReserve', containerId: 'optionsScopeReserveList' },
+    { key: 'assemblyStatus', title: 'Комплектация', dictionaryId: 'optionsScopeDictionaryAssemblyStatus', containerId: 'optionsScopeAssemblyStatusList' }
+];
+
 let currentConfig = {};
 let currentDictionaries = {};
 let currentMonitorStatus = {};
 let lastDiagnosticLogText = '';
+let scopeControlRefs = {};
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -74,6 +85,33 @@ function setDisabled(id, value) {
     if (el) {
         el.disabled = Boolean(value);
     }
+}
+
+function clearElement(el) {
+    if (!el) {
+        return;
+    }
+
+    el.innerText = '';
+    el.textContent = '';
+    el.innerHTML = '';
+
+    if (Array.isArray(el.children)) {
+        el.children.length = 0;
+    }
+}
+
+function appendText(el, text) {
+    if (!el) {
+        return;
+    }
+
+    if (document.createTextNode && el.appendChild) {
+        el.appendChild(document.createTextNode(String(text)));
+        return;
+    }
+
+    el.innerText = `${el.innerText || ''}${String(text)}`;
 }
 
 function getNumber(value, fallback = 0) {
@@ -179,12 +217,19 @@ function buildScopeText(title, selectedIds, options) {
     return `${title}: ${selectedLabels.slice(0, 2).join(', ')} +${selectedLabels.length - 2}`;
 }
 
-function getDictionaryLabels(options) {
+function normalizeDictionaryOptions(options) {
     return Array.isArray(options)
         ? options
-            .map((item) => String(item?.label || item?.name || item?.id || '').trim())
-            .filter(Boolean)
+            .map((item) => ({
+                id: String(item?.id || '').trim(),
+                label: String(item?.label || item?.name || item?.id || '').trim()
+            }))
+            .filter((item) => item.id && item.label)
         : [];
+}
+
+function getDictionaryLabels(options) {
+    return normalizeDictionaryOptions(options).map((item) => item.label);
 }
 
 function buildDictionaryText(title, options) {
@@ -202,19 +247,33 @@ function buildDictionaryText(title, options) {
 }
 
 function renderScopeDictionaries(dictionaries = {}) {
-    setText('optionsScopeDictionaryStatus', buildDictionaryText('Статус', dictionaries.status || []));
-    setText('optionsScopeDictionaryDelivery', buildDictionaryText('Доставка', dictionaries.delivery || []));
-    setText('optionsScopeDictionaryPayment', buildDictionaryText('Оплата', dictionaries.payment || []));
+    for (const group of OPTIONS_SCOPE_GROUPS) {
+        setText(group.dictionaryId, buildDictionaryText(group.title, dictionaries[group.key] || []));
+    }
+}
+
+function getMonitorScope(config = {}) {
+    const monitorScope = config.monitorScope || {};
+    const result = {};
+
+    for (const group of OPTIONS_SCOPE_GROUPS) {
+        result[group.key] = getScopeList(monitorScope[group.key]);
+    }
+
+    result.predicates = {
+        ozonOnly: Boolean(monitorScope.predicates?.ozonOnly),
+        juridicalOnly: Boolean(monitorScope.predicates?.juridicalOnly)
+    };
+
+    return result;
 }
 
 function getScopeSummary(config = {}, dictionaries = {}) {
-    const monitorScope = config.monitorScope || {};
+    const monitorScope = getMonitorScope(config);
 
-    return [
-        buildScopeText('Статус', getScopeList(monitorScope.status), dictionaries.status || []),
-        buildScopeText('Доставка', getScopeList(monitorScope.delivery), dictionaries.delivery || []),
-        buildScopeText('Оплата', getScopeList(monitorScope.payment), dictionaries.payment || [])
-    ].join('; ');
+    return OPTIONS_SCOPE_GROUPS
+        .map((group) => buildScopeText(group.title, monitorScope[group.key], dictionaries[group.key] || []))
+        .join('; ');
 }
 
 function getNotificationSummary(config = {}) {
@@ -228,7 +287,101 @@ function getNotificationSummary(config = {}) {
     ].join('; ');
 }
 
+function getScopeControlId(groupKey, index) {
+    return `optionsScope_${groupKey}_${index}`;
+}
+
+function renderScopeFallback(container, text) {
+    clearElement(container);
+
+    const fallback = document.createElement('p');
+    fallback.className = 'muted';
+    fallback.innerText = text;
+
+    if (container?.appendChild) {
+        container.appendChild(fallback);
+    } else if (container) {
+        container.innerText = text;
+    }
+}
+
+function renderScopeGroup(group, selectedIds, options) {
+    const container = document.getElementById(group.containerId);
+    const normalizedOptions = normalizeDictionaryOptions(options);
+    const selectedSet = new Set(selectedIds.map(String));
+
+    scopeControlRefs[group.key] = [];
+
+    if (!container) {
+        return;
+    }
+
+    if (!normalizedOptions.length) {
+        renderScopeFallback(container, selectedIds.length
+            ? `Справочник не загружен. Сохранено значений: ${selectedIds.length}.`
+            : 'Справочник не загружен. Пусто = все.');
+        return;
+    }
+
+    clearElement(container);
+
+    for (const [index, option] of normalizedOptions.entries()) {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        const text = document.createElement('span');
+
+        label.className = 'checkbox-row';
+        input.type = 'checkbox';
+        input.id = getScopeControlId(group.key, index);
+        input.value = option.id;
+        input.checked = selectedSet.has(option.id);
+        text.innerText = option.label;
+
+        input.addEventListener('change', () => {
+            saveMonitorScopeFromUI();
+        });
+
+        scopeControlRefs[group.key].push({ input, value: option.id });
+
+        if (label.appendChild) {
+            label.appendChild(input);
+            label.appendChild(text);
+        } else {
+            label.innerText = option.label;
+        }
+
+        if (container.appendChild) {
+            container.appendChild(label);
+        }
+    }
+}
+
+function renderScopeControls(config = {}, dictionaries = {}) {
+    const monitorScope = getMonitorScope(config);
+    let loadedGroups = 0;
+
+    scopeControlRefs = {};
+
+    for (const group of OPTIONS_SCOPE_GROUPS) {
+        const options = normalizeDictionaryOptions(dictionaries[group.key] || []);
+
+        if (options.length) {
+            loadedGroups += 1;
+        }
+
+        renderScopeGroup(group, monitorScope[group.key], options);
+    }
+
+    setText(
+        'optionsScopeHint',
+        loadedGroups
+            ? 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.'
+            : 'Справочники появятся после запуска мониторинга.'
+    );
+}
+
 function renderConfigSummary(config, dictionaries) {
+
     setText('optionsMonitorMode', getMonitorModeLabel(config));
     setText('optionsDeepSyncSummary', `${normalizeDeepSyncMaxPages(config.deepSyncMaxPages)} страниц`);
     setText('optionsScopeSummary', getScopeSummary(config, dictionaries));
@@ -247,6 +400,7 @@ function renderSettings(config = {}) {
 
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
+    renderScopeControls(config, currentDictionaries);
 
     setChecked('optionsNotifyNewOrders', triggers.newOrders);
     setChecked('optionsNotifyChangedOrders', triggers.changedOrders);
@@ -294,6 +448,38 @@ function saveDeepSyncMaxPagesFromUI() {
     };
 
     saveConfig(nextConfig, 'Глубина deep sync сохранена.');
+}
+
+function collectMonitorScopeFromUI(baseConfig = {}) {
+    const currentScope = getMonitorScope(baseConfig);
+    const nextScope = {
+        ...currentScope,
+        predicates: { ...currentScope.predicates }
+    };
+
+    for (const group of OPTIONS_SCOPE_GROUPS) {
+        const controls = scopeControlRefs[group.key] || [];
+
+        if (!controls.length) {
+            nextScope[group.key] = currentScope[group.key];
+            continue;
+        }
+
+        nextScope[group.key] = controls
+            .filter((item) => item.input?.checked === true)
+            .map((item) => item.value);
+    }
+
+    return nextScope;
+}
+
+function saveMonitorScopeFromUI() {
+    const nextConfig = {
+        ...currentConfig,
+        monitorScope: collectMonitorScopeFromUI(currentConfig)
+    };
+
+    saveConfig(nextConfig, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
 }
 
 function collectNotificationTriggersFromUI(baseConfig = {}) {

@@ -245,13 +245,21 @@ function parseDictionaries() {
     const dictionaries = {
         status: extract('status[]'),
         delivery: extract('delivery[]'),
-        payment: extract('payment[]')
+        payment: extract('payment[]'),
+        orderFlags: extract('flag[]'),
+        store: extract('store[]'),
+        reserve: extract('reserve[]'),
+        assemblyStatus: extract('assembly_status[]')
     };
 
     log('INFO', 'DICT', 'parsed', {
         status: dictionaries.status.length,
         delivery: dictionaries.delivery.length,
-        payment: dictionaries.payment.length
+        payment: dictionaries.payment.length,
+        orderFlags: dictionaries.orderFlags.length,
+        store: dictionaries.store.length,
+        reserve: dictionaries.reserve.length,
+        assemblyStatus: dictionaries.assemblyStatus.length
     });
 
     return dictionaries;
