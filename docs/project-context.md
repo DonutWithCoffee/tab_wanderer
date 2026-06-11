@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: 0.9.8 observability/settings/notification checkpoint.
+Актуально на момент: 0.9.8 observability/refactor checkpoint.
 
 Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,8 +11,8 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot
-Текущая стадия: 0.9.8 Observability + Refactor
-Manifest version: 0.9.6 до отдельного release/version bump
+Текущая стадия: 0.9.8 Observability + Refactor checkpoint
+Manifest version: 0.9.8
 ```
 
 Roadmap:
@@ -27,7 +27,7 @@ Pre-1.0 — UI/UX polish with user ⏳
 Post-1.0 — centralized collector / priority follow-up / Ozon automation / Firefox fork
 ```
 
-Последние важные behavior slices:
+Последние важные behavior/refactor slices:
 
 ```text
 feat(core): expose monitor status snapshot
@@ -37,12 +37,20 @@ feat(diagnostics): add persistent diagnostic log export
 fix(diagnostics): reduce log noise and record deep collection completion
 feat(settings): simplify settings UX and configure deep sync depth
 feat(notifications): show order change diff
+docs(project): sync 0.9.8 checkpoint and deep sync defaults
+fix(core): detect manual start catch-up changes
+refactor(diagnostics): reduce background log responsibilities
+fix(core): complete deep sync from pagination state
+fix(diagnostics): export full retained log
+test(core): lock runtime sync consistency
+refactor(core): extract collection session model
+refactor(core): extract runtime response helpers
 ```
 
 Текущий тестовый checkpoint:
 
 ```text
-105 pass 0 fail
+127 pass 0 fail
 ```
 
 ---
@@ -94,6 +102,8 @@ collection policy
 sync model
 event journal
 diagnostic log
+notification message model
+runtime API response model
 popup/options/history UI
 Chrome runtime edge
 ```
@@ -231,9 +241,17 @@ active:
 Important:
 
 ```text
-empty page не является обычным stop condition
 не останавливаться только из-за встречи известного заказа
 после deep session всегда возвращать worker на page 1
+deep sync завершается по pagination-last-page, empty-first-page или max-pages
+empty page не является обычным stop condition для валидной глубокой страницы
+empty first page при выбранном scope = корректное завершение без timeout
+```
+
+Collection/session pure logic вынесена в:
+
+```text
+core/collection-model.js
 ```
 
 ---
@@ -321,6 +339,13 @@ window-sync
 normal
 ```
 
+Pending sync action:
+
+```text
+manual-start + known DB → catch-up
+initial / recovery / stale-resume / scope-change / mode-change → baseline
+```
+
 Зачем:
 
 ```text
@@ -328,7 +353,8 @@ normal
 отличать обычное recovery от stale resume
 отличать scope/mode/depth changes
 строить корректную историю и diagnostics
-готовить будущий catch-up behavior
+manual-start с known DB запускать как catch-up
+recovery/stale-resume/scope-change/mode-change оставлять safe baseline без notification flood
 ```
 
 ---
@@ -441,6 +467,12 @@ Core file:
 core/diagnostic-log.js
 ```
 
+Runtime response helpers:
+
+```text
+core/runtime-api.js
+```
+
 Назначение:
 
 ```text
@@ -451,7 +483,8 @@ core/diagnostic-log.js
 Runtime access:
 
 ```text
-GET_DIAGNOSTIC_LOG
+GET_DIAGNOSTIC_LOG preview → последние 100 entries
+GET_DIAGNOSTIC_LOG full → весь retained log
 CLEAR_DIAGNOSTIC_LOG
 ```
 
@@ -460,6 +493,18 @@ UI:
 ```text
 popup → Download diagnostic log
 options → diagnostic log details/dropdown внизу страницы
+preview/copy → preview
+download/export → full retained log
+```
+
+Retention policy:
+
+```text
+preview limit = 100 entries
+max retained entries = 5000
+max retained bytes = 2_000_000
+diagnosticLogDroppedEntries хранит число удалённых старых entries
+export header показывает retained/exported/dropped counts
 ```
 
 Persistent log пишет INFO/WARN/ERROR, но не пишет шумный fast PROCESS каждые 15 секунд.
@@ -618,6 +663,12 @@ Runner печатает:
 N pass 0 fail
 ```
 
+Текущий checkpoint:
+
+```text
+127 pass 0 fail
+```
+
 Перед commit достаточно одного зелёного `npm test` после финальной версии файлов.
 
 ---
@@ -699,16 +750,26 @@ git push origin main
 После этого checkpoint:
 
 ```text
-0.9.8 support diagnostics / state cleanup / docs-smoke checkpoint
+0.9.8 manual smoke / release-readiness checkpoint
+```
+
+Отложенные manual smoke checks:
+
+```text
+manual START catch-up: STOP → change known order → START → notification diff
+scope with 1–3 pages: deep sync completes by pagination-last-page
+scope with 0 orders: completes by empty-first-page without timeout
+diagnostic export: full retained log, not preview-only
+diagnostic retention: export header shows retained/dropped metadata
+worker returns to page 1 after deep sync
 ```
 
 Вероятные следующие работы:
 
 ```text
-manual smoke test for 50-page deep sync after default change
 status/log wording consistency
-background.js organization cleanup
 storage/state migration sanity check
+0.9.8 release notes / tag decision
 pre-1.0 UI/UX polish planning
-manifest/version/release bump planning
+manual browser QA checklist
 ```

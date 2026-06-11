@@ -18,10 +18,10 @@ Pre-1.0 — UI/UX polish with user ⏳
 Текущая точка:
 
 ```text
-0.9.8 in progress / support diagnostics + settings hardening
+0.9.8 checkpoint / observability + refactor hardening
 ```
 
-Manifest/version пока остаётся `0.9.6` до отдельного release/version bump.
+Manifest/version синхронизирован на `0.9.8`.
 
 ---
 
@@ -106,14 +106,22 @@ options diagnostics panel skeleton ✅
 worker return-to-page-1 after deep sync fix ✅
 persistent diagnostic log ✅
 diagnostic log .txt export from options/popup ✅
+diagnostic log full retained export ✅
+diagnostic log retention policy ✅
 diagnostic log noise reduction ✅
 settings UX simplification ✅
 popup quick-control model ✅
 options autosave model ✅
 deepSyncMaxPages setting ✅
 deep sync max validated at 50 pages / ~1500 orders ✅
+scope-aware pagination completion ✅
+manual-start catch-up detection ✅
+runtime sync consistency tests ✅
 notification diff было → стало ✅
 tags removed from notification surface ✅
+core/collection-model.js extraction ✅
+core/runtime-api.js extraction ✅
+manifest/version sync to 0.9.8 ✅
 ```
 
 ### Current checkpoint decisions
@@ -123,6 +131,11 @@ deepSyncMaxPages default = 50
 safe range = 1–50
 50 pages ≈ 1500 orders
 worker must return to page 1 after every deep session
+deep sync can complete by pagination-last-page / empty-first-page / max-pages
+manual-start with existing known DB is catch-up
+recovery/stale-resume/scope-change/mode-change are safe baselines
+diagnostic export downloads full retained log, not preview only
+diagnostic log retention: 5000 entries / 2_000_000 bytes
 tags are parsed/stored/history/search data, not notification data
 tag-only changes do not notify
 ```
@@ -130,12 +143,12 @@ tag-only changes do not notify
 ### Remaining 0.9.8 work
 
 ```text
-small background.js organization cleanup
+manual browser smoke test checklist
 status/log wording consistency
 storage/state migration sanity check
-manual browser smoke test checklist
 support diagnostics final pass
-release/version bump planning
+0.9.8 release notes / tag decision
+pre-1.0 UI/UX polish planning
 ```
 
 Ограничение:
@@ -202,6 +215,8 @@ knownOrdersDB preserved across rebaseline
 windowOrdersDB rebuilt safely
 fast poll works
 deep sync works up to configured safe limit
+deep sync completes from pagination-last-page / empty-first-page / max-pages
+manual-start catch-up works
 monitorMode works
 monitorScope works
 notificationTriggers work
@@ -210,6 +225,8 @@ tags do not create user notification noise
 eventJournal works
 history page minimally usable
 diagnostic log export works
+diagnostic log export returns full retained log
+diagnostic log retention prevents unbounded storage growth
 notifications open order page
 baseline/rebaseline/recovery do not flood notifications
 manual browser smoke test passed

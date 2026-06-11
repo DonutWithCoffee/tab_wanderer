@@ -1,8 +1,8 @@
 const VERSION = {
-    version: '0.9.6',
-    build: '0.9.6',
-    stage: 'deep collection complete',
-    date: '2026-04-02'
+    version: '0.9.8',
+    build: '0.9.8',
+    stage: 'observability and refactor checkpoint',
+    date: '2026-06-11'
 };
 
 const CHANGELOG = {
@@ -12,5 +12,7 @@ const CHANGELOG = {
     '0.9.3': 'notification rules engine, notification click open, startup recovery hardening',
     '0.9.4': 'notification hardening complete, config layer base, normalization fixes, rebaseline on config change',
     '0.9.5': 'monitorScope config, URL-based filtering, config-driven worker, popup scope UI, normalization fixes',
-    '0.9.6': 'monitorState, collection session, URL-driven pagination, fast/deep collection, known/window state, duplicate protection, timeout and retry-limit'
+    '0.9.6': 'monitorState, collection session, URL-driven pagination, fast/deep collection, known/window state, duplicate protection, timeout and retry-limit',
+    '0.9.7': 'scope UX, notification triggers, order event model, event journal and history page foundation',
+    '0.9.8': 'observability, diagnostic log retention/full export, manual-start catch-up, pagination completion, runtime consistency and core extraction'
 };

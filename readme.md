@@ -9,9 +9,9 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 0.9.8 Observability + Refactor / pre-release hardening
-Manifest version: 0.9.6 до отдельного release/version bump
-Текущий фокус: диагностика, настройки, качество уведомлений, подготовка к 1.0
+Стадия разработки: 0.9.8 Observability + Refactor checkpoint
+Manifest version: 0.9.8
+Текущий фокус: runtime consistency, support diagnostics, безопасный refactor, подготовка к pre-1.0 UI/UX polish
 ```
 
 Roadmap:
@@ -99,7 +99,15 @@ pagination через ?page=N
 
 По ручной проверке 50 страниц собираются примерно за 30–35 секунд и после deep session worker возвращается на page 1.
 
-Empty page не используется как обычное условие остановки, потому что валидные страницы админки заказов должны содержать хотя бы один заказ.
+Deep sync завершается по явной pagination-информации:
+
+```text
+pagination-last-page
+empty-first-page для scope без заказов
+max-pages, если страницы ещё доступны
+```
+
+Empty page не используется как обычное условие остановки для валидной глубокой страницы, но пустая первая страница при выбранном scope считается корректным завершением: в этой области сейчас нет заказов.
 
 ---
 
@@ -128,6 +136,25 @@ windowOrdersDB
 ```
 
 `knownOrdersDB` не очищается при baseline/rebaseline. Scope/mode/depth changes перестраивают текущее окно сравнения, но не стирают глобальную память известных заказов.
+
+---
+
+## Core modules
+
+0.9.8 постепенно разгружает `background.js` и переносит pure/domain logic в core:
+
+```text
+core/order-model.js
+core/sync-model.js
+core/collection-model.js
+core/event-journal.js
+core/monitor-status.js
+core/diagnostic-log.js
+core/notification-message.js
+core/runtime-api.js
+```
+
+Chrome APIs остаются на runtime edge.
 
 ---
 
@@ -189,7 +216,7 @@ window-sync
 normal
 ```
 
-Это нужно для корректной истории, диагностики и будущего catch-up поведения после долгого простоя.
+Это нужно для корректной истории, диагностики и catch-up поведения после ручного старта.
 
 ---
 
@@ -260,7 +287,7 @@ Context-only поля и чувствительные данные в уведо
 
 ## Diagnostic log
 
-В 0.9.8 добавлен локальный диагностический лог.
+В 0.9.8 добавлен локальный диагностический лог с retention policy и полным export сохранённого лога.
 
 Назначение:
 
@@ -272,7 +299,8 @@ Context-only поля и чувствительные данные в уведо
 Доступ:
 
 ```text
-GET_DIAGNOSTIC_LOG
+GET_DIAGNOSTIC_LOG preview → последние 100 записей
+GET_DIAGNOSTIC_LOG full → весь retained log
 CLEAR_DIAGNOSTIC_LOG
 ```
 
@@ -281,6 +309,17 @@ CLEAR_DIAGNOSTIC_LOG
 ```text
 popup → быстрая кнопка Download diagnostic log
 options → подробный блок диагностического лога внизу страницы под details/dropdown
+preview/copy → короткий preview
+download/export → полный retained log
+```
+
+Retention:
+
+```text
+preview limit: 100 entries
+max retained entries: 5000
+max retained bytes: 2_000_000
+dropped old entries counter сохраняется и показывается в export header
 ```
 
 В лог пишутся технические события:
@@ -345,10 +384,10 @@ Runner печатает итог:
 N pass 0 fail
 ```
 
-Текущий checkpoint после обновления defaults/docs:
+Текущий checkpoint:
 
 ```text
-105 pass 0 fail
+127 pass 0 fail
 ```
 
 ---
@@ -358,9 +397,9 @@ N pass 0 fail
 Перед 1.0 нужно:
 
 ```text
-закрыть 0.9.8 observability/refactor
-обновить manifest/version/release notes отдельным release bump
-провести manual smoke test
+закрыть финальные 0.9.8 manual smoke checks
+зафиксировать release notes / tag для 0.9.8 при необходимости
 сделать pre-1.0 UI/UX polish вместе с пользователем
-подготовить stable local-first Chrome extension release
+провести manual browser QA
+подготовить stable local-first Chrome extension 1.0 release
 ```
