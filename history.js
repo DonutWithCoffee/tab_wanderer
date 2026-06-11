@@ -33,6 +33,10 @@ const FIELD_LABELS = {
     payment: 'Оплата',
     city: 'Город',
     tags: 'Теги',
+    phoneNormalized: 'Телефон',
+    totalAmount: 'Сумма',
+    manager: 'Менеджер',
+    contractor: 'Контрагент',
     scope: 'Область мониторинга',
     'scope.status': 'Область: статус',
     'scope.delivery': 'Область: доставка',
@@ -149,6 +153,10 @@ function buildHistoryFilters() {
     };
 
     const orderQuery = getElementValue('historyOrderQuery');
+    const statusQuery = getElementValue('historyStatusQuery');
+    const deliveryQuery = getElementValue('historyDeliveryQuery');
+    const paymentQuery = getElementValue('historyPaymentQuery');
+    const tagQuery = getElementValue('historyTagQuery');
     const eventType = getElementValue('historyEventType');
     const eventKind = getElementValue('historyEventKind');
     const changedField = getElementValue('historyChangedField');
@@ -158,6 +166,22 @@ function buildHistoryFilters() {
 
     if (orderQuery) {
         options.orderQuery = orderQuery;
+    }
+
+    if (statusQuery) {
+        options.statusQuery = statusQuery;
+    }
+
+    if (deliveryQuery) {
+        options.deliveryQuery = deliveryQuery;
+    }
+
+    if (paymentQuery) {
+        options.paymentQuery = paymentQuery;
+    }
+
+    if (tagQuery) {
+        options.tagQuery = tagQuery;
     }
 
     if (eventType) {
@@ -319,6 +343,10 @@ function loadHistory() {
 
 function resetHistoryFilters() {
     setElementValue('historyOrderQuery', '');
+    setElementValue('historyStatusQuery', '');
+    setElementValue('historyDeliveryQuery', '');
+    setElementValue('historyPaymentQuery', '');
+    setElementValue('historyTagQuery', '');
     setElementValue('historyEventType', '');
     setElementValue('historyEventKind', '');
     setElementValue('historyChangedField', '');
@@ -332,6 +360,10 @@ function bindHistoryControls() {
     const resetBtn = document.getElementById('resetHistoryFilters');
     const filterIds = [
         'historyOrderQuery',
+        'historyStatusQuery',
+        'historyDeliveryQuery',
+        'historyPaymentQuery',
+        'historyTagQuery',
         'historyEventType',
         'historyEventKind',
         'historyChangedField',
@@ -356,7 +388,13 @@ function bindHistoryControls() {
 
         el.addEventListener('change', loadHistory);
 
-        if (id === 'historyOrderQuery') {
+        if ([
+            'historyOrderQuery',
+            'historyStatusQuery',
+            'historyDeliveryQuery',
+            'historyPaymentQuery',
+            'historyTagQuery'
+        ].includes(id)) {
             el.addEventListener('input', loadHistory);
         }
     });

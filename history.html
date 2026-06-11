@@ -104,8 +104,8 @@
 
 <section class="history-filters" aria-label="Фильтры истории">
     <div class="history-filter-field">
-        <label for="historyOrderQuery">Заказ</label>
-        <input id="historyOrderQuery" type="search" placeholder="Номер или часть номера">
+        <label for="historyOrderQuery">Заказ / телефон</label>
+        <input id="historyOrderQuery" type="search" placeholder="Номер, часть номера или последние цифры телефона">
     </div>
 
     <div class="history-filter-field">
@@ -142,6 +142,26 @@
             <option value="tags">Теги</option>
             <option value="scope">Область мониторинга</option>
         </select>
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyStatusQuery">Статус</label>
+        <input id="historyStatusQuery" type="search" placeholder="Например: оплачен">
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyDeliveryQuery">Доставка</label>
+        <input id="historyDeliveryQuery" type="search" placeholder="Например: самовывоз">
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyPaymentQuery">Оплата</label>
+        <input id="historyPaymentQuery" type="search" placeholder="Например: безналичный">
+    </div>
+
+    <div class="history-filter-field">
+        <label for="historyTagQuery">Тег</label>
+        <input id="historyTagQuery" type="search" placeholder="Например: ОЗОН">
     </div>
 
     <div class="history-filter-field">
