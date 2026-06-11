@@ -165,6 +165,41 @@ test('sync reason helpers distinguish start recovery and config changes', () => 
     assert.equal(context.getStartSyncReason(true), 'manual-start');
 
     assert.equal(
+        context.getStartRebaselineSyncReason({
+            hasKnownOrders: true,
+            pendingRebaseline: true,
+            pendingSyncReason: 'scope-change'
+        }),
+        'scope-change'
+    );
+
+    assert.equal(
+        context.getStartRebaselineSyncReason({
+            hasKnownOrders: true,
+            pendingRebaseline: true,
+            pendingSyncReason: 'mode-change'
+        }),
+        'mode-change'
+    );
+
+    assert.equal(
+        context.getStartRebaselineSyncReason({
+            hasKnownOrders: true,
+            pendingRebaseline: false,
+            pendingSyncReason: 'scope-change'
+        }),
+        'manual-start'
+    );
+
+    assert.equal(
+        context.getStartRebaselineSyncReason({
+            hasKnownOrders: false,
+            pendingRebaseline: false
+        }),
+        'initial'
+    );
+
+    assert.equal(
         context.getRecoverySyncReason({
             hasKnownOrders: false,
             now

@@ -1310,6 +1310,88 @@ test('START with known state schedules manual-start catch-up', async () => {
     assert.equal(context.__test.createdTabs.length, 1);
 });
 
+
+test('START preserves pending scope-change baseline instead of scheduling catch-up', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const knownOrder = createOrder({
+        id: 'known',
+        status: 'Новый'
+    });
+    const changedOrder = createOrder({
+        id: 'known',
+        status: 'Завершен'
+    });
+    const newOrder = createOrder({
+        id: 'new',
+        status: 'Готов к выдаче'
+    });
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        workerTabId: null,
+        pendingRebaseline: true,
+        pendingSyncReason: 'scope-change',
+        knownOrdersDB: {
+            known: knownOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, knownOrder)
+        },
+        windowOrdersDB: {
+            known: knownOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, knownOrder)
+        },
+        userConfig: createWindowedConfig(context)
+    });
+
+    const startResponse = await sendRuntimeMessage(context, {
+        type: 'START'
+    });
+
+    let state = getBackgroundState(context);
+
+    assert.equal(startResponse.ok, true);
+    assert.equal(state.isRunning, true);
+    assert.equal(state.monitorState, 'warming');
+    assert.equal(state.pendingRebaseline, true);
+    assert.equal(state.pendingSyncReason, 'scope-change');
+    assert.equal(context.__test.notifications.length, 0);
+
+    const ordersResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: true,
+            completionReason: 'pagination-last-page',
+            data: [changedOrder, newOrder]
+        },
+        {
+            tab: {
+                id: state.workerTabId,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    state = getBackgroundState(context);
+
+    assert.equal(ordersResponse.ok, true);
+    assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.pendingSyncReason, null);
+    assert.equal(state.monitorState, 'active');
+    assert.equal(state.lastCollectionMetadata.syncReason, 'scope-change');
+    assert.equal(state.knownOrdersDB.known.status, 'Завершен');
+    assert.equal(state.knownOrdersDB.new.status, 'Готов к выдаче');
+    assert.equal(state.eventJournal.length, 0);
+    assert.equal(context.__test.notifications.length, 0);
+});
+
 test('GET_CONFIG returns monitorDictionaries together with userConfig', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

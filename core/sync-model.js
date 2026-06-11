@@ -30,6 +30,22 @@ function getStartSyncReason(hasKnownOrders) {
         : SYNC_REASONS.INITIAL;
 }
 
+function getStartRebaselineSyncReason({
+    hasKnownOrders,
+    pendingRebaseline,
+    pendingSyncReason
+} = {}) {
+    if (pendingRebaseline === true) {
+        const currentReason = normalizeSyncReason(pendingSyncReason);
+
+        if (currentReason !== SYNC_REASONS.NORMAL) {
+            return currentReason;
+        }
+    }
+
+    return getStartSyncReason(hasKnownOrders);
+}
+
 function getRecoverySyncReason({
     hasKnownOrders,
     lastCollectionAt,
@@ -141,6 +157,7 @@ globalThis.PENDING_SYNC_ACTIONS = PENDING_SYNC_ACTIONS;
 globalThis.DEFAULT_STALE_RESUME_THRESHOLD_MS = DEFAULT_STALE_RESUME_THRESHOLD_MS;
 globalThis.normalizeSyncReason = normalizeSyncReason;
 globalThis.getStartSyncReason = getStartSyncReason;
+globalThis.getStartRebaselineSyncReason = getStartRebaselineSyncReason;
 globalThis.getRecoverySyncReason = getRecoverySyncReason;
 globalThis.getConfigChangeSyncReason = getConfigChangeSyncReason;
 globalThis.getPendingSyncAction = getPendingSyncAction;

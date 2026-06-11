@@ -1219,7 +1219,11 @@ if (msg.type === 'START') {
 
     isRunning = true;
     isStarting = true;
-    scheduleRebaseline(getStartSyncReason(hasKnownOrders()));
+    scheduleRebaseline(getStartRebaselineSyncReason({
+        hasKnownOrders: hasKnownOrders(),
+        pendingRebaseline,
+        pendingSyncReason
+    }));
     monitorState = 'warming';
     resetCollectionSession();
 
