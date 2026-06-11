@@ -1,6 +1,7 @@
 const OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES = 50;
 const OPTIONS_MIN_DEEP_SYNC_MAX_PAGES = 1;
 const OPTIONS_MAX_DEEP_SYNC_MAX_PAGES = 50;
+const OPTIONS_SCOPE_AUTOSAVE_DEBOUNCE_MS = 700;
 
 const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
     newOrders: true,
@@ -35,6 +36,8 @@ let currentDictionaries = {};
 let currentMonitorStatus = {};
 let lastDiagnosticLogText = '';
 let scopeControlRefs = {};
+let pendingMonitorScopeAutosaveTimer = null;
+let pendingMonitorScopeAutosaveValue = null;
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -338,7 +341,7 @@ function renderScopeGroup(group, selectedIds, options) {
         text.innerText = option.label;
 
         input.addEventListener('change', () => {
-            saveMonitorScopeFromUI();
+            scheduleMonitorScopeSaveFromUI();
         });
 
         scopeControlRefs[group.key].push({ input, value: option.id });
@@ -473,13 +476,42 @@ function collectMonitorScopeFromUI(baseConfig = {}) {
     return nextScope;
 }
 
-function saveMonitorScopeFromUI() {
+function saveMonitorScopeFromUI(scopeValue = null) {
     const nextConfig = {
         ...currentConfig,
-        monitorScope: collectMonitorScopeFromUI(currentConfig)
+        monitorScope: scopeValue || collectMonitorScopeFromUI(currentConfig)
     };
 
+    pendingMonitorScopeAutosaveValue = null;
     saveConfig(nextConfig, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
+}
+
+function scheduleMonitorScopeSaveFromUI() {
+    pendingMonitorScopeAutosaveValue = collectMonitorScopeFromUI(currentConfig);
+
+    const pendingConfig = {
+        ...currentConfig,
+        monitorScope: pendingMonitorScopeAutosaveValue
+    };
+
+    renderConfigSummary(pendingConfig, currentDictionaries);
+    setText('optionsSettingsSaveStatus', 'Область мониторинга изменена. Сохраняем после завершения выбора...');
+
+    if (pendingMonitorScopeAutosaveTimer !== null && typeof clearTimeout === 'function') {
+        clearTimeout(pendingMonitorScopeAutosaveTimer);
+    }
+
+    const runAutosave = () => {
+        pendingMonitorScopeAutosaveTimer = null;
+        saveMonitorScopeFromUI(pendingMonitorScopeAutosaveValue);
+    };
+
+    if (typeof setTimeout !== 'function') {
+        runAutosave();
+        return;
+    }
+
+    pendingMonitorScopeAutosaveTimer = setTimeout(runAutosave, OPTIONS_SCOPE_AUTOSAVE_DEBOUNCE_MS);
 }
 
 function collectNotificationTriggersFromUI(baseConfig = {}) {

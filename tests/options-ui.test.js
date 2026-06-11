@@ -258,6 +258,26 @@ function loadOptionsContext(overrides = {}) {
         ]
     };
     const document = createOptionsDom();
+    const pendingTimers = [];
+    const runPendingTimers = () => {
+        const timersToRun = pendingTimers.splice(0, pendingTimers.length);
+
+        for (const timer of timersToRun) {
+            if (!timer.cleared) {
+                timer.fn();
+            }
+        }
+    };
+    const setTimeoutMock = (fn, delay) => {
+        const timer = { fn, delay, cleared: false };
+        pendingTimers.push(timer);
+        return timer;
+    };
+    const clearTimeoutMock = (timer) => {
+        if (timer) {
+            timer.cleared = true;
+        }
+    };
     const getConfigResponse = overrides.getConfigResponse || (() => ({
         ok: true,
         userConfig: JSON.parse(JSON.stringify(defaultConfig)),
@@ -302,6 +322,8 @@ function loadOptionsContext(overrides = {}) {
         document,
         window: {},
         navigator,
+        setTimeout: overrides.setTimeout || setTimeoutMock,
+        clearTimeout: overrides.clearTimeout || clearTimeoutMock,
         chrome: {
             runtime: {
                 getManifest: () => ({ version: '0.9.8-test' }),
@@ -344,7 +366,9 @@ function loadOptionsContext(overrides = {}) {
             document,
             clipboardWrites,
             defaultConfig,
-            defaultDictionaries
+            defaultDictionaries,
+            pendingTimers,
+            runPendingTimers
         }
     };
 
@@ -427,7 +451,7 @@ test('options page autosaves monitor mode changes', () => {
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Режим мониторинга сохранён.');
 });
 
-test('options page autosaves monitor scope changes and keeps empty group as all', () => {
+test('options page debounces monitor scope changes and keeps empty group as all', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
     const selectedStatus = findCreatedInput(context, 'optionsScope_status_0');
@@ -446,14 +470,21 @@ test('options page autosaves monitor scope changes and keeps empty group as all'
     secondPayment.checked = true;
     secondPayment.dispatchEvent({ type: 'change', target: secondPayment });
 
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(context.__test.pendingTimers.length, 2);
+    assert.equal(context.__test.pendingTimers[0].cleared, true);
+    assert.equal(context.__test.pendingTimers[1].delay, 700);
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга изменена. Сохраняем после завершения выбора...');
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
+
+    context.__test.runPendingTimers();
+
     const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
 
-    assert.equal(updateMessages.length, 2);
+    assert.equal(updateMessages.length, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), []);
-    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.payment)), ['9791']);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.payment)), ['9791', '9793']);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.orderFlags)), ['1']);
-    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[1].userConfig.monitorScope.status)), []);
-    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[1].userConfig.monitorScope.payment)), ['9791', '9793']);
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
 });
