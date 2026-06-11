@@ -215,6 +215,49 @@ test('sync reason helpers distinguish start recovery and config changes', () => 
     );
 });
 
+
+test('pending sync action keeps manual start catch-up separate from safe baselines', () => {
+    const context = loadBackgroundContext();
+
+    assert.equal(
+        context.getPendingSyncAction({
+            pendingRebaseline: false,
+            syncReason: 'manual-start',
+            hasKnownOrders: true
+        }),
+        null
+    );
+
+    assert.equal(
+        context.getPendingSyncAction({
+            pendingRebaseline: true,
+            syncReason: 'manual-start',
+            hasKnownOrders: true
+        }),
+        'catch-up'
+    );
+
+    assert.equal(
+        context.getPendingSyncAction({
+            pendingRebaseline: true,
+            syncReason: 'manual-start',
+            hasKnownOrders: false
+        }),
+        'baseline'
+    );
+
+    ['initial', 'recovery', 'stale-resume', 'scope-change', 'mode-change', 'normal'].forEach((syncReason) => {
+        assert.equal(
+            context.getPendingSyncAction({
+                pendingRebaseline: true,
+                syncReason,
+                hasKnownOrders: true
+            }),
+            'baseline'
+        );
+    });
+});
+
 test('collection coverage metadata contains stable scope signature', () => {
     const context = loadBackgroundContext();
 
@@ -491,6 +534,7 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
     assert.equal(snapshot.hasWorkerTab, true);
     assert.equal(snapshot.pendingRebaseline, true);
     assert.equal(snapshot.pendingSyncReason, 'scope-change');
+    assert.equal(snapshot.pendingSyncAction, 'baseline');
     assert.equal(snapshot.knownOrdersCount, 2);
     assert.equal(snapshot.knownHashesCount, 2);
     assert.equal(snapshot.windowOrdersCount, 1);
@@ -515,6 +559,7 @@ test('monitor status snapshot handles empty state safely', () => {
     assert.equal(snapshot.monitorMode, 'windowed');
     assert.equal(snapshot.workerTabId, null);
     assert.equal(snapshot.hasWorkerTab, false);
+    assert.equal(snapshot.pendingSyncAction, null);
     assert.equal(snapshot.knownOrdersCount, 0);
     assert.equal(snapshot.windowOrdersCount, 0);
     assert.equal(snapshot.eventJournalCount, 0);

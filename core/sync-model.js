@@ -9,6 +9,11 @@ const SYNC_REASONS = {
     NORMAL: 'normal'
 };
 
+const PENDING_SYNC_ACTIONS = {
+    BASELINE: 'baseline',
+    CATCH_UP: 'catch-up'
+};
+
 const DEFAULT_STALE_RESUME_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 function normalizeSyncReason(reason) {
@@ -55,6 +60,20 @@ function getConfigChangeSyncReason({ scopeChanged, modeChanged } = {}) {
     }
 
     return null;
+}
+
+function getPendingSyncAction({ pendingRebaseline, syncReason, hasKnownOrders } = {}) {
+    if (pendingRebaseline !== true) {
+        return null;
+    }
+
+    const reason = normalizeSyncReason(syncReason);
+
+    if (hasKnownOrders === true && reason === SYNC_REASONS.MANUAL_START) {
+        return PENDING_SYNC_ACTIONS.CATCH_UP;
+    }
+
+    return PENDING_SYNC_ACTIONS.BASELINE;
 }
 
 function normalizeScopeList(values) {
@@ -118,11 +137,13 @@ function buildCollectionCoverageMetadata({
 }
 
 globalThis.SYNC_REASONS = SYNC_REASONS;
+globalThis.PENDING_SYNC_ACTIONS = PENDING_SYNC_ACTIONS;
 globalThis.DEFAULT_STALE_RESUME_THRESHOLD_MS = DEFAULT_STALE_RESUME_THRESHOLD_MS;
 globalThis.normalizeSyncReason = normalizeSyncReason;
 globalThis.getStartSyncReason = getStartSyncReason;
 globalThis.getRecoverySyncReason = getRecoverySyncReason;
 globalThis.getConfigChangeSyncReason = getConfigChangeSyncReason;
+globalThis.getPendingSyncAction = getPendingSyncAction;
 globalThis.normalizeMonitorScopeForSignature = normalizeMonitorScopeForSignature;
 globalThis.getMonitorScopeSignature = getMonitorScopeSignature;
 globalThis.buildCollectionCoverageMetadata = buildCollectionCoverageMetadata;

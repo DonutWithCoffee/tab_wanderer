@@ -524,10 +524,16 @@ function clearPendingRebaseline() {
     pendingSyncReason = null;
 }
 
+function getCurrentPendingSyncAction() {
+    return getPendingSyncAction({
+        pendingRebaseline,
+        syncReason: pendingSyncReason,
+        hasKnownOrders: hasKnownOrders()
+    });
+}
+
 function shouldRunCatchUpForPendingSync() {
-    return pendingRebaseline === true
-        && hasKnownOrders()
-        && normalizeSyncReason(pendingSyncReason) === SYNC_REASONS.MANUAL_START;
+    return getCurrentPendingSyncAction() === PENDING_SYNC_ACTIONS.CATCH_UP;
 }
 
 function recordCollectionMetadata(session, orders, reason = SYNC_REASONS.NORMAL) {

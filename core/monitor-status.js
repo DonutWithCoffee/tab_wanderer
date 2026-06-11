@@ -64,6 +64,14 @@ function createMonitorStatusSnapshot(state = {}) {
     const workerTabId = state.workerTabId ?? null;
     const eventJournal = Array.isArray(state.eventJournal) ? state.eventJournal : [];
     const diagnosticLog = Array.isArray(state.diagnosticLog) ? state.diagnosticLog : [];
+    const hasKnownOrders = countObjectKeys(state.knownOrdersDB) > 0;
+    const pendingSyncAction = typeof getPendingSyncAction === 'function'
+        ? getPendingSyncAction({
+            pendingRebaseline: state.pendingRebaseline,
+            syncReason: state.pendingSyncReason,
+            hasKnownOrders
+        })
+        : null;
 
     return {
         isRunning: state.isRunning === true,
@@ -74,6 +82,7 @@ function createMonitorStatusSnapshot(state = {}) {
         hasWorkerTab: workerTabId !== null && workerTabId !== undefined,
         pendingRebaseline: state.pendingRebaseline === true,
         pendingSyncReason: state.pendingSyncReason || null,
+        pendingSyncAction,
         knownOrdersCount: countObjectKeys(state.knownOrdersDB),
         knownHashesCount: countObjectKeys(state.knownOrdersHashDB),
         windowOrdersCount: countObjectKeys(state.windowOrdersDB),

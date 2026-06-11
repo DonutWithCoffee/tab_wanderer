@@ -708,6 +708,79 @@ test('initial start with empty state remains silent baseline', async () => {
     assert.equal(state.monitorState, 'active');
 });
 
+
+test('recovery and stale resume with known state stay silent baseline without notification flood', async () => {
+    for (const syncReason of ['recovery', 'stale-resume']) {
+        const context = loadBackgroundContext();
+        await settleBackgroundContext();
+
+        const prevOrder = createOrder({
+            id: `known-${syncReason}`,
+            status: 'Новый'
+        });
+        const nextOrder = createOrder({
+            id: `known-${syncReason}`,
+            status: 'Комплектуется'
+        });
+
+        setBackgroundState(context, {
+            isRunning: true,
+            monitorState: 'warming',
+            workerTabId: 77,
+            pendingRebaseline: true,
+            pendingSyncReason: syncReason,
+            lastDeepSyncAt: 0,
+            knownOrdersDB: {
+                [prevOrder.id]: prevOrder
+            },
+            knownOrdersHashDB: {
+                [prevOrder.id]: getHashForOrder(context, prevOrder)
+            },
+            windowOrdersDB: {
+                [prevOrder.id]: prevOrder
+            },
+            windowOrdersHashDB: {
+                [prevOrder.id]: getHashForOrder(context, prevOrder)
+            },
+            userConfig: getEffectiveConfigSnapshot(context, {
+                monitorMode: 'windowed',
+                deepSyncMaxPages: 50,
+                monitorScope: createDefaultMonitorScope()
+            })
+        });
+
+        const response = await sendRuntimeMessage(
+            context,
+            {
+                type: 'ORDERS',
+                page: 1,
+                isComplete: true,
+                completionReason: 'pagination-last-page',
+                data: [nextOrder]
+            },
+            {
+                tab: {
+                    id: 77,
+                    url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+                }
+            }
+        );
+
+        const state = getBackgroundState(context);
+
+        assert.equal(response.ok, true);
+        assert.equal(state.monitorState, 'active');
+        assert.equal(state.pendingRebaseline, false);
+        assert.equal(state.pendingSyncReason, null);
+        assert.equal(state.knownOrdersDB[prevOrder.id].status, 'Комплектуется');
+        assert.equal(state.windowOrdersDB[prevOrder.id].status, 'Комплектуется');
+        assert.equal(state.lastCollectionMetadata.syncReason, syncReason);
+        assert.equal(state.lastCollectionMetadata.completionReason, 'pagination-last-page');
+        assert.equal(context.__test.notifications.length, 0);
+        assert.equal(state.eventJournal.length, 0);
+    }
+});
+
 test('known order marks deep session intersection but does not stop collection before page limit', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
@@ -1195,6 +1268,46 @@ test('START creates worker tab with URL from current monitorScope and enters war
         context.__test.createdTabs[0].url,
         'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791&flag%5B%5D=1&store%5B%5D=4&reserve%5B%5D=1&assembly_status%5B%5D=yes#tab_wanderer_worker=1'
     );
+});
+
+
+test('START with known state schedules manual-start catch-up', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const knownOrder = createOrder({ id: 'known' });
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        workerTabId: null,
+        knownOrdersDB: {
+            known: knownOrder
+        },
+        knownOrdersHashDB: {
+            known: getHashForOrder(context, knownOrder)
+        },
+        windowOrdersDB: {
+            known: knownOrder
+        },
+        windowOrdersHashDB: {
+            known: getHashForOrder(context, knownOrder)
+        },
+        userConfig: createWindowedConfig(context)
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'START'
+    });
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(state.isRunning, true);
+    assert.equal(state.monitorState, 'warming');
+    assert.equal(state.pendingRebaseline, true);
+    assert.equal(state.pendingSyncReason, 'manual-start');
+    assert.equal(context.__test.createdTabs.length, 1);
 });
 
 test('GET_CONFIG returns monitorDictionaries together with userConfig', async () => {
