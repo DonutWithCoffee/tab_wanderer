@@ -447,13 +447,75 @@ function normalizeLabelText(text) {
         .toLowerCase()
         .replace(/ё/g, 'е')
         .replace(/[:：]/g, '')
+        .replace(/\u00a0/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }
 
-function findDetailValueByLabels(labels = []) {
+const ORDER_DETAILS_SECTION_TITLES = [
+    'Информация о заказе',
+    'Данные заказа',
+    'Доставка',
+    'Оплата',
+    'Заметки',
+    'Действия'
+].map(normalizeLabelText);
+
+function lineMatchesAnyLabel(line, labels = []) {
+    const normalizedLine = normalizeLabelText(line);
     const normalizedLabels = labels.map(normalizeLabelText).filter(Boolean);
+
+    return normalizedLabels.some(label => {
+        if (normalizedLine === label) return true;
+        if (normalizedLine.startsWith(`${label} `)) return true;
+
+        const colonMatch = String(line || '').match(/^([^:：]+)[:：]\s*(.+)$/);
+
+        return !!colonMatch && normalizeLabelText(colonMatch[1]) === label;
+    });
+}
+
+function findOrderDetailsSectionLines(sectionTitle, expectedLabels = []) {
     const lines = getPageTextLines();
+    const normalizedTitle = normalizeLabelText(sectionTitle);
+    const normalizedExpectedLabels = expectedLabels.map(normalizeLabelText).filter(Boolean);
+
+    for (let index = 0; index < lines.length; index += 1) {
+        if (normalizeLabelText(lines[index]) !== normalizedTitle) {
+            continue;
+        }
+
+        let end = lines.length;
+
+        for (let nextIndex = index + 1; nextIndex < lines.length; nextIndex += 1) {
+            const normalizedLine = normalizeLabelText(lines[nextIndex]);
+
+            if (
+                ORDER_DETAILS_SECTION_TITLES.includes(normalizedLine)
+                && normalizedLine !== normalizedTitle
+            ) {
+                end = nextIndex;
+                break;
+            }
+        }
+
+        const sectionLines = lines.slice(index + 1, end);
+        const hasExpectedLabel = !normalizedExpectedLabels.length
+            || sectionLines.some(line => lineMatchesAnyLabel(line, normalizedExpectedLabels));
+
+        if (!hasExpectedLabel) {
+            continue;
+        }
+
+        return sectionLines;
+    }
+
+    return [];
+}
+
+function findDetailValueByLabels(labels = [], sourceLines = null) {
+    const normalizedLabels = labels.map(normalizeLabelText).filter(Boolean);
+    const lines = Array.isArray(sourceLines) ? sourceLines : getPageTextLines();
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -479,6 +541,62 @@ function findDetailValueByLabels(labels = []) {
     return '';
 }
 
+function findDetailValueByLabelPriority(labels = [], sourceLines = null) {
+    for (const label of labels) {
+        const value = findDetailValueByLabels([label], sourceLines);
+
+        if (value) {
+            return value;
+        }
+    }
+
+    return '';
+}
+
+function findSectionDetailValue(sectionTitle, labels = [], expectedLabels = labels) {
+    const sectionLines = findOrderDetailsSectionLines(sectionTitle, expectedLabels);
+
+    if (!sectionLines.length) {
+        return '';
+    }
+
+    return findDetailValueByLabels(labels, sectionLines);
+}
+
+function findOrderTagValues() {
+    const infoLines = findOrderDetailsSectionLines('Информация о заказе', ['Теги']);
+
+    if (!infoLines.length) {
+        return Array.from(document.querySelectorAll('.label, .badge') || [])
+            .map(el => normalizeCellText(el.innerText || ''))
+            .filter(Boolean)
+            .filter(value => normalizeLabelText(value) !== 'ндс 5%');
+    }
+
+    const result = [];
+
+    for (let index = 0; index < infoLines.length; index += 1) {
+        if (normalizeLabelText(infoLines[index]) !== 'теги') {
+            continue;
+        }
+
+        for (let nextIndex = index + 1; nextIndex < infoLines.length; nextIndex += 1) {
+            const value = normalizeCellText(infoLines[nextIndex]);
+            const normalizedValue = normalizeLabelText(value);
+
+            if (!value || normalizedValue === 'действия') {
+                break;
+            }
+
+            result.push(value);
+        }
+
+        break;
+    }
+
+    return Array.from(new Set(result));
+}
+
 function parseOrderDetails(expectedOrderId = '') {
     const id = normalizeCellText(expectedOrderId || getOrderIdFromLocation());
 
@@ -496,28 +614,36 @@ function parseOrderDetails(expectedOrderId = '') {
         }
     })();
 
-    const totalAmountText = findDetailValueByLabels(['Сумма', 'Сумма заказа', 'Итого']);
-    const productsText = findDetailValueByLabels(['Товаров', 'Товары', 'Состав заказа']);
+    const totalAmountText = findDetailValueByLabelPriority(['Итог', 'Сумма заказа', 'Сумма']);
+    const productsText = findDetailValueByLabelPriority(['Подытог', 'Товаров', 'Товары', 'Состав заказа']);
     const productsProgress = parseProductsProgress(productsText);
 
-    const tags = Array.from(document.querySelectorAll('.label, .badge') || [])
-        .map(el => normalizeCellText(el.innerText || ''))
-        .filter(Boolean);
+    const tags = findOrderTagValues();
 
     return {
         id,
         internalId: id,
-        status: findDetailValueByLabels(['Статус заказа', 'Статус']),
-        delivery: findDetailValueByLabels(['Доставка', 'Способ доставки']),
-        payment: findDetailValueByLabels(['Оплата', 'Способ оплаты']),
-        date: findDetailValueByLabels(['Дата заказа', 'Создан', 'Дата']),
-        phoneNormalized: normalizePhone(findDetailValueByLabels(['Телефон', 'Телефон клиента'])),
+        status: findSectionDetailValue('Информация о заказе', ['Статус заказа', 'Статус'])
+            || findDetailValueByLabels(['Статус заказа', 'Статус']),
+        delivery: findSectionDetailValue('Доставка', ['Способ доставки'], ['Способ доставки'])
+            || findDetailValueByLabels(['Способ доставки', 'Доставка']),
+        payment: findSectionDetailValue('Оплата', ['Способ оплаты'], ['Способ оплаты'])
+            || findDetailValueByLabels(['Способ оплаты', 'Оплата']),
+        date: findSectionDetailValue('Информация о заказе', ['Время оформления', 'Дата заказа', 'Создан', 'Дата'])
+            || findDetailValueByLabels(['Дата заказа', 'Создан', 'Дата']),
+        phoneNormalized: normalizePhone(
+            findSectionDetailValue('Данные заказа', ['Телефон', 'Телефон клиента'], ['Телефон'])
+                || findDetailValueByLabels(['Телефон', 'Телефон клиента'])
+        ),
         totalAmount: parseIntegerValue(totalAmountText),
         productsDone: productsProgress.productsDone,
         productsTotal: productsProgress.productsTotal,
-        manager: findDetailValueByLabels(['Менеджер']),
-        city: findDetailValueByLabels(['Город']),
-        contractor: findDetailValueByLabels(['Контрагент', 'Юридическое лицо']),
+        manager: findSectionDetailValue('Информация о заказе', ['Ответственный менеджер', 'Менеджер'])
+            || findDetailValueByLabels(['Ответственный менеджер', 'Менеджер']),
+        city: findSectionDetailValue('Данные заказа', ['Город'], ['Город'])
+            || findDetailValueByLabels(['Город']),
+        contractor: findSectionDetailValue('Данные заказа', ['Клиент', 'Контрагент', 'Юридическое лицо'], ['Клиент'])
+            || findDetailValueByLabels(['Контрагент', 'Юридическое лицо']),
         orderUrl: rawUrl,
         hasAutoreserve: !!document.querySelector('.fa-lock'),
         tags

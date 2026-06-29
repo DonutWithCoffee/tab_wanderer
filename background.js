@@ -8,6 +8,8 @@ let notificationTargets = {};
 let workerTabId = null;
 let directWorkerTabId = null;
 let directFollowUpState = normalizeDirectFollowUpState();
+let directFollowUpOrdersDB = {};
+let directFollowUpHashDB = {};
 let lastBaselineDate = null;
 let isRunning = false;
 let monitorState = 'uninitialized';
@@ -618,6 +620,40 @@ function markWatchedOrderEventForDirectFollowUp(orderId, now = Date.now()) {
     };
 }
 
+function storeOrderSnapshotInMainState(orderId, order) {
+    const normalizedId = normalizeWatchedOrderId(orderId || order?.id);
+
+    if (!normalizedId || !order?.id) {
+        return null;
+    }
+
+    const mergedOrder = mergeOrderSnapshots(knownOrdersDB[normalizedId], order);
+    const mergedHash = getHash(mergedOrder);
+
+    knownOrdersDB[normalizedId] = mergedOrder;
+    knownOrdersHashDB[normalizedId] = mergedHash;
+
+    if (windowOrdersDB[normalizedId] || windowOrdersHashDB[normalizedId]) {
+        windowOrdersDB[normalizedId] = mergeOrderSnapshots(windowOrdersDB[normalizedId], mergedOrder);
+        windowOrdersHashDB[normalizedId] = getHash(windowOrdersDB[normalizedId]);
+    }
+
+    return mergedOrder;
+}
+
+function storeDirectFollowUpSnapshot(orderId, order) {
+    const normalizedId = normalizeWatchedOrderId(orderId || order?.id);
+
+    if (!normalizedId || !order?.id) {
+        return null;
+    }
+
+    directFollowUpOrdersDB[normalizedId] = { ...order };
+    directFollowUpHashDB[normalizedId] = getHash(order);
+
+    return directFollowUpOrdersDB[normalizedId];
+}
+
 function baselineDirectFollowUpOrder(order, orderId, now = Date.now()) {
     const normalizedId = normalizeWatchedOrderId(orderId || order?.id);
 
@@ -630,10 +666,8 @@ function baselineDirectFollowUpOrder(order, orderId, now = Date.now()) {
         };
     }
 
-    const hash = getHash(order);
-
-    knownOrdersDB[normalizedId] = order;
-    knownOrdersHashDB[normalizedId] = hash;
+    storeDirectFollowUpSnapshot(normalizedId, order);
+    storeOrderSnapshotInMainState(normalizedId, order);
     markWatchedOrderBaselineForDirectFollowUp(normalizedId, now);
 
     log('INFO', 'DIRECT_FOLLOW_UP', 'baseline', {
@@ -661,8 +695,8 @@ function processDirectFollowUpOrder(order, orderId, now = Date.now()) {
     }
 
     const hasBaseline = hasWatchedOrderDirectBaseline(userConfig?.watchedOrders, normalizedId);
-    const prevOrder = knownOrdersDB[normalizedId] || null;
-    const prevHash = knownOrdersHashDB[normalizedId] || null;
+    const prevOrder = directFollowUpOrdersDB[normalizedId] || knownOrdersDB[normalizedId] || null;
+    const prevHash = directFollowUpHashDB[normalizedId] || (prevOrder ? getHash(prevOrder) : null);
 
     if (!hasBaseline || !prevOrder || !prevHash) {
         return {
@@ -675,8 +709,8 @@ function processDirectFollowUpOrder(order, orderId, now = Date.now()) {
 
     if (newHash === prevHash) {
         if (!areStoredOrdersEqual(prevOrder, order)) {
-            knownOrdersDB[normalizedId] = order;
-            knownOrdersHashDB[normalizedId] = newHash;
+            storeDirectFollowUpSnapshot(normalizedId, order);
+            storeOrderSnapshotInMainState(normalizedId, order);
         }
 
         return {
@@ -728,8 +762,8 @@ function processDirectFollowUpOrder(order, orderId, now = Date.now()) {
         notifyOrder(order, eventContext);
     }
 
-    knownOrdersDB[normalizedId] = order;
-    knownOrdersHashDB[normalizedId] = newHash;
+    storeDirectFollowUpSnapshot(normalizedId, order);
+    storeOrderSnapshotInMainState(normalizedId, order);
 
     return {
         ok: true,
@@ -853,6 +887,8 @@ async function save() {
         workerTabId,
         directWorkerTabId,
         directFollowUpState,
+        directFollowUpOrdersDB,
+        directFollowUpHashDB,
         isRunning,
         monitorState,
         lastDeepSyncAt,
@@ -880,6 +916,8 @@ async function load() {
         'lastBaselineDate',
         'directWorkerTabId',
         'directFollowUpState',
+        'directFollowUpOrdersDB',
+        'directFollowUpHashDB',
         'isRunning',
         'monitorState',
         'lastDeepSyncAt',
@@ -918,6 +956,12 @@ async function load() {
 
     directWorkerTabId = null;
     directFollowUpState = normalizeDirectFollowUpState(d.directFollowUpState);
+    directFollowUpOrdersDB = d.directFollowUpOrdersDB && typeof d.directFollowUpOrdersDB === 'object'
+        ? d.directFollowUpOrdersDB
+        : {};
+    directFollowUpHashDB = d.directFollowUpHashDB && typeof d.directFollowUpHashDB === 'object'
+        ? d.directFollowUpHashDB
+        : {};
     workerTabId = null;
 
     if (isRunning) {

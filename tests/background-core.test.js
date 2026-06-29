@@ -1370,3 +1370,35 @@ test('order lookup returns invalid and not-found states without exposing global 
     assert.deepEqual(JSON.parse(JSON.stringify(notFound.entries)), []);
     assert.deepEqual(JSON.parse(JSON.stringify(notFound.candidates)), []);
 });
+
+test('mergeOrderSnapshots preserves existing values when direct parser returns empty fields', () => {
+    const context = loadBackgroundContext();
+
+    const merged = context.mergeOrderSnapshots(
+        {
+            id: '1000-300326',
+            status: 'Новый',
+            delivery: 'Самовывоз',
+            payment: 'Наличными в офисе',
+            city: 'Санкт-Петербург',
+            tags: ['Юрик'],
+            orderUrl: 'https://amperkot.ru/admin/orders/1000-300326/'
+        },
+        {
+            id: '1000-300326',
+            status: 'Комплектуется',
+            delivery: '',
+            payment: '',
+            city: '',
+            tags: [],
+            orderUrl: ''
+        }
+    );
+
+    assert.equal(merged.status, 'Комплектуется');
+    assert.equal(merged.delivery, 'Самовывоз');
+    assert.equal(merged.payment, 'Наличными в офисе');
+    assert.equal(merged.city, 'Санкт-Петербург');
+    assert.deepEqual(JSON.parse(JSON.stringify(merged.tags)), ['Юрик']);
+    assert.equal(merged.orderUrl, 'https://amperkot.ru/admin/orders/1000-300326/');
+});

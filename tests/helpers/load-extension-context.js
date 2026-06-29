@@ -201,6 +201,8 @@ function setBackgroundState(context, state = {}) {
         workerTabId = __testState.workerTabId ?? null;
         directWorkerTabId = __testState.directWorkerTabId ?? null;
         directFollowUpState = __testState.directFollowUpState ?? normalizeDirectFollowUpState();
+        directFollowUpOrdersDB = __testState.directFollowUpOrdersDB || {};
+        directFollowUpHashDB = __testState.directFollowUpHashDB || {};
         lastBaselineDate = __testState.lastBaselineDate ?? null;
         isRunning = __testState.isRunning ?? false;
         monitorState = __testState.monitorState ?? 'uninitialized';
@@ -230,6 +232,8 @@ function getBackgroundState(context) {
         workerTabId,
         directWorkerTabId,
         directFollowUpState,
+        directFollowUpOrdersDB,
+        directFollowUpHashDB,
         lastBaselineDate,
         isRunning,
         monitorState,

@@ -2757,6 +2757,170 @@ test('DIRECT_ORDER after direct baseline records event and notifies through shar
     assert.equal(watchedItem.lastError, null);
 });
 
+test('DIRECT_ORDER first direct baseline preserves fuller known list state', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const knownOrder = createOrder({
+        id: '1000-300326',
+        status: 'Новый',
+        delivery: 'Самовывоз',
+        payment: 'Наличными в офисе',
+        city: 'Санкт-Петербург',
+        tags: ['Юрик']
+    });
+    const directOrder = createOrder({
+        id: '1000-300326',
+        status: 'Комплектуется',
+        delivery: '',
+        payment: '',
+        city: '',
+        tags: []
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        knownOrdersDB: {
+            '1000-300326': knownOrder
+        },
+        knownOrdersHashDB: {
+            '1000-300326': getHashForOrder(context, knownOrder)
+        },
+        eventJournal: [],
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: directOrder
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.eventJournal.length, 0);
+    assert.equal(state.knownOrdersDB['1000-300326'].status, 'Комплектуется');
+    assert.equal(state.knownOrdersDB['1000-300326'].delivery, 'Самовывоз');
+    assert.equal(state.knownOrdersDB['1000-300326'].payment, 'Наличными в офисе');
+    assert.equal(state.knownOrdersDB['1000-300326'].city, 'Санкт-Петербург');
+    assert.deepEqual(JSON.parse(JSON.stringify(state.knownOrdersDB['1000-300326'].tags)), ['Юрик']);
+    assert.equal(state.directFollowUpOrdersDB['1000-300326'].status, 'Комплектуется');
+    assert.equal(state.directFollowUpOrdersDB['1000-300326'].delivery, '');
+});
+
+test('DIRECT_ORDER change synchronizes window state to avoid duplicate list notification', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({ id: '1000-300326', status: 'Новый' });
+    const nextOrder = createOrder({ id: '1000-300326', status: 'Комплектуется' });
+    const prevHash = getHashForOrder(context, prevOrder);
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        knownOrdersDB: {
+            '1000-300326': prevOrder
+        },
+        knownOrdersHashDB: {
+            '1000-300326': prevHash
+        },
+        windowOrdersDB: {
+            '1000-300326': prevOrder
+        },
+        windowOrdersHashDB: {
+            '1000-300326': prevHash
+        },
+        directFollowUpOrdersDB: {
+            '1000-300326': prevOrder
+        },
+        directFollowUpHashDB: {
+            '1000-300326': prevHash
+        },
+        eventJournal: [],
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326', lastBaselineAt: 1700000000000 }
+                ]
+            }
+        })
+    });
+
+    await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: nextOrder
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    assert.equal(context.__test.notifications.length, 1);
+
+    const listResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'ORDERS',
+            page: 1,
+            isComplete: true,
+            data: [nextOrder]
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/#tab_wanderer_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(listResponse.ok, true);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(state.eventJournal.length, 1);
+    assert.equal(state.windowOrdersDB['1000-300326'].status, 'Комплектуется');
+    assert.equal(state.windowOrdersHashDB['1000-300326'], getHashForOrder(context, nextOrder));
+});
+
 test('DIRECT_ORDER tag-only direct change records history without notification', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

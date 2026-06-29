@@ -71,6 +71,49 @@ function areStoredOrdersEqual(prevOrder, nextOrder) {
     return JSON.stringify(prevOrder || null) === JSON.stringify(nextOrder || null);
 }
 
+function isEmptyOrderValue(value) {
+    if (value === null || value === undefined) {
+        return true;
+    }
+
+    if (typeof value === 'string') {
+        return value.trim() === '';
+    }
+
+    if (Array.isArray(value)) {
+        return value.length === 0;
+    }
+
+    return false;
+}
+
+function mergeOrderSnapshots(baseOrder, incomingOrder) {
+    if (!baseOrder) {
+        return incomingOrder ? { ...incomingOrder } : null;
+    }
+
+    if (!incomingOrder) {
+        return { ...baseOrder };
+    }
+
+    const result = {
+        ...baseOrder,
+        ...incomingOrder
+    };
+
+    for (const [key, value] of Object.entries(incomingOrder)) {
+        if (isEmptyOrderValue(value) && !isEmptyOrderValue(baseOrder[key])) {
+            result[key] = baseOrder[key];
+        }
+    }
+
+    result.id = incomingOrder.id || baseOrder.id;
+    result.internalId = incomingOrder.internalId || baseOrder.internalId || result.id;
+    result.orderUrl = incomingOrder.orderUrl || baseOrder.orderUrl || '';
+
+    return result;
+}
+
 globalThis.ORDER_EVENT_FIELDS = ORDER_EVENT_FIELDS;
 globalThis.normalize = normalize;
 globalThis.normalizeDateForHash = normalizeDateForHash;
@@ -80,3 +123,5 @@ globalThis.getOrderEventFingerprint = getOrderEventFingerprint;
 globalThis.getHash = getHash;
 globalThis.getChangedFields = getChangedFields;
 globalThis.areStoredOrdersEqual = areStoredOrdersEqual;
+globalThis.isEmptyOrderValue = isEmptyOrderValue;
+globalThis.mergeOrderSnapshots = mergeOrderSnapshots;

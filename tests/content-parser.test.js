@@ -515,6 +515,66 @@ test('parseOrderDetails extracts watched order payload from order page text', ()
     });
 });
 
+test('parseOrderDetails reads real admin order page layout without table total noise', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            bodyText: [
+                'Заказ №2579-290626',
+                'Количество',
+                'Сумма',
+                'Доставка:',
+                '400 руб.',
+                'Итог:',
+                '352 350 руб.',
+                'Информация о заказе',
+                'Статус',
+                'Новый',
+                'Время оформления',
+                '29 июня 2026, 15:22',
+                'Авторезерв',
+                'Нет',
+                'Ответственный менеджер',
+                'Иванов',
+                'Источник',
+                'Основной сайт',
+                'Теги',
+                'предзаказ',
+                'Действия',
+                'Данные заказа',
+                'Клиент',
+                'ООО Тест',
+                'Город',
+                'Санкт-Петербург',
+                'Телефон',
+                '+7 967 968-88-89',
+                'Email',
+                'test@example.invalid',
+                'Доставка',
+                'Способ доставки',
+                'Курьер',
+                'Зарегистрировать',
+                'Оплата',
+                'Способ оплаты',
+                'Безналичный расчет для юридических лиц',
+                'Оплачено',
+                '0 %'
+            ].join('\n')
+        })
+    );
+
+    const order = context.parseOrderDetails('2579-290626');
+
+    assert.equal(order.status, 'Новый');
+    assert.equal(order.delivery, 'Курьер');
+    assert.equal(order.payment, 'Безналичный расчет для юридических лиц');
+    assert.equal(order.date, '29 июня 2026, 15:22');
+    assert.equal(order.phoneNormalized, '79679688889');
+    assert.equal(order.totalAmount, 352350);
+    assert.equal(order.city, 'Санкт-Петербург');
+    assert.equal(order.contractor, 'ООО Тест');
+    assert.deepEqual(JSON.parse(JSON.stringify(order.tags)), ['предзаказ']);
+});
+
 
 test('content runtime messaging ignores extension context invalidated throws', () => {
     let sendCalls = 0;
