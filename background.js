@@ -21,6 +21,7 @@ let collectionSession = null;
 let monitorDictionaries = null;
 let lastCollectionMetadata = null;
 let eventJournal = [];
+let eventJournalDroppedEntries = 0;
 let diagnosticLog = [];
 let diagnosticLogDroppedEntries = 0;
 let diagnosticLogFlushTimer = null;
@@ -512,6 +513,7 @@ function logState(scope = 'STATE') {
         pendingSyncReason,
         lastCollectionMetadata,
         totalEventJournalEntries: Array.isArray(eventJournal) ? eventJournal.length : 0,
+        eventJournalDroppedEntries,
         totalDiagnosticLogEntries: Array.isArray(diagnosticLog) ? diagnosticLog.length : 0,
         diagnosticLogDroppedEntries,
         lastEventJournalEntry: Array.isArray(eventJournal) && eventJournal.length
@@ -580,6 +582,13 @@ function recordCollectionMetadata(session, orders, reason = SYNC_REASONS.NORMAL)
     });
 }
 
+function appendEventJournalEntryToState(entry) {
+    const retention = appendEventJournalEntryWithRetention(eventJournal, entry);
+
+    eventJournal = retention.entries;
+    eventJournalDroppedEntries += retention.dropped;
+}
+
 function appendOrderEventToJournal(order, eventContext, notificationDecision, syncReason = SYNC_REASONS.NORMAL, coverageMetadata = lastCollectionMetadata) {
     const entry = createEventJournalEntry({
         order,
@@ -591,7 +600,7 @@ function appendOrderEventToJournal(order, eventContext, notificationDecision, sy
         coverageMetadata
     });
 
-    eventJournal = appendEventJournalEntry(eventJournal, entry);
+    appendEventJournalEntryToState(entry);
 }
 
 function appendScopeChangeEventToJournal(prevScope, nextScope) {
@@ -602,7 +611,7 @@ function appendScopeChangeEventToJournal(prevScope, nextScope) {
         monitorMode: userConfig?.monitorMode
     });
 
-    eventJournal = appendEventJournalEntry(eventJournal, entry);
+    appendEventJournalEntryToState(entry);
 }
 
 
@@ -793,6 +802,7 @@ function getMonitorStatusSnapshot() {
         collectionSession,
         lastCollectionMetadata,
         eventJournal,
+        eventJournalDroppedEntries,
         diagnosticLog,
         diagnosticLogDroppedEntries
     });
@@ -899,6 +909,7 @@ async function save() {
         monitorDictionaries,
         lastCollectionMetadata,
         eventJournal,
+        eventJournalDroppedEntries,
         diagnosticLog,
         diagnosticLogDroppedEntries
     });
@@ -928,6 +939,7 @@ async function load() {
         'monitorDictionaries',
         'lastCollectionMetadata',
         'eventJournal',
+        'eventJournalDroppedEntries',
         'diagnosticLog',
         'diagnosticLogDroppedEntries'
     ]);
@@ -947,7 +959,10 @@ async function load() {
     collectionSession = d.collectionSession || null;
     monitorDictionaries = d.monitorDictionaries || null;
     lastCollectionMetadata = d.lastCollectionMetadata || null;
-    eventJournal = normalizeEventJournal(d.eventJournal);
+    const eventJournalRetention = applyEventJournalRetention(d.eventJournal);
+
+    eventJournal = eventJournalRetention.entries;
+    eventJournalDroppedEntries = normalizeEventJournalDroppedEntries(d.eventJournalDroppedEntries) + eventJournalRetention.dropped;
     const diagnosticLogRetention = applyDiagnosticLogRetention(d.diagnosticLog);
 
     diagnosticLog = diagnosticLogRetention.entries;
@@ -1525,7 +1540,8 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             if (msg.type === 'GET_EVENT_JOURNAL') {
                 send(createRuntimeEventJournalResponse(
                     eventJournal,
-                    createWatchedEventJournalOptions(msg.options || {}, userConfig?.watchedOrders)
+                    createWatchedEventJournalOptions(msg.options || {}, userConfig?.watchedOrders),
+                    eventJournalDroppedEntries
                 ));
                 return;
             }
@@ -1537,7 +1553,8 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                         eventJournal,
                         watchedOrders: userConfig?.watchedOrders
                     },
-                    msg.options || {}
+                    msg.options || {},
+                    eventJournalDroppedEntries
                 ));
                 return;
             }

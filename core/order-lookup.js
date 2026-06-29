@@ -231,6 +231,9 @@ function getOrderLookupSnapshot({ knownOrdersDB, eventJournal, watchedOrders } =
     const query = normalizeOrderLookupQuery(options.query || options.orderQuery || options.orderId || '');
     const queryType = getOrderLookupQueryType(query);
     const limit = normalizeOrderLookupLimit(options.limit);
+    const droppedEntries = typeof normalizeEventJournalDroppedEntries === 'function'
+        ? normalizeEventJournalDroppedEntries(options.droppedEntries)
+        : Math.max(0, Math.floor(Number(options.droppedEntries) || 0));
     const allCandidates = collectOrderLookupCandidates({ knownOrdersDB, eventJournal, watchedOrders });
     let candidates = [];
     let selectedOrderId = '';
@@ -248,6 +251,7 @@ function getOrderLookupSnapshot({ knownOrdersDB, eventJournal, watchedOrders } =
             total: 0,
             returned: 0,
             storedTotal: Array.isArray(eventJournal) ? eventJournal.length : 0,
+            droppedEntries,
             limit
         };
     }
@@ -264,6 +268,7 @@ function getOrderLookupSnapshot({ knownOrdersDB, eventJournal, watchedOrders } =
             total: 0,
             returned: 0,
             storedTotal: Array.isArray(eventJournal) ? eventJournal.length : 0,
+            droppedEntries,
             limit
         };
     }
@@ -301,6 +306,7 @@ function getOrderLookupSnapshot({ knownOrdersDB, eventJournal, watchedOrders } =
         total: entries.length,
         returned: entries.length,
         storedTotal: Array.isArray(eventJournal) ? eventJournal.length : 0,
+        droppedEntries,
         limit
     };
 }

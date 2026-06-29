@@ -50,15 +50,21 @@ function createRuntimeConfigResponse(userConfig, monitorDictionaries) {
     });
 }
 
-function createRuntimeEventJournalResponse(eventJournal, options = {}) {
+function createRuntimeEventJournalResponse(eventJournal, options = {}, droppedEntries = 0) {
     return createRuntimeOkResponse(
-        getEventJournalSnapshot(eventJournal, options || {})
+        getEventJournalSnapshot(eventJournal, {
+            ...(options || {}),
+            droppedEntries
+        })
     );
 }
 
-function createRuntimeOrderLookupResponse(sources = {}, options = {}) {
+function createRuntimeOrderLookupResponse(sources = {}, options = {}, droppedEntries = 0) {
     return createRuntimeOkResponse(
-        getOrderLookupSnapshot(sources || {}, options || {})
+        getOrderLookupSnapshot(sources || {}, {
+            ...(options || {}),
+            droppedEntries
+        })
     );
 }
 

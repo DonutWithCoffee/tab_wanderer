@@ -13,8 +13,9 @@ const JOURNAL_EVENT_KINDS = {
     DIRECT_FOLLOW_UP: 'direct-follow-up'
 };
 
-const DEFAULT_EVENT_JOURNAL_LIMIT = 500;
+const DEFAULT_EVENT_JOURNAL_LIMIT = 5000;
 const DEFAULT_EVENT_JOURNAL_READ_LIMIT = 100;
+const DEFAULT_EVENT_JOURNAL_MAX_BYTES = 2000000;
 
 const EVENT_JOURNAL_CONTEXT_FIELDS = [
     'id',
@@ -282,17 +283,59 @@ function normalizeJournalLimit(value, fallback = DEFAULT_EVENT_JOURNAL_READ_LIMI
     return Math.min(Math.floor(numeric), DEFAULT_EVENT_JOURNAL_LIMIT);
 }
 
-function normalizeEventJournal(journal, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
-    const safeJournal = Array.isArray(journal) ? journal.filter(Boolean) : [];
-    const safeLimit = normalizeJournalLimit(limit, DEFAULT_EVENT_JOURNAL_LIMIT);
+function normalizeEventJournalMaxBytes(value, fallback = DEFAULT_EVENT_JOURNAL_MAX_BYTES) {
+    const numeric = Number(value);
+    const safeFallback = Math.max(1000, Number(fallback) || DEFAULT_EVENT_JOURNAL_MAX_BYTES);
 
-    if (safeJournal.length <= safeLimit) {
-        return safeJournal.map(entry => cloneJournalValue(entry));
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return safeFallback;
     }
 
-    return safeJournal
-        .slice(safeJournal.length - safeLimit)
-        .map(entry => cloneJournalValue(entry));
+    return Math.max(1000, Math.floor(numeric));
+}
+
+function getEventJournalApproxBytes(journal) {
+    try {
+        return JSON.stringify(Array.isArray(journal) ? journal : []).length;
+    } catch (_err) {
+        return DEFAULT_EVENT_JOURNAL_MAX_BYTES + 1;
+    }
+}
+
+function applyEventJournalRetention(journal, options = {}) {
+    const safeJournal = Array.isArray(journal) ? journal.filter(Boolean) : [];
+    const safeLimit = normalizeJournalLimit(
+        options.maxEntries ?? options.limit,
+        DEFAULT_EVENT_JOURNAL_LIMIT
+    );
+    const safeMaxBytes = normalizeEventJournalMaxBytes(
+        options.maxBytes,
+        DEFAULT_EVENT_JOURNAL_MAX_BYTES
+    );
+    let entries = safeJournal.map(entry => cloneJournalValue(entry));
+    let dropped = 0;
+
+    if (entries.length > safeLimit) {
+        dropped += entries.length - safeLimit;
+        entries = entries.slice(entries.length - safeLimit);
+    }
+
+    while (entries.length > 0 && getEventJournalApproxBytes(entries) > safeMaxBytes) {
+        entries.shift();
+        dropped += 1;
+    }
+
+    return {
+        entries,
+        dropped,
+        maxEntries: safeLimit,
+        maxBytes: safeMaxBytes,
+        retainedBytes: getEventJournalApproxBytes(entries)
+    };
+}
+
+function normalizeEventJournal(journal, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
+    return applyEventJournalRetention(journal, { maxEntries: limit }).entries;
 }
 
 function normalizeJournalFilterText(value) {
@@ -366,42 +409,62 @@ function matchesJournalFilter(entry, filters = {}) {
     return true;
 }
 
+function normalizeEventJournalDroppedEntries(value) {
+    const numeric = Number(value);
+
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
 function getEventJournalSnapshot(journal, options = {}) {
     const safeOptions = options || {};
-    const safeJournal = normalizeEventJournal(journal, DEFAULT_EVENT_JOURNAL_LIMIT);
+    const retention = applyEventJournalRetention(journal, {
+        maxEntries: safeOptions.maxEntries,
+        maxBytes: safeOptions.maxBytes
+    });
+    const safeJournal = retention.entries;
     const filtered = safeJournal.filter(entry => matchesJournalFilter(entry, safeOptions));
     const limit = normalizeJournalLimit(safeOptions.limit, DEFAULT_EVENT_JOURNAL_READ_LIMIT);
     const entries = filtered
         .slice(Math.max(0, filtered.length - limit))
         .reverse()
         .map(entry => cloneJournalValue(entry));
+    const externalDroppedEntries = normalizeEventJournalDroppedEntries(safeOptions.droppedEntries);
+    const droppedEntries = externalDroppedEntries + retention.dropped;
 
     return {
         storedTotal: safeJournal.length,
+        retainedTotal: safeJournal.length,
         total: filtered.length,
         returned: entries.length,
         limit,
+        droppedEntries,
+        retention: {
+            maxEntries: retention.maxEntries,
+            maxBytes: retention.maxBytes,
+            retainedBytes: retention.retainedBytes,
+            droppedEntries
+        },
         entries
     };
 }
 
-function appendEventJournalEntry(journal, entry, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
-    const safeLimit = Math.max(1, Number(limit) || DEFAULT_EVENT_JOURNAL_LIMIT);
+function appendEventJournalEntryWithRetention(journal, entry, options = {}) {
     const nextJournal = Array.isArray(journal) ? journal.slice() : [];
 
-    nextJournal.push(entry);
+    nextJournal.push(cloneJournalValue(entry));
 
-    if (nextJournal.length <= safeLimit) {
-        return nextJournal;
-    }
+    return applyEventJournalRetention(nextJournal, options);
+}
 
-    return nextJournal.slice(nextJournal.length - safeLimit);
+function appendEventJournalEntry(journal, entry, limit = DEFAULT_EVENT_JOURNAL_LIMIT) {
+    return appendEventJournalEntryWithRetention(journal, entry, { maxEntries: limit }).entries;
 }
 
 globalThis.JOURNAL_EVENT_TYPES = JOURNAL_EVENT_TYPES;
 globalThis.JOURNAL_EVENT_KINDS = JOURNAL_EVENT_KINDS;
 globalThis.DEFAULT_EVENT_JOURNAL_LIMIT = DEFAULT_EVENT_JOURNAL_LIMIT;
 globalThis.DEFAULT_EVENT_JOURNAL_READ_LIMIT = DEFAULT_EVENT_JOURNAL_READ_LIMIT;
+globalThis.DEFAULT_EVENT_JOURNAL_MAX_BYTES = DEFAULT_EVENT_JOURNAL_MAX_BYTES;
 globalThis.EVENT_JOURNAL_CONTEXT_FIELDS = EVENT_JOURNAL_CONTEXT_FIELDS;
 globalThis.MONITOR_SCOPE_JOURNAL_FIELDS = MONITOR_SCOPE_JOURNAL_FIELDS;
 globalThis.getJournalEventKind = getJournalEventKind;
@@ -413,7 +476,12 @@ globalThis.createEventJournalEntry = createEventJournalEntry;
 globalThis.createScopeChangeDiff = createScopeChangeDiff;
 globalThis.createScopeChangeJournalEntry = createScopeChangeJournalEntry;
 globalThis.normalizeJournalLimit = normalizeJournalLimit;
+globalThis.normalizeEventJournalMaxBytes = normalizeEventJournalMaxBytes;
+globalThis.getEventJournalApproxBytes = getEventJournalApproxBytes;
+globalThis.applyEventJournalRetention = applyEventJournalRetention;
 globalThis.normalizeEventJournal = normalizeEventJournal;
 globalThis.matchesJournalFilter = matchesJournalFilter;
+globalThis.normalizeEventJournalDroppedEntries = normalizeEventJournalDroppedEntries;
 globalThis.getEventJournalSnapshot = getEventJournalSnapshot;
+globalThis.appendEventJournalEntryWithRetention = appendEventJournalEntryWithRetention;
 globalThis.appendEventJournalEntry = appendEventJournalEntry;

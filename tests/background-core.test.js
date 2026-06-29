@@ -582,6 +582,55 @@ test('event journal normalization trims old stored entries', () => {
     ]);
 });
 
+test('event journal retention reports dropped entries by count and bytes', () => {
+    const context = loadBackgroundContext();
+
+    const countRetention = context.applyEventJournalRetention(
+        [
+            { id: '1', payload: 'a' },
+            { id: '2', payload: 'b' },
+            { id: '3', payload: 'c' }
+        ],
+        { maxEntries: 2 }
+    );
+
+    assert.equal(countRetention.dropped, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(countRetention.entries.map(entry => entry.id))), ['2', '3']);
+    assert.equal(countRetention.maxEntries, 2);
+
+    const byteRetention = context.applyEventJournalRetention(
+        [
+            { id: '1', payload: 'x'.repeat(900) },
+            { id: '2', payload: 'y'.repeat(900) },
+            { id: '3', payload: 'z'.repeat(900) }
+        ],
+        { maxEntries: 10, maxBytes: 1000 }
+    );
+
+    assert.ok(byteRetention.dropped > 0);
+    assert.ok(byteRetention.retainedBytes <= 1000);
+});
+
+test('event journal snapshot exposes retention metadata and dropped counter', () => {
+    const context = loadBackgroundContext();
+
+    const snapshot = context.getEventJournalSnapshot(
+        [
+            { id: '1', createdAt: 1000, orderId: '1000-300326', eventType: 'order-changed', eventKind: 'live', changedFields: ['status'] },
+            { id: '2', createdAt: 2000, orderId: '1000-300326', eventType: 'order-changed', eventKind: 'live', changedFields: ['payment'] },
+            { id: '3', createdAt: 3000, orderId: '1000-300326', eventType: 'order-changed', eventKind: 'live', changedFields: ['delivery'] }
+        ],
+        { maxEntries: 2, droppedEntries: 5 }
+    );
+
+    assert.equal(snapshot.storedTotal, 2);
+    assert.equal(snapshot.retainedTotal, 2);
+    assert.equal(snapshot.droppedEntries, 6);
+    assert.equal(snapshot.retention.maxEntries, 2);
+    assert.equal(snapshot.retention.droppedEntries, 6);
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries.map(entry => entry.id))), ['3', '2']);
+});
+
 
 test('monitor status snapshot exposes diagnostic counts without order payloads', () => {
     const context = loadBackgroundContext();
@@ -641,7 +690,8 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
         eventJournal: [
             { id: 'entry-1' },
             { id: 'entry-2' }
-        ]
+        ],
+        eventJournalDroppedEntries: 7
     });
 
     assert.equal(snapshot.isRunning, true);
@@ -658,6 +708,7 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
     assert.equal(snapshot.windowHashesCount, 1);
     assert.equal(snapshot.notificationTargetsCount, 1);
     assert.equal(snapshot.eventJournalCount, 2);
+    assert.equal(snapshot.eventJournalDroppedEntries, 7);
     assert.equal(snapshot.lastBaselineDate, 'Wed Jun 10 2026');
     assert.equal(snapshot.lastDeepSyncAt, 1700000000000);
     assert.equal(snapshot.collectionSession.ordersCount, 2);
@@ -680,6 +731,7 @@ test('monitor status snapshot handles empty state safely', () => {
     assert.equal(snapshot.knownOrdersCount, 0);
     assert.equal(snapshot.windowOrdersCount, 0);
     assert.equal(snapshot.eventJournalCount, 0);
+    assert.equal(snapshot.eventJournalDroppedEntries, 0);
     assert.equal(snapshot.collectionSession, null);
     assert.equal(snapshot.lastCollectionMetadata, null);
 });
@@ -1338,6 +1390,19 @@ test('order lookup resolves full and short order numbers from known orders and j
     assert.equal(full.status, 'selected');
     assert.equal(full.selectedOrderId, '1001-300326');
     assert.equal(full.entries.length, 1);
+
+    const withDropped = context.getOrderLookupSnapshot({
+        knownOrdersDB: {},
+        eventJournal: [
+            { orderId: '1001-300326', createdAt: 1700000000000 }
+        ],
+        watchedOrders: {}
+    }, {
+        query: '1001-300326',
+        droppedEntries: 12
+    });
+
+    assert.equal(withDropped.droppedEntries, 12);
 });
 
 test('order lookup returns invalid and not-found states without exposing global journal', () => {
