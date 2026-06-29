@@ -682,3 +682,79 @@ test('processOrders suppresses quick-filtered legal entity notification but keep
     assert.equal(state.eventJournal[0].notification.notify, false);
     assert.equal(state.eventJournal[0].notification.ruleId, 'notification-suppressor-legal-entity-payment');
 });
+
+test('runCatchUpSnapshot suppresses startup backlog notifications but keeps state and history', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = createOrder({
+        id: '1000-300326',
+        status: 'Новый'
+    });
+    const changedOrder = createOrder({
+        id: '1000-300326',
+        status: 'Оплачен'
+    });
+    const newOrder = createOrder({
+        id: '1001-300326',
+        status: 'Новый',
+        delivery: 'Самовывоз',
+        payment: 'Наличными в офисе',
+        orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
+    });
+
+    setBackgroundState(context, {
+        ...createStateWithKnownAndWindow(context, prevOrder, {
+            notificationTriggers: {
+                newOrders: true,
+                changedOrders: true,
+                changedFields: {
+                    status: true,
+                    delivery: true,
+                    payment: true,
+                    city: true
+                }
+            },
+            notificationSuppressors: {
+                ignoreLegalEntityPayment: false,
+                ignoreOzon: false
+            }
+        }),
+        pendingRebaseline: true,
+        pendingSyncReason: 'manual-start',
+        monitorState: 'warming'
+    });
+
+    context.__testOrders = [changedOrder, newOrder];
+    runExpression(context, 'runCatchUpSnapshot(__testOrders, "manual-start")');
+    delete context.__testOrders;
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.monitorState, 'active');
+    assert.equal(state.pendingRebaseline, false);
+    assert.equal(state.knownOrdersDB[changedOrder.id].status, 'Оплачен');
+    assert.equal(state.knownOrdersDB[newOrder.id].id, newOrder.id);
+    assert.equal(state.windowOrdersDB[changedOrder.id].status, 'Оплачен');
+    assert.equal(state.windowOrdersDB[newOrder.id].id, newOrder.id);
+    assert.equal(state.eventJournal.length, 2);
+    assert.deepEqual(
+        state.eventJournal.map(entry => entry.eventType),
+        ['order-changed', 'new-order']
+    );
+    assert.deepEqual(
+        state.eventJournal.map(entry => entry.eventKind),
+        ['catch-up', 'catch-up']
+    );
+    assert.deepEqual(
+        state.eventJournal.map(entry => entry.notification.notify),
+        [false, false]
+    );
+    assert.deepEqual(
+        state.eventJournal.map(entry => entry.notification.ruleId),
+        [
+            'notification-startup-catch-up-suppressed',
+            'notification-startup-catch-up-suppressed'
+        ]
+    );
+});

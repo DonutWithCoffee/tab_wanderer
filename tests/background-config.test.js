@@ -458,7 +458,7 @@ setBackgroundState(context, {
 });
 
 
-test('manual-start with known state detects changed order while stopped', async () => {
+test('manual-start with known state records changed order while stopped without notification flood', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
@@ -513,9 +513,7 @@ test('manual-start with known state detects changed order while stopped', async 
     const changeLog = state.diagnosticLog.find(entry => entry.scope === 'CHANGE');
 
     assert.equal(response.ok, true);
-    assert.equal(context.__test.notifications.length, 1);
-    assert.equal(context.__test.notifications[0].title, 'Заказ №known изменён');
-    assert.equal(context.__test.notifications[0].message, 'Статус: Новый → Оплачен');
+    assert.equal(context.__test.notifications.length, 0);
     assert.equal(state.knownOrdersDB.known.status, 'Оплачен');
     assert.equal(state.windowOrdersDB.known.status, 'Оплачен');
     assert.equal(state.pendingRebaseline, false);
@@ -526,7 +524,8 @@ test('manual-start with known state detects changed order while stopped', async 
     assert.equal(state.eventJournal.length, 1);
     assert.equal(state.eventJournal[0].eventKind, 'catch-up');
     assert.equal(state.eventJournal[0].syncReason, 'manual-start');
-    assert.equal(state.eventJournal[0].notification.notify, true);
+    assert.equal(state.eventJournal[0].notification.notify, false);
+    assert.equal(state.eventJournal[0].notification.ruleId, 'notification-startup-catch-up-suppressed');
     assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['status']);
     assert.ok(changeLog);
     assert.equal(changeLog.details.id, 'known');
@@ -536,7 +535,7 @@ test('manual-start with known state detects changed order while stopped', async 
     assert.equal(Object.prototype.hasOwnProperty.call(changeLog.details, 'next'), false);
 });
 
-test('manual-start with known state notifies new order while stopped', async () => {
+test('manual-start with known state records new order while stopped without notification flood', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
@@ -588,13 +587,14 @@ test('manual-start with known state notifies new order while stopped', async () 
     const state = getBackgroundState(context);
 
     assert.equal(response.ok, true);
-    assert.equal(context.__test.notifications.length, 1);
-    assert.equal(context.__test.notifications[0].title, 'Заказ №new-order');
+    assert.equal(context.__test.notifications.length, 0);
     assert.equal(state.knownOrdersDB['new-order'].id, 'new-order');
     assert.equal(state.windowOrdersDB['new-order'].id, 'new-order');
     assert.equal(state.eventJournal.length, 1);
     assert.equal(state.eventJournal[0].eventType, 'new-order');
     assert.equal(state.eventJournal[0].eventKind, 'catch-up');
+    assert.equal(state.eventJournal[0].notification.notify, false);
+    assert.equal(state.eventJournal[0].notification.ruleId, 'notification-startup-catch-up-suppressed');
 });
 
 test('manual-start with known state records tag-only catch-up without notification', async () => {

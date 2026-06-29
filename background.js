@@ -603,6 +603,46 @@ function appendOrderEventToJournal(order, eventContext, notificationDecision, sy
     appendEventJournalEntryToState(entry);
 }
 
+function createNotificationSuppressedDecision(ruleId, reason, eventContext, baseDecision = {}) {
+    return {
+        notify: false,
+        action: 'suppress',
+        ruleId,
+        reason,
+        matchedFields: Array.isArray(baseDecision.matchedFields)
+            ? baseDecision.matchedFields
+            : [],
+        context: eventContext,
+        config: baseDecision.config || getEffectiveUserConfig(userConfig)
+    };
+}
+
+function shouldSuppressCatchUpNotification(syncReason, suppressNotifications = false) {
+    if (suppressNotifications !== true) {
+        return false;
+    }
+
+    const reason = normalizeSyncReason(syncReason);
+
+    return reason === SYNC_REASONS.MANUAL_START
+        || reason === SYNC_REASONS.RECOVERY
+        || reason === SYNC_REASONS.STALE_RESUME
+        || reason === SYNC_REASONS.INITIAL;
+}
+
+function applyNotificationSuppressionPolicy(decision, eventContext, syncReason, options = {}) {
+    if (!shouldSuppressCatchUpNotification(syncReason, options.suppressNotifications)) {
+        return decision;
+    }
+
+    return createNotificationSuppressedDecision(
+        'notification-startup-catch-up-suppressed',
+        'Startup catch-up notifications are suppressed',
+        eventContext,
+        decision
+    );
+}
+
 function appendScopeChangeEventToJournal(prevScope, nextScope) {
     const entry = createScopeChangeJournalEntry({
         prevScope,
@@ -1284,7 +1324,10 @@ function runCatchUpSnapshot(orders, reason = SYNC_REASONS.MANUAL_START) {
     monitorState = 'active';
 
     log('INFO', 'CATCH_UP', `${syncReason} count=${orders.length}`);
-    processOrders(orders, { syncReason });
+    processOrders(orders, {
+        syncReason,
+        suppressNotifications: true
+    });
     applyWindowSnapshot(orders);
     resetCollectionSession();
     logState('CATCH_UP');
@@ -1318,7 +1361,11 @@ function applyWindowSnapshot(orders) {
 
 // ---------- CORE ----------
 function processOrders(orders, options = {}) {
-    const { testMode = false, syncReason = SYNC_REASONS.NORMAL } = options;
+    const {
+        testMode = false,
+        syncReason = SYNC_REASONS.NORMAL,
+        suppressNotifications = false
+    } = options;
 
     let hasChanges = false;
     let hasStateUpdates = false;
@@ -1375,10 +1422,16 @@ function processOrders(orders, options = {}) {
             changedFields
         };
 
-        const decision = evaluateNotification(
+        const baseDecision = evaluateNotification(
             order,
             eventContext,
             userConfig
+        );
+        const decision = applyNotificationSuppressionPolicy(
+            baseDecision,
+            eventContext,
+            syncReason,
+            { suppressNotifications }
         );
 
         if (!testMode) {
