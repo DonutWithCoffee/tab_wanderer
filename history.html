@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>tab_wanderer order lookup</title>
+    <title>tab_wanderer orders</title>
     <style>
         body {
             max-width: 920px;
@@ -20,7 +20,9 @@
         .lookup-panel,
         .order-summary,
         .candidate-list,
-        .history-entry {
+        .history-entry,
+        .watched-orders-panel,
+        .watched-order-row {
             border: 1px solid #ddd;
             border-radius: 6px;
             background: #fff;
@@ -28,37 +30,48 @@
             margin: 12px 0;
         }
 
-        .lookup-panel {
+        .lookup-panel,
+        .watched-orders-panel {
             background: #fafafa;
         }
 
-        .lookup-row {
+        .lookup-row,
+        .inline-form {
             display: flex;
             gap: 8px;
             align-items: center;
             flex-wrap: wrap;
         }
 
-        .lookup-row input {
+        .lookup-row input,
+        .inline-form input {
             min-width: 220px;
             flex: 1;
             padding: 8px;
             font-size: 14px;
         }
 
-        .lookup-row button {
+        .lookup-row button,
+        .inline-form button,
+        .watched-order-actions button {
             padding: 8px 12px;
         }
 
-        #historyStatus {
+        #historyStatus,
+        #ordersWatchedStatus {
             margin: 8px 0 12px;
             font-weight: bold;
         }
 
-        .candidate-item {
+        .candidate-item,
+        .watched-order-row {
             display: flex;
             justify-content: space-between;
             gap: 12px;
+            align-items: center;
+        }
+
+        .candidate-item {
             padding: 8px 0;
             border-top: 1px solid #eee;
         }
@@ -71,14 +84,16 @@
         .history-entry-meta,
         .history-entry-context,
         .history-entry-notification,
-        .order-summary-meta {
+        .order-summary-meta,
+        .watched-order-meta {
             color: #555;
             font-size: 12px;
             margin-top: 4px;
         }
 
         .history-entry-title,
-        .order-summary-title {
+        .order-summary-title,
+        .watched-orders-title {
             font-weight: bold;
             margin-bottom: 6px;
         }
@@ -99,25 +114,33 @@
         .history-empty {
             color: #555;
         }
+
+        .watched-order-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
     </style>
 </head>
 <body>
 
-<h2>Поиск изменений по заказу</h2>
+<h2>Заказы</h2>
 
 <p class="hint">
-    Введите полный номер заказа или первые 4 цифры до дефиса. Плагин покажет только изменения,
-    которые он сам обнаружил. Это не полная серверная история заказа в админке.
+    Здесь можно найти изменения по конкретному заказу и управлять отслеживаемыми заказами.
+    Плагин показывает только изменения, которые сам обнаружил. Это не полная серверная история заказа в админке.
 </p>
 
 <section class="lookup-panel" aria-label="Поиск заказа">
+    <h3>Поиск изменений по заказу</h3>
     <div class="lookup-row">
         <input id="historyOrderQuery" type="search" placeholder="Например: 1234 или 1234-110626" autocomplete="off">
         <button id="searchHistory">Найти</button>
         <button id="resetHistorySearch">Очистить</button>
     </div>
     <p class="hint">
-        Если по первым 4 цифрам найдено несколько заказов, выберите нужный полный номер из списка.
+        По первым 4 цифрам плагин ищет локально известные заказы. Если найдено несколько — выберите полный номер.
     </p>
 </section>
 
@@ -125,6 +148,19 @@
 <div id="historyCandidates"></div>
 <div id="orderSummary"></div>
 <div id="historyList"></div>
+
+<section class="watched-orders-panel" aria-label="Отслеживаемые заказы">
+    <h3>Отслеживаемые заказы</h3>
+    <p class="hint">
+        Direct follow-up проверяет эти заказы напрямую при активном мониторинге, отдельно от области мониторинга списка.
+    </p>
+    <div class="inline-form">
+        <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
+        <button id="ordersAddWatchedOrder" type="button">Добавить</button>
+    </div>
+    <div id="ordersWatchedStatus">Загрузка списка...</div>
+    <div id="ordersWatchedList"></div>
+</section>
 
 <script src="history.js"></script>
 </body>

@@ -65,6 +65,25 @@
             background: #f8f8f8;
         }
 
+        .inline-form {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .inline-form input[type="text"] {
+            box-sizing: border-box;
+            flex: 1;
+            min-width: 150px;
+            padding: 7px;
+            font-size: 12px;
+        }
+
+        .inline-form button {
+            flex: 0 0 auto;
+        }
+
         .quick-settings-title {
             margin: 0 0 8px;
             font-size: 13px;
@@ -104,10 +123,19 @@
         <div id="quickSuppressStatus" class="hint">Загрузка фильтров...</div>
     </div>
 
+    <div class="quick-settings">
+        <p class="quick-settings-title">Быстрое отслеживание</p>
+        <div class="inline-form">
+            <input id="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
+            <button id="popupAddWatchedOrder" type="button">Отслеживать</button>
+        </div>
+        <div id="popupWatchedOrderStatus" class="hint">Введите полный номер заказа.</div>
+    </div>
+
     <div class="actions-group">
         <button id="toggleMonitor">Start monitoring</button>
         <button id="openOptions">Open settings</button>
-        <button id="openHistory">Open history</button>
+        <button id="openHistory">Открыть заказы</button>
         <button id="downloadDiagnosticLog">Download diagnostic log</button>
     </div>
 

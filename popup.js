@@ -8,6 +8,9 @@ let currentPopupConfig = {
     notificationSuppressors: {
         ignoreLegalEntityPayment: false,
         ignoreOzon: false
+    },
+    watchedOrders: {
+        items: []
     }
 };
 
@@ -20,6 +23,8 @@ const POPUP_SUPPRESSOR_CONTROLS = [
     { key: 'ignoreLegalEntityPayment', id: 'popupIgnoreLegalEntityPayment' },
     { key: 'ignoreOzon', id: 'popupIgnoreOzon' }
 ];
+
+const POPUP_WATCHED_ORDER_LIMIT = 100;
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -129,6 +134,110 @@ function toggleQuickSuppressor(key) {
     };
 
     savePopupConfig(nextConfig);
+}
+
+function normalizePopupWatchedOrderId(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, '')
+        .toUpperCase();
+}
+
+function isValidPopupWatchedOrderId(value) {
+    return /^\d{4}-\d{4,10}$/.test(normalizePopupWatchedOrderId(value));
+}
+
+function getPopupWatchedOrdersConfig(config = {}) {
+    const rawItems = Array.isArray(config?.watchedOrders?.items)
+        ? config.watchedOrders.items
+        : [];
+    const seen = new Set();
+    const items = [];
+
+    for (const rawItem of rawItems) {
+        const source = rawItem && typeof rawItem === 'object'
+            ? rawItem
+            : { id: rawItem };
+        const id = normalizePopupWatchedOrderId(source.id);
+
+        if (!isValidPopupWatchedOrderId(id) || seen.has(id)) {
+            continue;
+        }
+
+        seen.add(id);
+        items.push({
+            id,
+            status: source.status === 'unresolved' ? 'unresolved' : 'active',
+            addedAt: Number(source.addedAt) > 0 ? Number(source.addedAt) : Date.now(),
+            lastCheckedAt: Number(source.lastCheckedAt) > 0 ? Number(source.lastCheckedAt) : null,
+            lastBaselineAt: Number(source.lastBaselineAt) > 0 ? Number(source.lastBaselineAt) : null,
+            lastEventAt: Number(source.lastEventAt) > 0 ? Number(source.lastEventAt) : null,
+            lastError: source.lastError ? String(source.lastError) : null
+        });
+
+        if (items.length >= POPUP_WATCHED_ORDER_LIMIT) {
+            break;
+        }
+    }
+
+    return { items };
+}
+
+function addWatchedOrderFromPopup() {
+    const input = document.getElementById('popupWatchedOrderInput');
+    const id = normalizePopupWatchedOrderId(input?.value);
+
+    if (!isValidPopupWatchedOrderId(id)) {
+        setText('popupWatchedOrderStatus', 'Введите полный номер заказа в формате 1234-110626.');
+        return;
+    }
+
+    const watchedOrders = getPopupWatchedOrdersConfig(currentPopupConfig);
+
+    if (watchedOrders.items.some(item => item.id === id)) {
+        setText('popupWatchedOrderStatus', `Заказ №${id} уже отслеживается.`);
+        return;
+    }
+
+    if (watchedOrders.items.length >= POPUP_WATCHED_ORDER_LIMIT) {
+        setText('popupWatchedOrderStatus', `Достигнут лимит: ${POPUP_WATCHED_ORDER_LIMIT} заказов.`);
+        return;
+    }
+
+    const nextConfig = {
+        ...currentPopupConfig,
+        watchedOrders: {
+            items: [
+                ...watchedOrders.items,
+                {
+                    id,
+                    status: 'active',
+                    addedAt: Date.now(),
+                    lastCheckedAt: null,
+                    lastBaselineAt: null,
+                    lastEventAt: null,
+                    lastError: null
+                }
+            ]
+        }
+    };
+
+    setText('popupWatchedOrderStatus', 'Добавляем заказ в отслеживаемые...');
+
+    send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
+        if (!res?.ok) {
+            setText('popupWatchedOrderStatus', 'Ошибка добавления заказа.');
+            return;
+        }
+
+        currentPopupConfig = res.userConfig || nextConfig;
+
+        if (input) {
+            input.value = '';
+        }
+
+        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен. Управление списком — на странице “Заказы”.`);
+    });
 }
 
 function getStatusLabel(status = {}) {
@@ -400,6 +509,8 @@ function bindNavigationActions() {
     const downloadDiagnosticLogBtn = document.getElementById('downloadDiagnosticLog');
     const popupIgnoreLegalEntityPayment = document.getElementById('popupIgnoreLegalEntityPayment');
     const popupIgnoreOzon = document.getElementById('popupIgnoreOzon');
+    const popupAddWatchedOrder = document.getElementById('popupAddWatchedOrder');
+    const popupWatchedOrderInput = document.getElementById('popupWatchedOrderInput');
 
     if (toggleMonitorBtn) {
         toggleMonitorBtn.addEventListener('click', () => {
@@ -437,6 +548,18 @@ function bindNavigationActions() {
     if (popupIgnoreOzon) {
         popupIgnoreOzon.addEventListener('change', () => {
             toggleQuickSuppressor('ignoreOzon');
+        });
+    }
+
+    if (popupAddWatchedOrder) {
+        popupAddWatchedOrder.addEventListener('click', addWatchedOrderFromPopup);
+    }
+
+    if (popupWatchedOrderInput) {
+        popupWatchedOrderInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                addWatchedOrderFromPopup();
+            }
         });
     }
 }

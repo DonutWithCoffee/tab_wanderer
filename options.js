@@ -862,17 +862,15 @@ function bindSettingsAutosave() {
     ];
     const suppressorControlIds = OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS.map((item) => item.id);
 
-    const addWatchedOrderButton = document.getElementById('optionsAddWatchedOrder');
-    const watchedOrderInput = document.getElementById('optionsWatchedOrderInput');
+    const optionsOpenOrdersPage = document.getElementById('optionsOpenOrdersPage');
 
-    if (addWatchedOrderButton) {
-        addWatchedOrderButton.addEventListener('click', addWatchedOrderFromUI);
-    }
-
-    if (watchedOrderInput) {
-        watchedOrderInput.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                addWatchedOrderFromUI();
+    if (optionsOpenOrdersPage) {
+        optionsOpenOrdersPage.addEventListener('click', () => {
+            if (chrome?.tabs?.create && chrome?.runtime?.getURL) {
+                chrome.tabs.create({
+                    url: chrome.runtime.getURL('history.html'),
+                    active: true
+                });
             }
         });
     }

@@ -72,7 +72,11 @@ function createHistoryDom() {
         'historyStatus',
         'historyCandidates',
         'orderSummary',
-        'historyList'
+        'historyList',
+        'ordersWatchedOrderInput',
+        'ordersAddWatchedOrder',
+        'ordersWatchedStatus',
+        'ordersWatchedList'
     ].forEach((id) => document.registerElement(id));
 
     return document;
@@ -165,7 +169,7 @@ function getDefaultOrderLookupResponse() {
     };
 }
 
-function loadHistoryContext(responseOverride, setupDocument) {
+function loadHistoryContext(responseOverride, setupDocument, configOverride) {
     const source = fs.readFileSync(
         path.join(__dirname, '..', 'history.js'),
         'utf8'
@@ -173,6 +177,21 @@ function loadHistoryContext(responseOverride, setupDocument) {
 
     const sentMessages = [];
     const document = createHistoryDom();
+    const userConfig = configOverride || {
+        watchedOrders: {
+            items: [
+                {
+                    id: '1001-300326',
+                    status: 'active',
+                    addedAt: 1700000000000,
+                    lastCheckedAt: 1700000060000,
+                    lastBaselineAt: 1700000000000,
+                    lastEventAt: 1700000060000,
+                    lastError: null
+                }
+            ]
+        }
+    };
 
     if (typeof setupDocument === 'function') {
         setupDocument(document);
@@ -185,20 +204,37 @@ function loadHistoryContext(responseOverride, setupDocument) {
             error: () => {}
         },
         document,
+        Date,
         chrome: {
             runtime: {
                 sendMessage: (message, callback) => {
                     sentMessages.push(message);
 
+                    let response = responseOverride || getDefaultOrderLookupResponse();
+
+                    if (message.type === 'GET_CONFIG') {
+                        response = { ok: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
+                    }
+
+                    if (message.type === 'UPDATE_CONFIG') {
+                        Object.assign(userConfig, JSON.parse(JSON.stringify(message.userConfig || {})));
+                        response = { ok: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
+                    }
+
+                    if (message.type === 'GET_ORDER_LOOKUP') {
+                        response = responseOverride || getDefaultOrderLookupResponse();
+                    }
+
                     if (typeof callback === 'function') {
-                        callback(responseOverride || getDefaultOrderLookupResponse());
+                        callback(response);
                     }
                 }
             }
         },
         __test: {
             document,
-            sentMessages
+            sentMessages,
+            userConfig
         }
     };
 
@@ -220,9 +256,14 @@ function readHistoryHtml() {
     );
 }
 
+function getMessagesByType(context, type) {
+    return context.__test.sentMessages.filter((message) => message.type === type);
+}
+
 test('history page is order lookup, not full event timeline', () => {
     const html = readHistoryHtml();
 
+    assert.match(html, /Заказы/);
     assert.match(html, /Поиск изменений по заказу/);
     assert.match(html, /id="historyOrderQuery"/);
     assert.match(html, /id="searchHistory"/);
@@ -230,7 +271,9 @@ test('history page is order lookup, not full event timeline', () => {
     assert.match(html, /id="historyCandidates"/);
     assert.match(html, /id="orderSummary"/);
     assert.match(html, /id="historyList"/);
-    assert.match(html, /первые 4 цифры/);
+    assert.match(html, /id="ordersWatchedOrderInput"/);
+    assert.match(html, /id="ordersWatchedList"/);
+    assert.match(html, /первым 4 цифрам|первые 4 цифры/);
     assert.match(html, /Это не полная серверная история заказа/);
     assert.doesNotMatch(html, /id="historyEventType"/);
     assert.doesNotMatch(html, /id="historyEventKind"/);
@@ -242,7 +285,8 @@ test('history page starts idle without loading broad event journal', () => {
     const context = loadHistoryContext();
     const document = context.__test.document;
 
-    assert.equal(context.__test.sentMessages.length, 0);
+    assert.equal(getMessagesByType(context, 'GET_ORDER_LOOKUP').length, 0);
+    assert.equal(getMessagesByType(context, 'GET_CONFIG').length, 1);
     assert.equal(document.getElementById('historyStatus').innerText, 'Введите номер заказа для поиска');
     assert.equal(document.getElementById('historyList').innerHTML, '');
 });
@@ -258,8 +302,8 @@ test('history page requests order lookup and renders selected order changes', ()
         target: document.getElementById('searchHistory')
     });
 
-    assert.equal(context.__test.sentMessages.length, 1);
-    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.sentMessages[0])), {
+    assert.equal(getMessagesByType(context, 'GET_ORDER_LOOKUP').length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(getMessagesByType(context, 'GET_ORDER_LOOKUP')[0])), {
         type: 'GET_ORDER_LOOKUP',
         options: {
             query: '1001',
@@ -376,9 +420,62 @@ test('history page reset clears current lookup without backend request', () => {
     });
 
     assert.equal(document.getElementById('historyOrderQuery').value, '');
-    assert.equal(context.__test.sentMessages.length, 0);
+    assert.equal(getMessagesByType(context, 'GET_ORDER_LOOKUP').length, 0);
+    assert.equal(getMessagesByType(context, 'GET_CONFIG').length, 1);
     assert.equal(document.getElementById('historyStatus').innerText, 'Введите номер заказа для поиска');
     assert.equal(document.getElementById('historyList').innerHTML, '');
+});
+
+test('orders page renders and manages watched orders', () => {
+    const context = loadHistoryContext();
+    const document = context.__test.document;
+
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
+
+    document.getElementById('ordersWatchedOrderInput').value = '2222-110626';
+    document.getElementById('ordersAddWatchedOrder').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('ordersAddWatchedOrder')
+    });
+
+    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items.map(item => item.id))), [
+        '1001-300326',
+        '2222-110626'
+    ]);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /2222-110626/);
+});
+
+test('orders page toggles selected order watch state from summary', () => {
+    const response = getDefaultOrderLookupResponse();
+    response.order.isWatched = false;
+    response.candidates[0].isWatched = false;
+
+    const context = loadHistoryContext(response, (document) => {
+        document.getElementById('historyOrderQuery').value = '1001';
+    }, {
+        watchedOrders: { items: [] }
+    });
+    const document = context.__test.document;
+
+    document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
+    assert.match(document.getElementById('orderSummary').innerHTML, /Отслеживать/);
+
+    const summaryButtonTarget = {
+        dataset: {
+            watchAction: 'add',
+            orderId: '1001-300326'
+        }
+    };
+
+    document.getElementById('orderSummary').dispatchEvent({ type: 'click', target: summaryButtonTarget });
+
+    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].id, '1001-300326');
 });
 
 test('history page shows order lookup load failure', () => {

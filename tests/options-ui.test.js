@@ -126,10 +126,7 @@ function createOptionsDom() {
         'optionsScopeReserveList',
         'optionsScopeAssemblyStatusList',
         'optionsScopeHint',
-        'optionsWatchedOrderInput',
-        'optionsAddWatchedOrder',
-        'optionsWatchedOrdersStatus',
-        'optionsWatchedOrdersList',
+        'optionsOpenOrdersPage',
         'optionsWatchedOrdersSummary',
         'optionsDiagnosticsRuntime',
         'optionsDiagnosticsWorker',
@@ -348,8 +345,15 @@ function loadOptionsContext(overrides = {}) {
         setTimeout: overrides.setTimeout || setTimeoutMock,
         clearTimeout: overrides.clearTimeout || clearTimeoutMock,
         chrome: {
+            tabs: {
+                createdTabs: [],
+                create: (createInfo) => {
+                    context.chrome.tabs.createdTabs.push(createInfo);
+                }
+            },
             runtime: {
                 getManifest: () => ({ version: '0.9.8-test' }),
+                getURL: (page) => `chrome-extension://tab-wanderer/${page}`,
                 sendMessage: (msg, callback) => {
                     sentMessages.push(msg);
 
@@ -429,10 +433,11 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsScopePaymentList"/);
     assert.match(html, /id="optionsScopeOrderFlagsList"/);
     assert.match(html, /id="optionsScopeHint"/);
-    assert.match(html, /id="optionsWatchedOrderInput"/);
-    assert.match(html, /id="optionsAddWatchedOrder"/);
-    assert.match(html, /id="optionsWatchedOrdersList"/);
+    assert.match(html, /id="optionsOpenOrdersPage"/);
     assert.match(html, /id="optionsWatchedOrdersSummary"/);
+    assert.doesNotMatch(html, /id="optionsWatchedOrderInput"/);
+    assert.doesNotMatch(html, /id="optionsAddWatchedOrder"/);
+    assert.doesNotMatch(html, /id="optionsWatchedOrdersList"/);
     assert.match(html, /id="optionsDiagnosticLogDetails"/);
     assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
@@ -462,50 +467,26 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ');
-    assert.match(document.getElementById('optionsWatchedOrdersStatus').innerText, /Отслеживается заказов: 1/);
-    assert.match(document.getElementById('optionsWatchedOrdersList').children[0].children[0].children[0].innerText, /Заказ №1000-300326/);
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 50/);
 });
 
 
-test('options page adds watched order to config', () => {
+test('options page links watched orders management to orders page', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
-    const input = document.getElementById('optionsWatchedOrderInput');
-    const addButton = document.getElementById('optionsAddWatchedOrder');
 
-    input.value = ' 2000-300326 ';
-    addButton.dispatchEvent({ type: 'click', target: addButton });
+    document.getElementById('optionsOpenOrdersPage').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('optionsOpenOrdersPage')
+    });
 
-    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
-
-    assert.equal(updateMessages.length, 1);
-    assert.deepEqual(
-        JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items.map(item => item.id))),
-        ['1000-300326', '2000-300326']
-    );
-    assert.equal(input.value, '');
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Отслеживаемый заказ добавлен. Первая успешная direct follow-up проверка станет baseline без уведомления.');
-    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '2 заказа');
-});
-
-test('options page rejects duplicate or invalid watched order ids without saving', () => {
-    const context = loadOptionsContext();
-    const document = context.__test.document;
-    const input = document.getElementById('optionsWatchedOrderInput');
-    const addButton = document.getElementById('optionsAddWatchedOrder');
-
-    input.value = 'bad';
-    addButton.dispatchEvent({ type: 'click', target: addButton });
-
+    assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs)), [
+        {
+            url: 'chrome-extension://tab-wanderer/history.html',
+            active: true
+        }
+    ]);
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(document.getElementById('optionsWatchedOrdersStatus').innerText, 'Введите номер заказа в формате 1234-110626.');
-
-    input.value = '1000-300326';
-    addButton.dispatchEvent({ type: 'click', target: addButton });
-
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-    assert.equal(document.getElementById('optionsWatchedOrdersStatus').innerText, 'Заказ №1000-300326 уже есть в списке.');
 });
 
 test('options page autosaves monitor mode changes', () => {

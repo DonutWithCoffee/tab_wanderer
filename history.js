@@ -1,4 +1,11 @@
 const HISTORY_DEFAULT_LIMIT = 100;
+const ORDERS_WATCHED_ORDER_LIMIT = 100;
+
+let currentOrdersConfig = {
+    watchedOrders: {
+        items: []
+    }
+};
 
 const EVENT_TYPE_LABELS = {
     'new-order': 'Первое обнаружение заказа',
@@ -134,6 +141,91 @@ function getSyncReasonLabel(syncReason) {
     return SYNC_REASON_LABELS[syncReason] || syncReason || 'Обычный цикл';
 }
 
+function normalizeOrdersWatchedOrderId(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, '')
+        .toUpperCase();
+}
+
+function isValidOrdersWatchedOrderId(value) {
+    return /^\d{4}-\d{4,10}$/.test(normalizeOrdersWatchedOrderId(value));
+}
+
+function normalizeOrdersTimestamp(value) {
+    const numeric = Number(value);
+
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
+    const source = value && typeof value === 'object'
+        ? value
+        : { id: value };
+    const id = normalizeOrdersWatchedOrderId(source.id);
+
+    if (!isValidOrdersWatchedOrderId(id)) {
+        return null;
+    }
+
+    return {
+        id,
+        status: source.status === 'unresolved' ? 'unresolved' : 'active',
+        addedAt: normalizeOrdersTimestamp(source.addedAt) || now,
+        lastCheckedAt: normalizeOrdersTimestamp(source.lastCheckedAt),
+        lastBaselineAt: normalizeOrdersTimestamp(source.lastBaselineAt),
+        lastEventAt: normalizeOrdersTimestamp(source.lastEventAt),
+        lastError: source.lastError ? String(source.lastError) : null
+    };
+}
+
+function normalizeOrdersWatchedOrdersConfig(value = {}, now = Date.now()) {
+    const rawItems = Array.isArray(value?.items)
+        ? value.items
+        : Array.isArray(value?.orders)
+            ? value.orders
+            : Array.isArray(value)
+                ? value
+                : [];
+    const seen = new Set();
+    const items = [];
+
+    for (const rawItem of rawItems) {
+        const item = normalizeOrdersWatchedOrderItem(rawItem, now);
+
+        if (!item || seen.has(item.id)) {
+            continue;
+        }
+
+        seen.add(item.id);
+        items.push(item);
+
+        if (items.length >= ORDERS_WATCHED_ORDER_LIMIT) {
+            break;
+        }
+    }
+
+    return { items };
+}
+
+function getOrdersWatchedOrdersConfig(config = {}) {
+    return normalizeOrdersWatchedOrdersConfig(config?.watchedOrders);
+}
+
+function isOrderWatched(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+
+    return getOrdersWatchedOrdersConfig(currentOrdersConfig).items.some(item => item.id === id);
+}
+
+function getWatchedOrderStatusLabel(status) {
+    if (status === 'unresolved') {
+        return 'не найден / ошибка';
+    }
+
+    return 'активен';
+}
+
 function buildLookupOptions(queryOverride) {
     const query = String(queryOverride || getElementValue('historyOrderQuery') || '').trim();
 
@@ -266,19 +358,25 @@ function renderOrderSummary(response) {
         return;
     }
 
+    const orderId = order.orderId || response.selectedOrderId || '';
     const orderUrl = order.orderUrl
         ? `<a href="${escapeHtml(order.orderUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>`
         : '';
-    const watched = order.isWatched ? 'Да' : 'Нет';
+    const watched = isOrderWatched(orderId) || order.isWatched === true;
+    const watchedLabel = watched ? 'Да' : 'Нет';
+    const watchButton = watched
+        ? `<button type="button" data-watch-action="remove" data-order-id="${escapeHtml(orderId)}">Убрать из отслеживания</button>`
+        : `<button type="button" data-watch-action="add" data-order-id="${escapeHtml(orderId)}">Отслеживать</button>`;
 
     setInnerHtml('orderSummary', `
         <section class="order-summary">
-            <div class="order-summary-title">Заказ ${escapeHtml(order.orderId || response.selectedOrderId || '')}</div>
+            <div class="order-summary-title">Заказ ${escapeHtml(orderId)}</div>
             <div class="order-summary-meta">
                 Последнее известное событие: ${escapeHtml(formatTimestamp(order.lastSeenAt))}
-                · Отслеживается: ${escapeHtml(watched)}
+                · Отслеживается: ${escapeHtml(watchedLabel)}
                 ${orderUrl ? ` · ${orderUrl}` : ''}
             </div>
+            <div class="actions-row">${watchButton}</div>
             <div class="history-diff">
                 ${renderCurrentState(order.context || {})}
             </div>
@@ -345,6 +443,137 @@ function renderHistory(response) {
     setInnerHtml('historyList', entries.map(renderEntry).join(''));
 }
 
+
+function renderWatchedOrders(config = currentOrdersConfig) {
+    const watchedOrders = getOrdersWatchedOrdersConfig(config);
+
+    setInnerText(
+        'ordersWatchedStatus',
+        watchedOrders.items.length
+            ? `Отслеживается заказов: ${watchedOrders.items.length}`
+            : 'Список отслеживаемых заказов пуст.'
+    );
+
+    if (!watchedOrders.items.length) {
+        setInnerHtml('ordersWatchedList', '<div class="history-empty">Добавьте полный номер заказа, чтобы включить direct follow-up.</div>');
+        return;
+    }
+
+    setInnerHtml('ordersWatchedList', watchedOrders.items.map((item) => `
+        <article class="watched-order-row" data-order-id="${escapeHtml(item.id)}">
+            <div>
+                <strong>${escapeHtml(item.id)}</strong>
+                <div class="watched-order-meta">
+                    статус: ${escapeHtml(getWatchedOrderStatusLabel(item.status))};
+                    добавлен: ${escapeHtml(formatTimestamp(item.addedAt))};
+                    первая проверка: ${escapeHtml(formatTimestamp(item.lastBaselineAt))};
+                    последняя проверка: ${escapeHtml(formatTimestamp(item.lastCheckedAt))};
+                    последнее событие: ${escapeHtml(formatTimestamp(item.lastEventAt))}
+                    ${item.lastError ? `; ошибка: ${escapeHtml(item.lastError)}` : ''}
+                </div>
+            </div>
+            <div class="watched-order-actions">
+                <button type="button" data-watch-action="open" data-order-id="${escapeHtml(item.id)}">Открыть</button>
+                <button type="button" data-watch-action="remove" data-order-id="${escapeHtml(item.id)}">Удалить</button>
+            </div>
+        </article>
+    `).join(''));
+}
+
+function loadOrdersConfig() {
+    sendMessage({ type: 'GET_CONFIG' }, (response) => {
+        if (!response?.ok) {
+            setInnerText('ordersWatchedStatus', 'Не удалось загрузить отслеживаемые заказы.');
+            return;
+        }
+
+        currentOrdersConfig = response.userConfig || currentOrdersConfig;
+        renderWatchedOrders(currentOrdersConfig);
+    });
+}
+
+function saveOrdersConfig(nextConfig, successMessage) {
+    sendMessage({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (response) => {
+        if (!response?.ok) {
+            setInnerText('ordersWatchedStatus', 'Не удалось сохранить отслеживаемые заказы.');
+            renderWatchedOrders(currentOrdersConfig);
+            return;
+        }
+
+        currentOrdersConfig = response.userConfig || nextConfig;
+        renderWatchedOrders(currentOrdersConfig);
+        setInnerText('ordersWatchedStatus', successMessage || 'Список отслеживаемых заказов сохранён.');
+    });
+}
+
+function addWatchedOrder(orderId, source = 'orders-page') {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+
+    if (!isValidOrdersWatchedOrderId(id)) {
+        setInnerText('ordersWatchedStatus', 'Введите полный номер заказа в формате 1234-110626.');
+        return;
+    }
+
+    const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
+
+    if (watchedOrders.items.some(item => item.id === id)) {
+        setInnerText('ordersWatchedStatus', `Заказ №${id} уже отслеживается.`);
+        return;
+    }
+
+    if (watchedOrders.items.length >= ORDERS_WATCHED_ORDER_LIMIT) {
+        setInnerText('ordersWatchedStatus', `Достигнут лимит: ${ORDERS_WATCHED_ORDER_LIMIT} заказов.`);
+        return;
+    }
+
+    const nextConfig = {
+        ...currentOrdersConfig,
+        watchedOrders: {
+            items: [
+                ...watchedOrders.items,
+                {
+                    id,
+                    status: 'active',
+                    addedAt: Date.now(),
+                    lastCheckedAt: null,
+                    lastBaselineAt: null,
+                    lastEventAt: null,
+                    lastError: null
+                }
+            ]
+        }
+    };
+
+    saveOrdersConfig(nextConfig, source === 'summary'
+        ? `Заказ №${id} добавлен в отслеживаемые.`
+        : `Заказ №${id} добавлен. Первая direct follow-up проверка станет baseline без уведомления.`);
+}
+
+function removeWatchedOrder(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+    const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
+
+    const nextConfig = {
+        ...currentOrdersConfig,
+        watchedOrders: {
+            items: watchedOrders.items.filter(item => item.id !== id)
+        }
+    };
+
+    saveOrdersConfig(nextConfig, `Заказ №${id} удалён из отслеживаемых.`);
+}
+
+function addWatchedOrderFromInput() {
+    const input = document.getElementById('ordersWatchedOrderInput');
+    const id = normalizeOrdersWatchedOrderId(input?.value);
+
+    addWatchedOrder(id);
+
+    if (isValidOrdersWatchedOrderId(id) && input) {
+        input.value = '';
+    }
+}
+
 function loadOrderHistory(queryOverride) {
     const statusEl = document.getElementById('historyStatus');
 
@@ -368,6 +597,10 @@ function bindHistoryControls() {
     const resetBtn = document.getElementById('resetHistorySearch');
     const queryInput = document.getElementById('historyOrderQuery');
     const candidatesEl = document.getElementById('historyCandidates');
+    const orderSummaryEl = document.getElementById('orderSummary');
+    const watchedListEl = document.getElementById('ordersWatchedList');
+    const addWatchedBtn = document.getElementById('ordersAddWatchedOrder');
+    const watchedInput = document.getElementById('ordersWatchedOrderInput');
 
     if (searchBtn) {
         searchBtn.addEventListener('click', () => loadOrderHistory());
@@ -397,9 +630,49 @@ function bindHistoryControls() {
             loadOrderHistory(orderId);
         });
     }
+
+    if (orderSummaryEl) {
+        orderSummaryEl.addEventListener('click', (event) => {
+            const action = event?.target?.dataset?.watchAction;
+            const orderId = event?.target?.dataset?.orderId;
+
+            if (action === 'add') {
+                addWatchedOrder(orderId, 'summary');
+            } else if (action === 'remove') {
+                removeWatchedOrder(orderId);
+            }
+        });
+    }
+
+    if (watchedListEl) {
+        watchedListEl.addEventListener('click', (event) => {
+            const action = event?.target?.dataset?.watchAction;
+            const orderId = event?.target?.dataset?.orderId;
+
+            if (action === 'open') {
+                setElementValue('historyOrderQuery', orderId);
+                loadOrderHistory(orderId);
+            } else if (action === 'remove') {
+                removeWatchedOrder(orderId);
+            }
+        });
+    }
+
+    if (addWatchedBtn) {
+        addWatchedBtn.addEventListener('click', addWatchedOrderFromInput);
+    }
+
+    if (watchedInput) {
+        watchedInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                addWatchedOrderFromInput();
+            }
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     bindHistoryControls();
     renderHistory({ ok: true, status: 'idle' });
+    loadOrdersConfig();
 });

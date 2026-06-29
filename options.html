@@ -357,16 +357,12 @@
         <section class="card">
             <h2>Отслеживаемые заказы</h2>
             <p class="muted">
-                Watchlist хранит конкретные номера заказов для direct follow-up.
-                Эти заказы проверяются напрямую при активном мониторинге, отдельно от области мониторинга списка.
+                Управление отслеживаемыми заказами вынесено на отдельную страницу “Заказы”.
+                В настройках остаются только системные параметры мониторинга и уведомлений.
             </p>
-            <div class="inline-form">
-                <label for="optionsWatchedOrderInput">Номер заказа</label>
-                <input id="optionsWatchedOrderInput" type="text" placeholder="Например: 1234-110626">
-                <button id="optionsAddWatchedOrder" type="button">Добавить</button>
+            <div class="actions-row">
+                <button id="optionsOpenOrdersPage" type="button">Открыть страницу “Заказы”</button>
             </div>
-            <p id="optionsWatchedOrdersStatus" class="muted">Загрузка списка...</p>
-            <div id="optionsWatchedOrdersList" class="watched-list"></div>
         </section>
 
         <section class="card">

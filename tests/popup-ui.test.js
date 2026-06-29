@@ -111,6 +111,9 @@ function createPopupDom() {
         'popupIgnoreLegalEntityPayment',
         'popupIgnoreOzon',
         'quickSuppressStatus',
+        'popupWatchedOrderInput',
+        'popupAddWatchedOrder',
+        'popupWatchedOrderStatus',
         'diagnosticLogStatus'
     ]) {
         document.registerElement(id);
@@ -145,6 +148,9 @@ function loadPopupContext(overrides = {}) {
         notificationSuppressors: {
             ignoreLegalEntityPayment: false,
             ignoreOzon: false
+        },
+        watchedOrders: {
+            items: []
         }
     };
     const diagnosticLog = overrides.diagnosticLog || {
@@ -252,6 +258,8 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="downloadDiagnosticLog"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupIgnoreOzon"/);
+    assert.match(html, /id="popupWatchedOrderInput"/);
+    assert.match(html, /id="popupAddWatchedOrder"/);
     assert.doesNotMatch(html, /id="applyConfig"/);
     assert.doesNotMatch(html, /id="resetConfig"/);
     assert.doesNotMatch(html, /id="monitorModeWindowed"/);
@@ -343,6 +351,31 @@ test('popup quick suppressor toggles update config only for notifications', () =
         ignoreOzon: false
     });
     assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Быстрые фильтры сохранены.');
+});
+
+test('popup adds watched order by full order id only', () => {
+    const context = loadPopupContext();
+    const document = context.__test.document;
+    const input = document.getElementById('popupWatchedOrderInput');
+    const addButton = document.getElementById('popupAddWatchedOrder');
+
+    input.value = '1234';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Введите полный номер заказа в формате 1234-110626.');
+
+    input.value = ' 1234-110626 ';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items.map(item => item.id))), [
+        '1234-110626'
+    ]);
+    assert.equal(input.value, '');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен. Управление списком — на странице “Заказы”.');
 });
 
 test('popup downloads diagnostic log from quick action', () => {
