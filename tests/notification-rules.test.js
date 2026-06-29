@@ -14,7 +14,7 @@ function createOrder(overrides = {}) {
     };
 }
 
-test('normalizeMonitorScope sanitizes arrays and predicates', () => {
+test('normalizeMonitorScope sanitizes arrays and drops legacy predicates', () => {
     const context = loadRulesContext();
 
     const normalized = context.normalizeMonitorScope({
@@ -38,12 +38,9 @@ test('normalizeMonitorScope sanitizes arrays and predicates', () => {
         orderFlags: [],
         store: [],
         reserve: [],
-        assemblyStatus: [],
-        predicates: {
-            ozonOnly: true,
-            juridicalOnly: false
-        }
+        assemblyStatus: []
     });
+    assert.equal(Object.prototype.hasOwnProperty.call(normalized, 'predicates'), false);
 });
 
 test('getEffectiveConfig normalizes monitor scope and drops legacy rules config', () => {
@@ -66,12 +63,9 @@ test('getEffectiveConfig normalizes monitor scope and drops legacy rules config'
         orderFlags: [],
         store: [],
         reserve: [],
-        assemblyStatus: [],
-        predicates: {
-            ozonOnly: false,
-            juridicalOnly: false
-        }
+        assemblyStatus: []
     });
+    assert.equal(Object.prototype.hasOwnProperty.call(config.monitorScope, 'predicates'), false);
 });
 
 test('getEffectiveConfig normalizes notification trigger defaults', () => {

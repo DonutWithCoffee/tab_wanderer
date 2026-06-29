@@ -388,11 +388,6 @@ function getMonitorScope(config = {}) {
         result[group.key] = getScopeList(monitorScope[group.key]);
     }
 
-    result.predicates = {
-        ozonOnly: Boolean(monitorScope.predicates?.ozonOnly),
-        juridicalOnly: Boolean(monitorScope.predicates?.juridicalOnly)
-    };
-
     return result;
 }
 
@@ -591,8 +586,7 @@ function saveDeepSyncMaxPagesFromUI() {
 function collectMonitorScopeFromUI(baseConfig = {}) {
     const currentScope = getMonitorScope(baseConfig);
     const nextScope = {
-        ...currentScope,
-        predicates: { ...currentScope.predicates }
+        ...currentScope
     };
 
     for (const group of OPTIONS_SCOPE_GROUPS) {

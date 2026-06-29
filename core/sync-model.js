@@ -101,8 +101,6 @@ function normalizeScopeList(values) {
 
 function normalizeMonitorScopeForSignature(scope = {}) {
     const safeScope = scope || {};
-    const predicates = safeScope.predicates || {};
-
     return {
         status: normalizeScopeList(safeScope.status),
         delivery: normalizeScopeList(safeScope.delivery),
@@ -110,11 +108,7 @@ function normalizeMonitorScopeForSignature(scope = {}) {
         orderFlags: normalizeScopeList(safeScope.orderFlags),
         store: normalizeScopeList(safeScope.store),
         reserve: normalizeScopeList(safeScope.reserve),
-        assemblyStatus: normalizeScopeList(safeScope.assemblyStatus),
-        predicates: {
-            juridicalOnly: Boolean(predicates.juridicalOnly),
-            ozonOnly: Boolean(predicates.ozonOnly)
-        }
+        assemblyStatus: normalizeScopeList(safeScope.assemblyStatus)
     };
 }
 

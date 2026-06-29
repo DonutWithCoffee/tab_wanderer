@@ -26,11 +26,7 @@ const DEFAULT_CONFIG = {
         orderFlags: [],
         store: [],
         reserve: [],
-        assemblyStatus: [],
-        predicates: {
-            ozonOnly: false,
-            juridicalOnly: false
-        }
+        assemblyStatus: []
     },
     watchedOrders: {
         items: []
@@ -65,8 +61,6 @@ function normalizeDeepSyncMaxPages(value) {
 
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
-    const safePredicates = safeScope.predicates || {};
-
     return {
         status: Array.isArray(safeScope.status) ? safeScope.status : [],
         delivery: Array.isArray(safeScope.delivery) ? safeScope.delivery : [],
@@ -74,11 +68,7 @@ function normalizeMonitorScope(scope = {}) {
         orderFlags: Array.isArray(safeScope.orderFlags) ? safeScope.orderFlags : [],
         store: Array.isArray(safeScope.store) ? safeScope.store : [],
         reserve: Array.isArray(safeScope.reserve) ? safeScope.reserve : [],
-        assemblyStatus: Array.isArray(safeScope.assemblyStatus) ? safeScope.assemblyStatus : [],
-        predicates: {
-            ozonOnly: Boolean(safePredicates.ozonOnly),
-            juridicalOnly: Boolean(safePredicates.juridicalOnly)
-        }
+        assemblyStatus: Array.isArray(safeScope.assemblyStatus) ? safeScope.assemblyStatus : []
     };
 }
 
