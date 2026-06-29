@@ -2,28 +2,26 @@
 
 Chrome extension для мониторинга заказов в админке Amperkot.
 
-`tab_wanderer` работает как локальный наблюдатель за потоком заказов: собирает snapshot заказов через изолированную worker-вкладку, сравнивает текущее состояние с известным состоянием, пишет события в локальную историю и показывает уведомления по настройкам пользователя.
+`tab_wanderer` работает как локальный наблюдатель: собирает snapshot заказов через изолированную worker-вкладку, сравнивает текущее состояние с локально известным состоянием, пишет обнаруженные события в локальные журналы и показывает уведомления по настройкам пользователя.
 
 ---
 
 ## Текущий статус
 
 ```text
-Стадия разработки: 0.9.8 Observability + Refactor checkpoint
-Manifest version: 0.9.8
-Текущий фокус: runtime consistency, support diagnostics, безопасный refactor, подготовка к pre-1.0 UI/UX polish
+Стадия разработки: 0.9.9.8 Docs/version checkpoint
+Manifest version: 0.9.9
+Build checkpoint: 0.9.9.8
+Текущий фокус: product completion QA перед pre-1.0 UI/UX polish
+Tests: 168 pass / 0 fail
 ```
 
-Roadmap:
-
-```text
-docs/roadmap.md
-```
-
-Project contract:
+Документы проекта:
 
 ```text
 docs/project-context.md
+docs/roadmap.md
+docs/smoke-checklist.md
 ```
 
 ---
@@ -34,10 +32,12 @@ docs/project-context.md
 
 - появление новых заказов;
 - изменения известных заказов;
-- изменения в рабочем окне заказов глубже первой страницы;
-- историю событий заказа в локальном журнале;
-- уведомления только по выбранным notification triggers;
+- изменения в рабочем окне глубже первой страницы;
+- события по заказам, которые сотрудник добавил в отслеживаемые;
+- локальные обнаруженные изменения по конкретному заказу;
 - диагностическое состояние и локальный диагностический лог для поддержки.
+
+Плагин **не является серверной историей заказов**. Он показывает только то, что было обнаружено локальным экземпляром расширения во время работы.
 
 ---
 
@@ -47,22 +47,82 @@ docs/project-context.md
 
 ```text
 monitorScope
-→ какие заказы физически попадают в наблюдение
+→ какие заказы физически попадают в основной list-monitor
 
 order event model
-→ какие изменения считаются событием и пишутся в историю
+→ какие изменения считаются событием и пишутся в eventJournal
 
 notificationTriggers
-→ какие события создают пользовательское уведомление
+→ какие события создают desktop-уведомление
+
+notificationSuppressors
+→ какие категории уведомлений быстро подавляются без остановки сбора данных
 ```
 
-`notificationTriggers` не блокируют обновление состояния и запись истории. Они управляют только показом уведомлений.
+`notificationTriggers` и `notificationSuppressors` не блокируют обновление состояния и запись локальной истории. Они управляют только показом уведомлений.
+
+---
+
+## UI model
+
+### Popup
+
+Popup — быстрый рабочий пульт:
+
+```text
+Start / Stop
+статус мониторинга
+быстрые suppressors:
+  - Игнорировать юриков
+  - Игнорировать ОЗОН
+добавить заказ в отслеживаемые по полному orderId
+открыть страницу “Заказы”
+открыть настройки
+скачать diagnostic log
+```
+
+В popup добавление в watchlist выполняется только по полному номеру заказа, например `2579-290626`. Поиск по первым 4 цифрам вынесен на страницу “Заказы”, чтобы не перегружать основное окно.
+
+### Options
+
+Options — настройки и диагностика:
+
+```text
+monitorMode
+monitorScope
+deepSyncMaxPages
+notificationTriggers
+notificationSuppressors
+monitor diagnostics
+diagnostic log tools
+ссылка на страницу “Заказы”
+```
+
+Ежедневное управление отслеживаемыми заказами не хранится в Options.
+
+### Заказы
+
+Страница `history.html/history.js` по пользовательскому смыслу стала страницей “Заказы”. Она не показывает общий шумный timeline всех событий.
+
+Основные сценарии:
+
+```text
+поиск заказа по полному orderId или первым 4 цифрам
+выбор кандидата, если короткий номер неоднозначен
+карточка выбранного заказа
+последнее известное состояние заказа
+обнаруженные изменения только выбранного заказа
+добавить/убрать заказ из отслеживаемых
+список отслеживаемых заказов
+```
+
+На странице явно сохраняется смысл: это локально обнаруженные плагином изменения, а не полная серверная история заказа.
 
 ---
 
 ## Worker tab
 
-Мониторинг выполняется через отдельную worker-вкладку.
+Основной мониторинг выполняется через отдельную worker-вкладку.
 
 Правила:
 
@@ -74,18 +134,27 @@ URL reuse запрещён
 
 Это нужно потому, что менеджер может работать в другой вкладке админки с тем же URL.
 
+Для отслеживаемых заказов используется отдельный direct worker:
+
+```text
+#tab_wanderer_direct_worker=1
+открывает конкретную карточку заказа по direct URL
+парсит detail page отдельно от основного list-monitor
+закрывается после проверки
+```
+
 ---
 
 ## Collection model
 
-Система использует два контура сбора.
+Система использует два контура основного сбора.
 
 ### Fast poll
 
 ```text
 каждые 15 секунд
 страница 1
-быстро ловит свежие изменения
+ловит свежие изменения
 ```
 
 ### Deep sync
@@ -94,20 +163,21 @@ URL reuse запрещён
 каждые 5 минут
 pagination через ?page=N
 по умолчанию до 50 страниц / около 1500 заказов
-настраиваемый безопасный диапазон: 1–50 страниц
+safe range: 1–50 страниц
 ```
 
-По ручной проверке 50 страниц собираются примерно за 30–35 секунд и после deep session worker возвращается на page 1.
+По ручной проверке 50 страниц собираются примерно за 30–35 секунд. После deep session worker возвращается на page 1.
 
 Deep sync завершается по явной pagination-информации:
 
 ```text
 pagination-last-page
+pagination-single-page
 empty-first-page для scope без заказов
 max-pages, если страницы ещё доступны
 ```
 
-Empty page не используется как обычное условие остановки для валидной глубокой страницы, но пустая первая страница при выбранном scope считается корректным завершением: в этой области сейчас нет заказов.
+Empty page не используется как обычное условие остановки для валидной глубокой страницы, но пустая первая страница при выбранном scope считается корректным завершением.
 
 ---
 
@@ -125,36 +195,33 @@ active
 
 ## State model
 
-Система хранит две разные модели состояния:
+Система хранит несколько разделённых моделей состояния:
 
 ```text
 knownOrdersDB
 → долговременная память всех известных заказов
 
 windowOrdersDB
-→ текущее наблюдаемое окно заказов
+→ текущее наблюдаемое окно заказов основного list-monitor
+
+directFollowUpOrdersDB / directFollowUpHashDB
+→ baseline direct follow-up, чтобы карточка заказа не перетирала list-state
 ```
 
 `knownOrdersDB` не очищается при baseline/rebaseline. Scope/mode/depth changes перестраивают текущее окно сравнения, но не стирают глобальную память известных заказов.
 
 ---
 
-## Core modules
+## Startup / catch-up policy
 
-0.9.8 постепенно разгружает `background.js` и переносит pure/domain logic в core:
+Первый сбор после ручного включения, recovery или reload используется для синхронизации состояния.
 
 ```text
-core/order-model.js
-core/sync-model.js
-core/collection-model.js
-core/event-journal.js
-core/monitor-status.js
-core/diagnostic-log.js
-core/notification-message.js
-core/runtime-api.js
+catch-up = обновить state/history
+live monitoring = создавать desktop-уведомления
 ```
 
-Chrome APIs остаются на runtime edge.
+Startup catch-up не создаёт пачку desktop-уведомлений по backlog. Это защищает сотрудников от лавины уведомлений при включении плагина утром или после перезагрузки расширения.
 
 ---
 
@@ -170,7 +237,16 @@ city
 tags
 ```
 
-Эти поля участвуют в event fingerprint, `changedFields`, history и eventJournal.
+Эти поля участвуют в event fingerprint, `changedFields` и eventJournal.
+
+Notification-visible fields:
+
+```text
+status
+delivery
+payment
+city
+```
 
 Context/search fields:
 
@@ -188,61 +264,13 @@ contractor
 hasAutoreserve
 ```
 
-Эти поля могут храниться для контекста, поиска и отображения, но не создают события и уведомления.
-
 Важно про tags:
 
 ```text
 tags парсятся и хранятся для history/search
-изменения tags пишутся в eventJournal/history
 tags не показываются в пользовательских уведомлениях
-tag-only changes не создают уведомления
+tag-only changes не создают desktop-уведомления
 ```
-
----
-
-## Sync reasons
-
-Система различает причины синхронизации:
-
-```text
-initial
-manual-start
-recovery
-stale-resume
-scope-change
-mode-change
-window-sync
-normal
-```
-
-Это нужно для корректной истории, диагностики и catch-up поведения после ручного старта.
-
----
-
-## Event journal / History
-
-Локальный event journal хранит:
-
-```text
-orderId
-eventType
-eventKind
-syncReason
-changedFields
-diff было → стало
-order context
-notification decision
-coverage metadata
-```
-
-Доступ к журналу:
-
-```text
-GET_EVENT_JOURNAL
-```
-
-Добавлена минимальная `history.html` skeleton page. Это технический скелет без финальной UI/UX-полировки.
 
 ---
 
@@ -262,7 +290,17 @@ changedFields:
   city
 ```
 
-`tags` не входят в notification triggers.
+Быстрые suppressors:
+
+```text
+ignoreLegalEntityPayment
+→ подавляет уведомления для “Безналичный расчет для юридических лиц”
+
+ignoreOzon
+→ подавляет уведомления для ОЗОН-заказов
+```
+
+Suppressors не являются monitorScope и не останавливают сбор/историю.
 
 Для новых заказов уведомление показывает компактное текущее состояние:
 
@@ -279,22 +317,56 @@ changedFields:
 Доставка: Самовывоз → Курьер СДЭК
 ```
 
-Context-only поля и чувствительные данные в уведомления не попадают.
-
 При клике на уведомление открывается карточка заказа.
+
+---
+
+## Event journal / order lookup
+
+Локальный eventJournal хранит обнаруженные события:
+
+```text
+orderId
+eventType
+eventKind
+syncReason
+changedFields
+diff было → стало
+order context
+notification decision
+coverage metadata
+```
+
+Retention:
+
+```text
+max retained entries: 5000
+max retained bytes: 2_000_000
+eventJournalDroppedEntries сохраняет число удалённых старых событий
+```
+
+Order lookup использует:
+
+```text
+knownOrdersDB
+eventJournal
+watchedOrders
+```
+
+Поддерживаются запросы:
+
+```text
+полный orderId: 2579-290626
+короткий номер: 2579
+```
+
+Если короткий номер совпадает с несколькими заказами, страница показывает кандидатов.
 
 ---
 
 ## Diagnostic log
 
-В 0.9.8 добавлен локальный диагностический лог с retention policy и полным export сохранённого лога.
-
-Назначение:
-
-```text
-удалённая поддержка без DevTools
-работник может скачать .txt и отправить лог разработчику
-```
+Локальный diagnostic log нужен для удалённой поддержки без DevTools.
 
 Доступ:
 
@@ -304,34 +376,13 @@ GET_DIAGNOSTIC_LOG full → весь retained log
 CLEAR_DIAGNOSTIC_LOG
 ```
 
-В UI:
-
-```text
-popup → быстрая кнопка Download diagnostic log
-options → подробный блок диагностического лога внизу страницы под details/dropdown
-preview/copy → короткий preview
-download/export → полный retained log
-```
-
 Retention:
 
 ```text
 preview limit: 100 entries
 max retained entries: 5000
 max retained bytes: 2_000_000
-dropped old entries counter сохраняется и показывается в export header
-```
-
-В лог пишутся технические события:
-
-```text
-START / STOP
-worker created/adopted/restarted
-baseline/rebaseline/recovery
-deep collection completed
-state changes
-notification decisions
-WARN/ERROR
+diagnosticLogDroppedEntries сохраняется и показывается в export header
 ```
 
 В лог не должны попадать:
@@ -345,28 +396,25 @@ cookie/token/auth данные
 
 ---
 
-## UI model
+## Core modules
 
-Popup — быстрый пульт:
-
-```text
-Start / Stop одной кнопкой
-Open settings
-Open history
-Download diagnostic log
-```
-
-Options — страница настроек и диагностики:
+Pure/domain logic постепенно вынесена из `background.js`:
 
 ```text
-monitorMode autosave
-deepSyncMaxPages autosave
-notificationTriggers autosave
-monitor diagnostics read-only
-diagnostic log tools
+core/order-model.js
+core/sync-model.js
+core/collection-model.js
+core/event-journal.js
+core/monitor-status.js
+core/diagnostic-log.js
+core/notification-message.js
+core/runtime-api.js
+core/watched-orders.js
+core/direct-follow-up.js
+core/order-lookup.js
 ```
 
-Текущий UI — функциональный скелет. Финальная читаемость, группировка, wording и внешний вид переносятся в pre-1.0 UI/UX polish stage.
+Chrome APIs остаются на runtime edge.
 
 ---
 
@@ -378,28 +426,21 @@ diagnostic log tools
 npm test
 ```
 
-Runner печатает итог:
-
-```text
-N pass 0 fail
-```
-
 Текущий checkpoint:
 
 ```text
-127 pass 0 fail
+168 pass 0 fail
 ```
 
 ---
 
 ## Release direction
 
-Перед 1.0 нужно:
+Следующий этап после этого checkpoint:
 
 ```text
-закрыть финальные 0.9.8 manual smoke checks
-зафиксировать release notes / tag для 0.9.8 при необходимости
-сделать pre-1.0 UI/UX polish вместе с пользователем
-провести manual browser QA
-подготовить stable local-first Chrome extension 1.0 release
+Pre-1.0 UI/UX polish
+manual browser smoke QA
+1.0 RC
+1.0 Stable local-first Chrome extension release
 ```
