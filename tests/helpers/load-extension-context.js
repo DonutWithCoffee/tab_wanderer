@@ -178,6 +178,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/monitor-status.js', context);
     runScript('core/diagnostic-log.js', context);
     runScript('core/notification-message.js', context);
+    runScript('core/order-lookup.js', context);
     runScript('core/runtime-api.js', context);
     runScript('background.js', context);
     return context;

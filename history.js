@@ -1,14 +1,14 @@
 const HISTORY_DEFAULT_LIMIT = 100;
 
 const EVENT_TYPE_LABELS = {
-    'new-order': 'Новый заказ',
+    'new-order': 'Первое обнаружение заказа',
     'order-changed': 'Изменение заказа',
     'scope-changed': 'Смена области мониторинга',
     'direct-follow-up': 'Direct follow-up'
 };
 
 const EVENT_KIND_LABELS = {
-    live: 'Живое наблюдение',
+    live: 'Список заказов',
     'catch-up': 'Catch-up после запуска',
     'scope-catch-up': 'Catch-up после смены области',
     'scope-change': 'Смена области',
@@ -36,15 +36,7 @@ const FIELD_LABELS = {
     phoneNormalized: 'Телефон',
     totalAmount: 'Сумма',
     manager: 'Менеджер',
-    contractor: 'Контрагент',
-    scope: 'Область мониторинга',
-    'scope.status': 'Область: статус',
-    'scope.delivery': 'Область: доставка',
-    'scope.payment': 'Область: оплата',
-    'scope.orderFlags': 'Область: флаги',
-    'scope.store': 'Область: склад',
-    'scope.reserve': 'Область: резерв',
-    'scope.assemblyStatus': 'Область: комплектация'
+    contractor: 'Контрагент'
 };
 
 function sendMessage(message, callback) {
@@ -66,6 +58,22 @@ function setElementValue(id, value) {
 
     if (el) {
         el.value = String(value || '');
+    }
+}
+
+function setInnerHtml(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.innerHTML = String(value || '');
+    }
+}
+
+function setInnerText(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.innerText = String(value || '');
     }
 }
 
@@ -126,92 +134,20 @@ function getSyncReasonLabel(syncReason) {
     return SYNC_REASON_LABELS[syncReason] || syncReason || 'Обычный цикл';
 }
 
-function getPeriodSince(period) {
-    const now = Date.now();
-    const value = String(period || 'all');
+function buildLookupOptions(queryOverride) {
+    const query = String(queryOverride || getElementValue('historyOrderQuery') || '').trim();
 
-    if (value === 'today') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return today.getTime();
-    }
-
-    if (value === '24h') {
-        return now - 24 * 60 * 60 * 1000;
-    }
-
-    if (value === '7d') {
-        return now - 7 * 24 * 60 * 60 * 1000;
-    }
-
-    return null;
-}
-
-function buildHistoryFilters() {
-    const options = {
+    return {
+        query,
         limit: HISTORY_DEFAULT_LIMIT
     };
-
-    const orderQuery = getElementValue('historyOrderQuery');
-    const statusQuery = getElementValue('historyStatusQuery');
-    const deliveryQuery = getElementValue('historyDeliveryQuery');
-    const paymentQuery = getElementValue('historyPaymentQuery');
-    const tagQuery = getElementValue('historyTagQuery');
-    const eventType = getElementValue('historyEventType');
-    const eventKind = getElementValue('historyEventKind');
-    const changedField = getElementValue('historyChangedField');
-    const period = getElementValue('historyPeriod') || 'all';
-    const watchedOnly = getElementValue('historyWatchedOnly') === '1';
-    const since = getPeriodSince(period);
-
-    if (orderQuery) {
-        options.orderQuery = orderQuery;
-    }
-
-    if (statusQuery) {
-        options.statusQuery = statusQuery;
-    }
-
-    if (deliveryQuery) {
-        options.deliveryQuery = deliveryQuery;
-    }
-
-    if (paymentQuery) {
-        options.paymentQuery = paymentQuery;
-    }
-
-    if (tagQuery) {
-        options.tagQuery = tagQuery;
-    }
-
-    if (eventType) {
-        options.eventType = eventType;
-    }
-
-    if (eventKind) {
-        options.eventKind = eventKind;
-    }
-
-    if (changedField) {
-        options.changedField = changedField;
-    }
-
-    if (since) {
-        options.since = since;
-    }
-
-    if (watchedOnly) {
-        options.watchedOnly = true;
-    }
-
-    return options;
 }
 
 function renderDiff(diff) {
     const safeDiff = Array.isArray(diff) ? diff : [];
 
     if (!safeDiff.length) {
-        return '<div class="history-empty">Diff не записан</div>';
+        return '<div class="history-empty">Изменения по полям не записаны</div>';
     }
 
     return safeDiff.map((item) => `
@@ -224,8 +160,7 @@ function renderDiff(diff) {
     `).join('');
 }
 
-function renderCurrentState(entry) {
-    const context = entry.context || {};
+function renderCurrentState(context = {}) {
     const rows = [
         ['status', context.status],
         ['delivery', context.delivery],
@@ -235,7 +170,7 @@ function renderCurrentState(entry) {
     ].filter(([, value]) => value !== undefined && value !== null && value !== '' && (!Array.isArray(value) || value.length));
 
     if (!rows.length) {
-        return '<div class="history-empty">Текущие данные не записаны</div>';
+        return '<div class="history-empty">Последнее состояние не записано</div>';
     }
 
     return rows.map(([field, value]) => `
@@ -248,24 +183,10 @@ function renderCurrentState(entry) {
 
 function renderEntryBody(entry) {
     if (entry.eventType === 'new-order') {
-        return `<div class="history-diff">${renderCurrentState(entry)}</div>`;
+        return `<div class="history-diff">${renderCurrentState(entry.context || {})}</div>`;
     }
 
     return `<div class="history-diff">${renderDiff(entry.diff)}</div>`;
-}
-
-function renderOrderLink(entry) {
-    const orderId = escapeHtml(entry.orderId || '—');
-
-    if (entry.eventType === 'scope-changed') {
-        return 'Область мониторинга';
-    }
-
-    if (!entry.orderUrl) {
-        return `Заказ №${orderId}`;
-    }
-
-    return `<a href="${escapeHtml(entry.orderUrl)}" target="_blank" rel="noreferrer">Заказ №${orderId}</a>`;
 }
 
 function renderEntry(entry) {
@@ -280,7 +201,7 @@ function renderEntry(entry) {
     return `
         <article class="history-entry" data-event-id="${escapeHtml(entry.id || '')}" data-event-type="${escapeHtml(entry.eventType || '')}">
             <div class="history-entry-title">
-                ${renderOrderLink(entry)} — ${escapeHtml(getEventTypeLabel(entry.eventType))}
+                ${escapeHtml(getEventTypeLabel(entry.eventType))}
             </div>
 
             <div class="history-entry-meta">
@@ -302,105 +223,183 @@ function renderEntry(entry) {
     `;
 }
 
-function renderHistory(response) {
-    const statusEl = document.getElementById('historyStatus');
-    const listEl = document.getElementById('historyList');
+function renderCandidate(candidate) {
+    const context = candidate.context || {};
+    const status = context.status ? `Статус: ${formatValue(context.status)}` : 'Статус неизвестен';
+    const watched = candidate.isWatched ? ' · отслеживается' : '';
 
-    if (!statusEl || !listEl) {
-        return;
-    }
-
-    if (!response?.ok) {
-        statusEl.innerText = 'Не удалось загрузить историю';
-        listEl.innerHTML = '';
-        return;
-    }
-
-    const entries = Array.isArray(response.entries) ? response.entries : [];
-
-    statusEl.innerText = `Событий найдено: ${response.total || 0}; показано: ${entries.length}; всего сохранено: ${response.storedTotal || 0}`;
-
-    if (!entries.length) {
-        listEl.innerHTML = '<div class="history-empty">По выбранным фильтрам событий нет</div>';
-        return;
-    }
-
-    listEl.innerHTML = entries.map(renderEntry).join('');
+    return `
+        <div class="candidate-item" data-order-id="${escapeHtml(candidate.orderId || '')}">
+            <div>
+                <strong>${escapeHtml(candidate.orderId || '')}</strong>
+                <div class="candidate-meta">
+                    ${escapeHtml(status)} · последнее событие: ${escapeHtml(formatTimestamp(candidate.lastSeenAt))}${escapeHtml(watched)}
+                </div>
+            </div>
+            <button type="button" data-order-id="${escapeHtml(candidate.orderId || '')}">Открыть</button>
+        </div>
+    `;
 }
 
-function loadHistory() {
+function renderCandidates(response) {
+    const candidates = Array.isArray(response.candidates) ? response.candidates : [];
+
+    if (response.status !== 'multiple-candidates') {
+        setInnerHtml('historyCandidates', '');
+        return;
+    }
+
+    setInnerHtml('historyCandidates', `
+        <section class="candidate-list">
+            <div class="order-summary-title">Найдено несколько заказов с номером ${escapeHtml(response.query)}</div>
+            <div class="hint">Выберите полный номер заказа.</div>
+            ${candidates.map(renderCandidate).join('')}
+        </section>
+    `);
+}
+
+function renderOrderSummary(response) {
+    const order = response.order || null;
+
+    if (!order || response.status !== 'selected') {
+        setInnerHtml('orderSummary', '');
+        return;
+    }
+
+    const orderUrl = order.orderUrl
+        ? `<a href="${escapeHtml(order.orderUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>`
+        : '';
+    const watched = order.isWatched ? 'Да' : 'Нет';
+
+    setInnerHtml('orderSummary', `
+        <section class="order-summary">
+            <div class="order-summary-title">Заказ ${escapeHtml(order.orderId || response.selectedOrderId || '')}</div>
+            <div class="order-summary-meta">
+                Последнее известное событие: ${escapeHtml(formatTimestamp(order.lastSeenAt))}
+                · Отслеживается: ${escapeHtml(watched)}
+                ${orderUrl ? ` · ${orderUrl}` : ''}
+            </div>
+            <div class="history-diff">
+                ${renderCurrentState(order.context || {})}
+            </div>
+            <p class="hint">
+                Показаны только изменения, которые обнаружил плагин. Это не полная серверная история заказа.
+            </p>
+        </section>
+    `);
+}
+
+function renderHistory(response) {
+    if (!response?.ok) {
+        setInnerText('historyStatus', 'Не удалось загрузить изменения по заказу');
+        setInnerHtml('historyCandidates', '');
+        setInnerHtml('orderSummary', '');
+        setInnerHtml('historyList', '');
+        return;
+    }
+
+    const status = String(response.status || 'idle');
+    const entries = Array.isArray(response.entries) ? response.entries : [];
+
+    if (status === 'idle') {
+        setInnerText('historyStatus', 'Введите номер заказа для поиска');
+        setInnerHtml('historyCandidates', '');
+        setInnerHtml('orderSummary', '');
+        setInnerHtml('historyList', '');
+        return;
+    }
+
+    if (status === 'invalid-query') {
+        setInnerText('historyStatus', 'Введите полный номер заказа или первые 4 цифры до дефиса');
+        setInnerHtml('historyCandidates', '');
+        setInnerHtml('orderSummary', '');
+        setInnerHtml('historyList', '');
+        return;
+    }
+
+    if (status === 'not-found') {
+        setInnerText('historyStatus', `Заказ ${response.query || ''} не найден в локальных данных плагина`);
+        setInnerHtml('historyCandidates', '');
+        setInnerHtml('orderSummary', '');
+        setInnerHtml('historyList', '<div class="history-empty">Плагин показывает только заказы, которые уже видел.</div>');
+        return;
+    }
+
+    renderCandidates(response);
+    renderOrderSummary(response);
+
+    if (status === 'multiple-candidates') {
+        setInnerText('historyStatus', `Найдено несколько заказов: ${(response.candidates || []).length}`);
+        setInnerHtml('orderSummary', '');
+        setInnerHtml('historyList', '');
+        return;
+    }
+
+    setInnerText('historyStatus', `Заказ найден: ${response.selectedOrderId || ''}. Событий: ${entries.length}`);
+
+    if (!entries.length) {
+        setInnerHtml('historyList', '<div class="history-empty">Изменений по этому заказу пока не записано</div>');
+        return;
+    }
+
+    setInnerHtml('historyList', entries.map(renderEntry).join(''));
+}
+
+function loadOrderHistory(queryOverride) {
     const statusEl = document.getElementById('historyStatus');
 
     if (statusEl) {
-        statusEl.innerText = 'Загрузка...';
+        statusEl.innerText = 'Поиск...';
     }
 
     sendMessage({
-        type: 'GET_EVENT_JOURNAL',
-        options: buildHistoryFilters()
+        type: 'GET_ORDER_LOOKUP',
+        options: buildLookupOptions(queryOverride)
     }, renderHistory);
 }
 
-function resetHistoryFilters() {
+function resetHistorySearch() {
     setElementValue('historyOrderQuery', '');
-    setElementValue('historyStatusQuery', '');
-    setElementValue('historyDeliveryQuery', '');
-    setElementValue('historyPaymentQuery', '');
-    setElementValue('historyTagQuery', '');
-    setElementValue('historyEventType', '');
-    setElementValue('historyEventKind', '');
-    setElementValue('historyChangedField', '');
-    setElementValue('historyPeriod', 'all');
-    setElementValue('historyWatchedOnly', '');
-    loadHistory();
+    renderHistory({ ok: true, status: 'idle' });
 }
 
 function bindHistoryControls() {
-    const refreshBtn = document.getElementById('refreshHistory');
-    const resetBtn = document.getElementById('resetHistoryFilters');
-    const filterIds = [
-        'historyOrderQuery',
-        'historyStatusQuery',
-        'historyDeliveryQuery',
-        'historyPaymentQuery',
-        'historyTagQuery',
-        'historyEventType',
-        'historyEventKind',
-        'historyChangedField',
-        'historyPeriod',
-        'historyWatchedOnly'
-    ];
+    const searchBtn = document.getElementById('searchHistory');
+    const resetBtn = document.getElementById('resetHistorySearch');
+    const queryInput = document.getElementById('historyOrderQuery');
+    const candidatesEl = document.getElementById('historyCandidates');
 
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', loadHistory);
+    if (searchBtn) {
+        searchBtn.addEventListener('click', () => loadOrderHistory());
     }
 
     if (resetBtn) {
-        resetBtn.addEventListener('click', resetHistoryFilters);
+        resetBtn.addEventListener('click', resetHistorySearch);
     }
 
-    filterIds.forEach((id) => {
-        const el = document.getElementById(id);
+    if (queryInput) {
+        queryInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                loadOrderHistory();
+            }
+        });
+    }
 
-        if (!el) {
-            return;
-        }
+    if (candidatesEl) {
+        candidatesEl.addEventListener('click', (event) => {
+            const orderId = event?.target?.dataset?.orderId;
 
-        el.addEventListener('change', loadHistory);
+            if (!orderId) {
+                return;
+            }
 
-        if ([
-            'historyOrderQuery',
-            'historyStatusQuery',
-            'historyDeliveryQuery',
-            'historyPaymentQuery',
-            'historyTagQuery'
-        ].includes(id)) {
-            el.addEventListener('input', loadHistory);
-        }
-    });
+            setElementValue('historyOrderQuery', orderId);
+            loadOrderHistory(orderId);
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     bindHistoryControls();
-    loadHistory();
+    renderHistory({ ok: true, status: 'idle' });
 });

@@ -1271,3 +1271,102 @@ test('monitor status snapshot exposes direct follow-up state without watched ord
     assert.equal(status.watchedOrdersCount, 1);
     assert.equal(Object.prototype.hasOwnProperty.call(status, 'watchedOrders'), false);
 });
+
+test('order lookup resolves full and short order numbers from known orders and journal', () => {
+    const context = loadBackgroundContext();
+    const snapshot = context.getOrderLookupSnapshot({
+        knownOrdersDB: {
+            '1001-300326': {
+                id: '1001-300326',
+                status: 'Оплачен',
+                delivery: 'Самовывоз',
+                orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
+            }
+        },
+        eventJournal: [
+            {
+                id: 'event-1',
+                createdAt: 1700000000000,
+                orderId: '1001-290326',
+                eventType: 'order-changed',
+                changedFields: ['status'],
+                diff: [
+                    { field: 'status', before: 'Новый', after: 'Завершен' }
+                ]
+            },
+            {
+                id: 'event-2',
+                createdAt: 1700000100000,
+                orderId: '1001-300326',
+                eventType: 'order-changed',
+                changedFields: ['status'],
+                diff: [
+                    { field: 'status', before: 'Новый', after: 'Оплачен' }
+                ]
+            }
+        ],
+        watchedOrders: {
+            items: [
+                { id: '1001-300326', status: 'active', lastCheckedAt: 1700000200000 }
+            ]
+        }
+    }, {
+        query: '1001'
+    });
+
+    assert.equal(snapshot.status, 'multiple-candidates');
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.candidates.map(candidate => candidate.orderId))), [
+        '1001-300326',
+        '1001-290326'
+    ]);
+    assert.equal(snapshot.candidates[0].isWatched, true);
+    assert.equal(snapshot.selectedOrderId, '');
+    assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries)), []);
+
+    const full = context.getOrderLookupSnapshot({
+        knownOrdersDB: {},
+        eventJournal: snapshot.candidates.map(candidate => ({
+            orderId: candidate.orderId,
+            createdAt: candidate.lastSeenAt,
+            eventType: 'order-changed'
+        })),
+        watchedOrders: {}
+    }, {
+        query: '1001-300326'
+    });
+
+    assert.equal(full.status, 'selected');
+    assert.equal(full.selectedOrderId, '1001-300326');
+    assert.equal(full.entries.length, 1);
+});
+
+test('order lookup returns invalid and not-found states without exposing global journal', () => {
+    const context = loadBackgroundContext();
+    const invalid = context.getOrderLookupSnapshot({
+        knownOrdersDB: {},
+        eventJournal: [
+            { orderId: '1000-300326', createdAt: 1700000000000 }
+        ],
+        watchedOrders: {}
+    }, {
+        query: 'abc'
+    });
+
+    assert.equal(invalid.status, 'invalid-query');
+    assert.deepEqual(JSON.parse(JSON.stringify(invalid.entries)), []);
+    assert.deepEqual(JSON.parse(JSON.stringify(invalid.candidates)), []);
+
+    const notFound = context.getOrderLookupSnapshot({
+        knownOrdersDB: {},
+        eventJournal: [
+            { orderId: '1000-300326', createdAt: 1700000000000 }
+        ],
+        watchedOrders: {}
+    }, {
+        query: '9999'
+    });
+
+    assert.equal(notFound.status, 'not-found');
+    assert.deepEqual(JSON.parse(JSON.stringify(notFound.entries)), []);
+    assert.deepEqual(JSON.parse(JSON.stringify(notFound.candidates)), []);
+});

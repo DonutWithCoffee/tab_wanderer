@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/runtime-api.js');
+importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -1482,6 +1482,18 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 send(createRuntimeEventJournalResponse(
                     eventJournal,
                     createWatchedEventJournalOptions(msg.options || {}, userConfig?.watchedOrders)
+                ));
+                return;
+            }
+
+            if (msg.type === 'GET_ORDER_LOOKUP') {
+                send(createRuntimeOrderLookupResponse(
+                    {
+                        knownOrdersDB,
+                        eventJournal,
+                        watchedOrders: userConfig?.watchedOrders
+                    },
+                    msg.options || {}
                 ));
                 return;
             }

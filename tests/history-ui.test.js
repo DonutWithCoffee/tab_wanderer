@@ -32,6 +32,7 @@ class FakeElement extends FakeEventTarget {
         this.id = id;
         this.innerText = '';
         this.value = '';
+        this.dataset = {};
         this._innerHTML = '';
     }
 
@@ -66,64 +67,59 @@ function createHistoryDom() {
 
     [
         'historyOrderQuery',
-        'historyEventType',
-        'historyEventKind',
-        'historyChangedField',
-        'historyPeriod',
-        'historyWatchedOnly',
-        'refreshHistory',
-        'resetHistoryFilters',
+        'searchHistory',
+        'resetHistorySearch',
         'historyStatus',
+        'historyCandidates',
+        'orderSummary',
         'historyList'
     ].forEach((id) => document.registerElement(id));
-
-    document.getElementById('historyPeriod').value = 'all';
-    document.getElementById('historyWatchedOnly').value = '';
 
     return document;
 }
 
-function loadHistoryContext(responseOverride, setupDocument) {
-    const source = fs.readFileSync(
-        path.join(__dirname, '..', 'history.js'),
-        'utf8'
-    );
-
-    const sentMessages = [];
-    const document = createHistoryDom();
-
-    if (typeof setupDocument === 'function') {
-        setupDocument(document);
-    }
-
-    const defaultResponse = {
+function getDefaultOrderLookupResponse() {
+    return {
         ok: true,
+        query: '1001',
+        queryType: 'short',
+        status: 'selected',
+        selectedOrderId: '1001-300326',
+        candidates: [
+            {
+                orderId: '1001-300326',
+                shortOrderNumber: '1001',
+                orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/',
+                context: {
+                    status: 'Оплачен',
+                    delivery: 'Самовывоз',
+                    payment: 'Наличными в офисе',
+                    tags: ['ОЗОН']
+                },
+                isWatched: true,
+                lastSeenAt: 1700000060000,
+                eventCount: 2
+            }
+        ],
+        order: {
+            orderId: '1001-300326',
+            shortOrderNumber: '1001',
+            orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/',
+            context: {
+                status: 'Оплачен',
+                delivery: 'Самовывоз',
+                payment: 'Наличными в офисе',
+                tags: ['ОЗОН']
+            },
+            isWatched: true,
+            lastSeenAt: 1700000060000,
+            eventCount: 2
+        },
         storedTotal: 3,
-        total: 3,
-        returned: 3,
+        total: 2,
+        returned: 2,
         limit: 100,
         entries: [
-            {
-                id: 'scope-event',
-                createdAt: 1700000120000,
-                orderId: '',
-                orderUrl: '',
-                eventType: 'scope-changed',
-                eventKind: 'scope-change',
-                syncReason: 'scope-change',
-                changedFields: ['scope.status'],
-                diff: [
-                    {
-                        field: 'scope.status',
-                        before: ['Все'],
-                        after: ['Новый']
-                    }
-                ],
-                notification: {
-                    notify: false,
-                    reason: 'Scope changes are recorded in history without user notifications'
-                }
-            },
             {
                 id: 'event-2',
                 createdAt: 1700000060000,
@@ -141,14 +137,13 @@ function loadHistoryContext(responseOverride, setupDocument) {
                     }
                 ],
                 notification: {
-                    notify: false,
-                    reason: 'No enabled changed fields matched: status'
+                    notify: true
                 }
             },
             {
                 id: 'event-1',
                 createdAt: 1700000000000,
-                orderId: '1000-300326',
+                orderId: '1001-300326',
                 orderUrl: '',
                 eventType: 'new-order',
                 eventKind: 'catch-up',
@@ -162,11 +157,26 @@ function loadHistoryContext(responseOverride, setupDocument) {
                     tags: ['ОЗОН']
                 },
                 notification: {
-                    notify: true
+                    notify: false,
+                    reason: 'new order trigger disabled'
                 }
             }
         ]
     };
+}
+
+function loadHistoryContext(responseOverride, setupDocument) {
+    const source = fs.readFileSync(
+        path.join(__dirname, '..', 'history.js'),
+        'utf8'
+    );
+
+    const sentMessages = [];
+    const document = createHistoryDom();
+
+    if (typeof setupDocument === 'function') {
+        setupDocument(document);
+    }
 
     const context = {
         console: {
@@ -181,7 +191,7 @@ function loadHistoryContext(responseOverride, setupDocument) {
                     sentMessages.push(message);
 
                     if (typeof callback === 'function') {
-                        callback(responseOverride || defaultResponse);
+                        callback(responseOverride || getDefaultOrderLookupResponse());
                     }
                 }
             }
@@ -210,147 +220,178 @@ function readHistoryHtml() {
     );
 }
 
-test('history page html contains filters and readable timeline containers', () => {
+test('history page is order lookup, not full event timeline', () => {
     const html = readHistoryHtml();
 
-    assert.match(html, /История изменений/);
+    assert.match(html, /Поиск изменений по заказу/);
     assert.match(html, /id="historyOrderQuery"/);
-    assert.match(html, /id="historyEventType"/);
-    assert.match(html, /id="historyEventKind"/);
-    assert.match(html, /id="historyChangedField"/);
-    assert.match(html, /id="historyPeriod"/);
-    assert.match(html, /id="historyWatchedOnly"/);
-    assert.match(html, /id="resetHistoryFilters"/);
-    assert.match(html, /id="refreshHistory"/);
-    assert.match(html, /id="historyStatus"/);
+    assert.match(html, /id="searchHistory"/);
+    assert.match(html, /id="resetHistorySearch"/);
+    assert.match(html, /id="historyCandidates"/);
+    assert.match(html, /id="orderSummary"/);
     assert.match(html, /id="historyList"/);
-    assert.match(html, /Смена области мониторинга/);
-    assert.doesNotMatch(html, /технический скелет страницы истории/);
+    assert.match(html, /первые 4 цифры/);
+    assert.match(html, /Это не полная серверная история заказа/);
+    assert.doesNotMatch(html, /id="historyEventType"/);
+    assert.doesNotMatch(html, /id="historyEventKind"/);
+    assert.doesNotMatch(html, /id="historyChangedField"/);
+    assert.doesNotMatch(html, /id="historyWatchedOnly"/);
 });
 
-test('history page requests event journal and renders readable entries', () => {
+test('history page starts idle without loading broad event journal', () => {
     const context = loadHistoryContext();
     const document = context.__test.document;
+
+    assert.equal(context.__test.sentMessages.length, 0);
+    assert.equal(document.getElementById('historyStatus').innerText, 'Введите номер заказа для поиска');
+    assert.equal(document.getElementById('historyList').innerHTML, '');
+});
+
+test('history page requests order lookup and renders selected order changes', () => {
+    const context = loadHistoryContext(undefined, (document) => {
+        document.getElementById('historyOrderQuery').value = '1001';
+    });
+    const document = context.__test.document;
+
+    document.getElementById('searchHistory').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('searchHistory')
+    });
 
     assert.equal(context.__test.sentMessages.length, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.sentMessages[0])), {
-        type: 'GET_EVENT_JOURNAL',
+        type: 'GET_ORDER_LOOKUP',
         options: {
+            query: '1001',
             limit: 100
         }
     });
 
-    assert.equal(
-        document.getElementById('historyStatus').innerText,
-        'Событий найдено: 3; показано: 3; всего сохранено: 3'
-    );
-    assert.match(document.getElementById('historyList').innerHTML, /Заказ №1001-300326/);
+    assert.equal(document.getElementById('historyStatus').innerText, 'Заказ найден: 1001-300326. Событий: 2');
+    assert.match(document.getElementById('orderSummary').innerHTML, /Заказ 1001-300326/);
+    assert.match(document.getElementById('orderSummary').innerHTML, /Оплачен/);
+    assert.match(document.getElementById('orderSummary').innerHTML, /ОЗОН/);
+    assert.match(document.getElementById('orderSummary').innerHTML, /Это не полная серверная история заказа/);
     assert.match(document.getElementById('historyList').innerHTML, /Изменение заказа/);
-    assert.match(document.getElementById('historyList').innerHTML, /Живое наблюдение/);
-    assert.match(document.getElementById('historyList').innerHTML, /Обычный цикл/);
     assert.match(document.getElementById('historyList').innerHTML, /Статус/);
     assert.match(document.getElementById('historyList').innerHTML, /Новый/);
     assert.match(document.getElementById('historyList').innerHTML, /Оплачен/);
-    assert.match(document.getElementById('historyList').innerHTML, /Уведомление: нет/);
-    assert.match(document.getElementById('historyList').innerHTML, /Область мониторинга/);
-    assert.match(document.getElementById('historyList').innerHTML, /Область: статус/);
-    assert.match(document.getElementById('historyList').innerHTML, /Самовывоз/);
+    assert.match(document.getElementById('historyList').innerHTML, /Первое обнаружение заказа/);
 });
 
-test('history page sends selected filters to event journal request', () => {
-    const context = loadHistoryContext();
+test('history page renders multiple short-number candidates without showing global events', () => {
+    const context = loadHistoryContext({
+        ok: true,
+        query: '1001',
+        queryType: 'short',
+        status: 'multiple-candidates',
+        selectedOrderId: '',
+        candidates: [
+            {
+                orderId: '1001-300326',
+                context: { status: 'Оплачен' },
+                lastSeenAt: 1700000060000
+            },
+            {
+                orderId: '1001-290326',
+                context: { status: 'Завершен' },
+                lastSeenAt: 1699990000000
+            }
+        ],
+        order: null,
+        entries: [],
+        total: 0,
+        returned: 0,
+        storedTotal: 10,
+        limit: 100
+    }, (document) => {
+        document.getElementById('historyOrderQuery').value = '1001';
+    });
     const document = context.__test.document;
 
-    document.getElementById('historyOrderQuery').value = '1001';
-    document.getElementById('historyEventType').value = 'order-changed';
-    document.getElementById('historyEventKind').value = 'live';
-    document.getElementById('historyChangedField').value = 'status';
-    document.getElementById('historyPeriod').value = '7d';
-    document.getElementById('historyWatchedOnly').value = '1';
+    document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
 
-    document.getElementById('refreshHistory').dispatchEvent({
-        type: 'click',
-        target: document.getElementById('refreshHistory')
-    });
-
-    assert.equal(context.__test.sentMessages.length, 2);
-    assert.equal(context.__test.sentMessages[1].type, 'GET_EVENT_JOURNAL');
-    assert.equal(context.__test.sentMessages[1].options.limit, 100);
-    assert.equal(context.__test.sentMessages[1].options.orderQuery, '1001');
-    assert.equal(context.__test.sentMessages[1].options.eventType, 'order-changed');
-    assert.equal(context.__test.sentMessages[1].options.eventKind, 'live');
-    assert.equal(context.__test.sentMessages[1].options.changedField, 'status');
-    assert.equal(typeof context.__test.sentMessages[1].options.since, 'number');
-    assert.equal(context.__test.sentMessages[1].options.watchedOnly, true);
+    assert.equal(document.getElementById('historyStatus').innerText, 'Найдено несколько заказов: 2');
+    assert.match(document.getElementById('historyCandidates').innerHTML, /1001-300326/);
+    assert.match(document.getElementById('historyCandidates').innerHTML, /1001-290326/);
+    assert.equal(document.getElementById('orderSummary').innerHTML, '');
+    assert.equal(document.getElementById('historyList').innerHTML, '');
 });
 
-test('history page reset filters clears controls and reloads journal', () => {
+test('history page shows not-found and invalid lookup states', () => {
+    const notFound = loadHistoryContext({
+        ok: true,
+        query: '9999',
+        queryType: 'short',
+        status: 'not-found',
+        candidates: [],
+        selectedOrderId: '',
+        order: null,
+        entries: [],
+        total: 0,
+        returned: 0,
+        storedTotal: 0,
+        limit: 100
+    }, (document) => {
+        document.getElementById('historyOrderQuery').value = '9999';
+    });
+
+    notFound.__test.document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
+    assert.match(notFound.__test.document.getElementById('historyStatus').innerText, /не найден/);
+    assert.match(notFound.__test.document.getElementById('historyList').innerHTML, /Плагин показывает только заказы/);
+
+    const invalid = loadHistoryContext({
+        ok: true,
+        query: 'abc',
+        queryType: 'invalid',
+        status: 'invalid-query',
+        candidates: [],
+        selectedOrderId: '',
+        order: null,
+        entries: [],
+        total: 0,
+        returned: 0,
+        storedTotal: 0,
+        limit: 100
+    }, (document) => {
+        document.getElementById('historyOrderQuery').value = 'abc';
+    });
+
+    invalid.__test.document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
+    assert.equal(
+        invalid.__test.document.getElementById('historyStatus').innerText,
+        'Введите полный номер заказа или первые 4 цифры до дефиса'
+    );
+});
+
+test('history page reset clears current lookup without backend request', () => {
     const context = loadHistoryContext(undefined, (document) => {
         document.getElementById('historyOrderQuery').value = '1001';
-        document.getElementById('historyEventType').value = 'order-changed';
-        document.getElementById('historyPeriod').value = '24h';
-        document.getElementById('historyWatchedOnly').value = '1';
     });
     const document = context.__test.document;
 
-    document.getElementById('resetHistoryFilters').dispatchEvent({
+    document.getElementById('resetHistorySearch').dispatchEvent({
         type: 'click',
-        target: document.getElementById('resetHistoryFilters')
+        target: document.getElementById('resetHistorySearch')
     });
 
     assert.equal(document.getElementById('historyOrderQuery').value, '');
-    assert.equal(document.getElementById('historyEventType').value, '');
-    assert.equal(document.getElementById('historyPeriod').value, 'all');
-    assert.equal(document.getElementById('historyWatchedOnly').value, '');
-    assert.equal(context.__test.sentMessages.length, 2);
-    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.sentMessages[1])), {
-        type: 'GET_EVENT_JOURNAL',
-        options: {
-            limit: 100
-        }
-    });
+    assert.equal(context.__test.sentMessages.length, 0);
+    assert.equal(document.getElementById('historyStatus').innerText, 'Введите номер заказа для поиска');
+    assert.equal(document.getElementById('historyList').innerHTML, '');
 });
 
-test('history page shows empty state', () => {
-    const context = loadHistoryContext({
-        ok: true,
-        storedTotal: 0,
-        total: 0,
-        returned: 0,
-        limit: 100,
-        entries: []
-    });
-
-    const document = context.__test.document;
-
-    assert.equal(
-        document.getElementById('historyStatus').innerText,
-        'Событий найдено: 0; показано: 0; всего сохранено: 0'
-    );
-    assert.match(document.getElementById('historyList').innerHTML, /По выбранным фильтрам событий нет/);
-});
-
-test('history page refresh button reloads journal', () => {
-    const context = loadHistoryContext();
-    const refreshBtn = context.__test.document.getElementById('refreshHistory');
-
-    refreshBtn.dispatchEvent({
-        type: 'click',
-        target: refreshBtn
-    });
-
-    assert.equal(context.__test.sentMessages.length, 2);
-    assert.equal(context.__test.sentMessages[1].type, 'GET_EVENT_JOURNAL');
-});
-
-test('history page shows load failure', () => {
+test('history page shows order lookup load failure', () => {
     const context = loadHistoryContext({
         ok: false,
         error: 'failed'
+    }, (document) => {
+        document.getElementById('historyOrderQuery').value = '1001';
     });
-
     const document = context.__test.document;
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Не удалось загрузить историю');
+    document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
+
+    assert.equal(document.getElementById('historyStatus').innerText, 'Не удалось загрузить изменения по заказу');
     assert.equal(document.getElementById('historyList').innerHTML, '');
 });

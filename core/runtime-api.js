@@ -56,6 +56,12 @@ function createRuntimeEventJournalResponse(eventJournal, options = {}) {
     );
 }
 
+function createRuntimeOrderLookupResponse(sources = {}, options = {}) {
+    return createRuntimeOkResponse(
+        getOrderLookupSnapshot(sources || {}, options || {})
+    );
+}
+
 function createRuntimeMonitorStatusResponse(status) {
     return createRuntimeOkResponse({ status });
 }
@@ -76,3 +82,5 @@ function createRuntimeUpdateConfigResponse(userConfig) {
 function createRuntimeCollectionResponse(payload = {}) {
     return createRuntimeOkResponse(payload);
 }
+
+globalThis.createRuntimeOrderLookupResponse = createRuntimeOrderLookupResponse;

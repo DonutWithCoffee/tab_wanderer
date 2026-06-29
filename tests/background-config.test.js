@@ -2819,3 +2819,59 @@ test('DIRECT_ORDER tag-only direct change records history without notification',
     assert.equal(entry.notification.ruleId, 'notification-trigger-no-enabled-changed-fields');
     assert.ok(watchedItem.lastEventAt > 0);
 });
+
+test('GET_ORDER_LOOKUP resolves short order candidates without returning broad history', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        knownOrdersDB: {
+            '1001-300326': {
+                id: '1001-300326',
+                status: 'Оплачен'
+            }
+        },
+        eventJournal: [
+            {
+                id: '1',
+                orderId: '1001-290326',
+                createdAt: 1700000000000,
+                eventType: 'order-changed'
+            },
+            {
+                id: '2',
+                orderId: '1001-300326',
+                createdAt: 1700000100000,
+                eventType: 'order-changed'
+            },
+            {
+                id: '3',
+                orderId: '2000-300326',
+                createdAt: 1700000200000,
+                eventType: 'order-changed'
+            }
+        ],
+        userConfig: getEffectiveConfigSnapshot(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1001-300326' }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'GET_ORDER_LOOKUP',
+        options: {
+            query: '1001'
+        }
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.status, 'multiple-candidates');
+    assert.deepEqual(JSON.parse(JSON.stringify(response.candidates.map(candidate => candidate.orderId))), [
+        '1001-300326',
+        '1001-290326'
+    ]);
+    assert.equal(response.entries.length, 0);
+});

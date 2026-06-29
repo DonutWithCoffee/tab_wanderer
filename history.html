@@ -2,10 +2,10 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>tab_wanderer history</title>
+    <title>tab_wanderer order lookup</title>
     <style>
         body {
-            max-width: 1040px;
+            max-width: 920px;
             margin: 16px auto;
             padding: 0 16px;
             font-family: Arial, sans-serif;
@@ -17,36 +17,37 @@
             line-height: 1.35;
         }
 
-        .toolbar,
-        .history-filters {
+        .lookup-panel,
+        .order-summary,
+        .candidate-list,
+        .history-entry {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #fff;
+            padding: 12px;
             margin: 12px 0;
         }
 
-        .history-filters {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 10px;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
+        .lookup-panel {
             background: #fafafa;
         }
 
-        .history-filter-field {
+        .lookup-row {
             display: flex;
-            flex-direction: column;
-            gap: 4px;
-            font-size: 13px;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
         }
 
-        .history-filter-field label {
-            font-weight: bold;
+        .lookup-row input {
+            min-width: 220px;
+            flex: 1;
+            padding: 8px;
+            font-size: 14px;
         }
 
-        .history-filter-field input,
-        .history-filter-field select {
-            padding: 6px;
-            font-size: 13px;
+        .lookup-row button {
+            padding: 8px 12px;
         }
 
         #historyStatus {
@@ -54,24 +55,31 @@
             font-weight: bold;
         }
 
-        .history-entry {
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            padding: 10px;
-            margin-bottom: 10px;
-            background: #fff;
+        .candidate-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 0;
+            border-top: 1px solid #eee;
         }
 
-        .history-entry-title {
-            font-weight: bold;
-            margin-bottom: 6px;
+        .candidate-item:first-child {
+            border-top: 0;
         }
 
+        .candidate-meta,
         .history-entry-meta,
         .history-entry-context,
-        .history-entry-notification {
+        .history-entry-notification,
+        .order-summary-meta {
             color: #555;
             font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .history-entry-title,
+        .order-summary-title {
+            font-weight: bold;
             margin-bottom: 6px;
         }
 
@@ -95,100 +103,27 @@
 </head>
 <body>
 
-<h2>История изменений</h2>
+<h2>Поиск изменений по заказу</h2>
 
 <p class="hint">
-    Минимальная рабочая история событий: фильтры, читаемая лента изменений и запись смены области мониторинга.
-    Финальная визуальная полировка будет сделана на pre-1.0 UI/UX этапе.
+    Введите полный номер заказа или первые 4 цифры до дефиса. Плагин покажет только изменения,
+    которые он сам обнаружил. Это не полная серверная история заказа в админке.
 </p>
 
-<section class="history-filters" aria-label="Фильтры истории">
-    <div class="history-filter-field">
-        <label for="historyOrderQuery">Заказ / телефон</label>
-        <input id="historyOrderQuery" type="search" placeholder="Номер, часть номера или последние цифры телефона">
+<section class="lookup-panel" aria-label="Поиск заказа">
+    <div class="lookup-row">
+        <input id="historyOrderQuery" type="search" placeholder="Например: 1234 или 1234-110626" autocomplete="off">
+        <button id="searchHistory">Найти</button>
+        <button id="resetHistorySearch">Очистить</button>
     </div>
-
-    <div class="history-filter-field">
-        <label for="historyEventType">Тип события</label>
-        <select id="historyEventType">
-            <option value="">Все</option>
-            <option value="new-order">Новый заказ</option>
-            <option value="order-changed">Изменение заказа</option>
-            <option value="scope-changed">Смена области мониторинга</option>
-            <option value="direct-follow-up">Direct follow-up</option>
-        </select>
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyEventKind">Источник</label>
-        <select id="historyEventKind">
-            <option value="">Все</option>
-            <option value="live">Живое наблюдение</option>
-            <option value="catch-up">Catch-up после запуска</option>
-            <option value="scope-catch-up">Catch-up после смены области</option>
-            <option value="scope-change">Смена области</option>
-            <option value="direct-follow-up">Direct follow-up</option>
-        </select>
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyChangedField">Поле</label>
-        <select id="historyChangedField">
-            <option value="">Все</option>
-            <option value="status">Статус</option>
-            <option value="delivery">Доставка</option>
-            <option value="payment">Оплата</option>
-            <option value="city">Город</option>
-            <option value="tags">Теги</option>
-            <option value="scope">Область мониторинга</option>
-        </select>
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyStatusQuery">Статус</label>
-        <input id="historyStatusQuery" type="search" placeholder="Например: оплачен">
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyDeliveryQuery">Доставка</label>
-        <input id="historyDeliveryQuery" type="search" placeholder="Например: самовывоз">
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyPaymentQuery">Оплата</label>
-        <input id="historyPaymentQuery" type="search" placeholder="Например: безналичный">
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyTagQuery">Тег</label>
-        <input id="historyTagQuery" type="search" placeholder="Например: ОЗОН">
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyPeriod">Период</label>
-        <select id="historyPeriod">
-            <option value="all">Всё сохранённое</option>
-            <option value="today">Сегодня</option>
-            <option value="24h">Последние 24 часа</option>
-            <option value="7d">Последние 7 дней</option>
-        </select>
-    </div>
-
-    <div class="history-filter-field">
-        <label for="historyWatchedOnly">Watchlist</label>
-        <select id="historyWatchedOnly">
-            <option value="">Все заказы</option>
-            <option value="1">Только отслеживаемые</option>
-        </select>
-    </div>
+    <p class="hint">
+        Если по первым 4 цифрам найдено несколько заказов, выберите нужный полный номер из списка.
+    </p>
 </section>
 
-<div class="toolbar">
-    <button id="refreshHistory">Обновить</button>
-    <button id="resetHistoryFilters">Сбросить фильтры</button>
-</div>
-
-<div id="historyStatus">Загрузка...</div>
+<div id="historyStatus">Введите номер заказа для поиска</div>
+<div id="historyCandidates"></div>
+<div id="orderSummary"></div>
 <div id="historyList"></div>
 
 <script src="history.js"></script>
