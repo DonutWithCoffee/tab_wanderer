@@ -8,7 +8,10 @@ const testFiles = [
     'tests/content-parser.test.js',
     'tests/popup-ui.test.js',
     'tests/options-ui.test.js',
-    'tests/history-ui.test.js'
+    'tests/history-ui.test.js',
+    'tests/warehouse-barcode-extractor.test.js',
+    'tests/ozon-product-search.test.js',
+    'tests/ozon-barcode-binding.test.js'
 ];
 
 function collectSummary(output) {
