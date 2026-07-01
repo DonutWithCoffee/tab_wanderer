@@ -102,7 +102,7 @@ function getDefaultOrderLookupResponse() {
                 },
                 isWatched: true,
                 lastSeenAt: 1700000060000,
-                eventCount: 2
+                eventCount: 3
             }
         ],
         order: {
@@ -117,13 +117,34 @@ function getDefaultOrderLookupResponse() {
             },
             isWatched: true,
             lastSeenAt: 1700000060000,
-            eventCount: 2
+            eventCount: 3
         },
         storedTotal: 3,
-        total: 2,
-        returned: 2,
+        total: 3,
+        returned: 3,
         limit: 100,
         entries: [
+            {
+                id: 'event-3',
+                createdAt: 1700000120000,
+                orderId: '1001-300326',
+                orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/',
+                eventType: 'order-changed',
+                eventKind: 'direct-follow-up',
+                syncReason: 'direct-follow-up',
+                changedFields: ['delivery'],
+                diff: [
+                    {
+                        field: 'delivery',
+                        before: 'Самовывоз',
+                        after: 'Курьер'
+                    }
+                ],
+                notification: {
+                    notify: false,
+                    reason: 'direct follow-up notification suppressed'
+                }
+            },
             {
                 id: 'event-2',
                 createdAt: 1700000060000,
@@ -312,12 +333,13 @@ test('history page requests order lookup and renders selected order changes', ()
         }
     });
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Заказ 1001-300326 найден · 2 события');
+    assert.equal(document.getElementById('historyStatus').innerText, 'Заказ 1001-300326 найден · 3 события');
     assert.match(document.getElementById('orderSummary').innerHTML, /Заказ 1001-300326/);
     assert.match(document.getElementById('orderSummary').innerHTML, /Оплачен/);
     assert.match(document.getElementById('orderSummary').innerHTML, /ОЗОН/);
     assert.match(document.getElementById('orderSummary').innerHTML, /Это не полная серверная история заказа/);
     assert.match(document.getElementById('historyList').innerHTML, /Изменение заказа/);
+    assert.match(document.getElementById('historyList').innerHTML, /Прямая проверка/);
     assert.match(document.getElementById('historyList').innerHTML, /Статус/);
     assert.match(document.getElementById('historyList').innerHTML, /Новый/);
     assert.match(document.getElementById('historyList').innerHTML, /Оплачен/);

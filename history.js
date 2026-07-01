@@ -31,7 +31,7 @@ const SYNC_REASON_LABELS = {
     'scope-change': 'Смена области мониторинга',
     'mode-change': 'Смена режима мониторинга',
     'window-sync': 'Синхронизация окна',
-    'direct-follow-up': 'Direct follow-up'
+    'direct-follow-up': 'Прямая проверка'
 };
 
 const FIELD_LABELS = {
