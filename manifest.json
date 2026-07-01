@@ -20,9 +20,11 @@
   "content_scripts": [
     {
       "matches": [
-        "https://amperkot.ru/admin/orders*"
+        "https://amperkot.ru/admin/orders*",
+        "https://amperkot.ru/web-apps/wh3/*"
       ],
       "js": [
+        "core/warehouse-barcode-extractor.js",
         "content.js"
       ]
     }

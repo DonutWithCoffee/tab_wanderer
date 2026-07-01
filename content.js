@@ -724,6 +724,364 @@ function initDirectWorker() {
     }, 'DIRECT');
 }
 
+
+// ---------- WAREHOUSE OZON BARCODE BRIDGE ----------
+const WAREHOUSE_BRIDGE_SCRIPT_ID = 'tab-wanderer-warehouse-barcode-bridge';
+const WAREHOUSE_SHOP_ORDER_REQUEST_EVENT = 'tab_wanderer:warehouse-shop-order-request';
+const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-response';
+
+let lastWarehouseBarcodePreview = null;
+
+function isWarehouseAssemblyPageUrl(href = window.location.href) {
+    try {
+        const url = new URL(href);
+
+        return url.hostname === 'amperkot.ru'
+            && url.pathname.startsWith('/web-apps/wh3/')
+            && url.hash.includes('/wh/shop-orders/assembly/');
+    } catch {
+        return false;
+    }
+}
+
+function normalizeWarehouseBridgeText(value) {
+    return String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function normalizeWarehouseBridgeId(value) {
+    return String(value || '')
+        .replace(/\s+/g, '')
+        .trim();
+}
+
+function normalizeWarehouseBridgeNumber(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    const number = Number(value);
+
+    return Number.isFinite(number) ? number : null;
+}
+
+function sanitizeWarehouseBridgeProduct(product = {}) {
+    if (!product || typeof product !== 'object') {
+        return {};
+    }
+
+    return {
+        id: normalizeWarehouseBridgeId(product.id || product.product_id || product.productId),
+        title: normalizeWarehouseBridgeText(product.title || product.name)
+    };
+}
+
+function sanitizeWarehouseBridgeProductItem(productItem = {}, orderItem = {}) {
+    if (!productItem || typeof productItem !== 'object') {
+        return {};
+    }
+
+    const product = sanitizeWarehouseBridgeProduct(productItem.product || {});
+    const fallbackProductId = orderItem?.item_id || orderItem?.itemId || product.id;
+    const fallbackProductTitle = orderItem?.title || orderItem?.name || product.title;
+
+    return {
+        id: normalizeWarehouseBridgeId(productItem.id || productItem.item_id || productItem.itemId),
+        barcode: normalizeWarehouseBridgeId(productItem.barcode || productItem.bar_code || productItem.code),
+        type: normalizeWarehouseBridgeNumber(productItem.type),
+        quantity: normalizeWarehouseBridgeNumber(productItem.quantity),
+        reserved_quantity: normalizeWarehouseBridgeNumber(productItem.reserved_quantity || productItem.reservedQuantity),
+        product_id: normalizeWarehouseBridgeId(productItem.product_id || productItem.productId || fallbackProductId),
+        product: {
+            id: normalizeWarehouseBridgeId(product.id || fallbackProductId),
+            title: normalizeWarehouseBridgeText(product.title || fallbackProductTitle)
+        },
+        state: productItem.state && typeof productItem.state === 'object'
+            ? { title: normalizeWarehouseBridgeText(productItem.state.title || productItem.state.name) }
+            : null
+    };
+}
+
+function sanitizeWarehouseBridgeAssemblyEntry(entry = {}) {
+    const orderItem = entry?.order_item || entry?.orderItem || {};
+
+    return {
+        id: normalizeWarehouseBridgeId(entry.id || entry.assembly_id || entry.assemblyId),
+        quantity: normalizeWarehouseBridgeNumber(entry.quantity || entry.assembly_quantity || entry.assemblyQuantity),
+        product_item: sanitizeWarehouseBridgeProductItem(entry.product_item || entry.productItem || {}, orderItem),
+        order_item: {
+            id: normalizeWarehouseBridgeId(orderItem.id || orderItem.item_id || orderItem.itemId),
+            item_id: normalizeWarehouseBridgeId(orderItem.item_id || orderItem.itemId),
+            title: normalizeWarehouseBridgeText(orderItem.title || orderItem.name)
+        }
+    };
+}
+
+function sanitizeWarehouseBridgeOrderItem(item = {}) {
+    return {
+        id: normalizeWarehouseBridgeId(item.id || item.order_item_id || item.orderItemId),
+        item_id: normalizeWarehouseBridgeId(item.item_id || item.itemId || item.product_id || item.productId),
+        title: normalizeWarehouseBridgeText(item.title || item.name),
+        quantity: normalizeWarehouseBridgeNumber(item.quantity),
+        assembled_quantity: normalizeWarehouseBridgeNumber(item.assembled_quantity || item.assembledQuantity),
+        assemble_status: normalizeWarehouseBridgeText(item.assemble_status || item.assembleStatus || item.status)
+    };
+}
+
+function sanitizeWarehouseShopOrderForBarcodeBridge(shopOrder = {}) {
+    const safeOrder = shopOrder && typeof shopOrder === 'object' ? shopOrder : {};
+
+    return {
+        id: normalizeWarehouseBridgeText(safeOrder.number || safeOrder.id || safeOrder.order_id || safeOrder.orderId),
+        internalId: normalizeWarehouseBridgeId(safeOrder.id || safeOrder.internalId),
+        number: normalizeWarehouseBridgeText(safeOrder.number || safeOrder.order_number || safeOrder.orderNumber),
+        total_quantity: normalizeWarehouseBridgeNumber(safeOrder.total_quantity || safeOrder.totalQuantity),
+        assembled_quantity: normalizeWarehouseBridgeNumber(safeOrder.assembled_quantity || safeOrder.assembledQuantity),
+        items: Array.isArray(safeOrder.items)
+            ? safeOrder.items.map(sanitizeWarehouseBridgeOrderItem)
+            : [],
+        assembly: Array.isArray(safeOrder.assembly)
+            ? safeOrder.assembly.map(sanitizeWarehouseBridgeAssemblyEntry)
+            : []
+    };
+}
+
+function createWarehouseBarcodePreviewFromShopOrder(shopOrder = {}) {
+    const sanitizedShopOrder = sanitizeWarehouseShopOrderForBarcodeBridge(shopOrder);
+
+    if (typeof extractWarehouseAssemblyBarcodes !== 'function') {
+        return {
+            ok: false,
+            error: 'warehouse barcode extractor unavailable',
+            shopOrder: sanitizedShopOrder,
+            extraction: null,
+            summary: {
+                productCount: 0,
+                eligibleCount: 0,
+                skippedCount: 0
+            }
+        };
+    }
+
+    const extraction = extractWarehouseAssemblyBarcodes(sanitizedShopOrder);
+
+    return {
+        ok: true,
+        error: null,
+        source: 'warehouse-assembly-page',
+        url: window.location.href,
+        extractedAt: new Date().toISOString(),
+        shopOrder: sanitizedShopOrder,
+        extraction,
+        summary: extraction.summary
+    };
+}
+
+function getLastWarehouseBarcodePreview() {
+    return lastWarehouseBarcodePreview;
+}
+
+function createWarehouseBarcodeBridgeScriptText() {
+    return `(() => {
+        const SCRIPT_ID = ${JSON.stringify(WAREHOUSE_BRIDGE_SCRIPT_ID)};
+        const REQUEST_EVENT = ${JSON.stringify(WAREHOUSE_SHOP_ORDER_REQUEST_EVENT)};
+        const RESPONSE_EVENT = ${JSON.stringify(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT)};
+
+        if (window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__) {
+            return;
+        }
+
+        window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__ = true;
+
+        function isPlainObject(value) {
+            return !!value && typeof value === 'object';
+        }
+
+        function hasShopOrder(value) {
+            return isPlainObject(value)
+                && isPlainObject(value.shopOrder)
+                && Array.isArray(value.shopOrder.assembly);
+        }
+
+        function findShopOrderInCandidate(value) {
+            if (hasShopOrder(value)) {
+                return value.shopOrder;
+            }
+
+            if (isPlainObject(value?.$ctrl) && hasShopOrder(value.$ctrl)) {
+                return value.$ctrl.shopOrder;
+            }
+
+            if (isPlainObject(value?.vm) && hasShopOrder(value.vm)) {
+                return value.vm.shopOrder;
+            }
+
+            if (isPlainObject(value?.assemblyForm) && hasShopOrder(value.assemblyForm)) {
+                return value.assemblyForm.shopOrder;
+            }
+
+            return null;
+        }
+
+        function findShopOrderFromAngular() {
+            if (!window.angular || typeof window.angular.element !== 'function') {
+                return null;
+            }
+
+            const selectors = ['[data-ui-view]', '[ui-view]', 'section', 'body'];
+            const visited = new Set();
+            const queue = [];
+
+            for (const selector of selectors) {
+                const nodes = Array.from(document.querySelectorAll(selector) || []);
+
+                for (const node of nodes) {
+                    try {
+                        const wrapped = window.angular.element(node);
+                        const scope = wrapped?.scope?.() || wrapped?.isolateScope?.();
+
+                        if (scope) {
+                            queue.push(scope);
+                        }
+                    } catch {}
+                }
+            }
+
+            while (queue.length) {
+                const current = queue.shift();
+
+                if (!current || typeof current !== 'object' || visited.has(current)) {
+                    continue;
+                }
+
+                visited.add(current);
+
+                const shopOrder = findShopOrderInCandidate(current);
+
+                if (shopOrder) {
+                    return shopOrder;
+                }
+
+                for (const key of ['$parent', '$$childHead', '$$childTail', '$$nextSibling', '$$prevSibling', '$ctrl', 'vm', 'assemblyForm']) {
+                    if (current[key] && typeof current[key] === 'object' && !visited.has(current[key])) {
+                        queue.push(current[key]);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        window.addEventListener(REQUEST_EVENT, () => {
+            try {
+                const shopOrder = findShopOrderFromAngular();
+
+                window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
+                    detail: shopOrder
+                        ? { ok: true, shopOrder }
+                        : { ok: false, error: 'warehouse shopOrder not found' }
+                }));
+            } catch (error) {
+                window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
+                    detail: {
+                        ok: false,
+                        error: String(error && error.message ? error.message : error)
+                    }
+                }));
+            }
+        });
+
+        const node = document.getElementById(SCRIPT_ID);
+
+        if (node) {
+            node.dataset.installed = 'true';
+        }
+    })();`;
+}
+
+function injectWarehouseBarcodeBridgeScript() {
+    if (document.getElementById?.(WAREHOUSE_BRIDGE_SCRIPT_ID)) {
+        return true;
+    }
+
+    const script = document.createElement?.('script');
+
+    if (!script) {
+        return false;
+    }
+
+    script.id = WAREHOUSE_BRIDGE_SCRIPT_ID;
+    script.textContent = createWarehouseBarcodeBridgeScriptText();
+
+    const target = document.documentElement || document.head || document.body;
+
+    if (!target?.appendChild) {
+        return false;
+    }
+
+    target.appendChild(script);
+    script.remove?.();
+
+    return true;
+}
+
+function handleWarehouseShopOrderBridgeResponse(event) {
+    const detail = event?.detail || {};
+
+    if (!detail.ok || !detail.shopOrder) {
+        lastWarehouseBarcodePreview = {
+            ok: false,
+            error: detail.error || 'warehouse shopOrder not found',
+            summary: {
+                productCount: 0,
+                eligibleCount: 0,
+                skippedCount: 0
+            }
+        };
+        log('WARN', 'WAREHOUSE_OZON', 'shopOrder not found', lastWarehouseBarcodePreview.error);
+        return lastWarehouseBarcodePreview;
+    }
+
+    lastWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
+
+    log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', lastWarehouseBarcodePreview.summary);
+
+    return lastWarehouseBarcodePreview;
+}
+
+function requestWarehouseShopOrderSnapshot() {
+    const injected = injectWarehouseBarcodeBridgeScript();
+
+    if (!injected) {
+        lastWarehouseBarcodePreview = {
+            ok: false,
+            error: 'warehouse bridge injection failed',
+            summary: {
+                productCount: 0,
+                eligibleCount: 0,
+                skippedCount: 0
+            }
+        };
+        log('WARN', 'WAREHOUSE_OZON', lastWarehouseBarcodePreview.error);
+        return false;
+    }
+
+    window.dispatchEvent(new CustomEvent(WAREHOUSE_SHOP_ORDER_REQUEST_EVENT));
+    return true;
+}
+
+function initWarehouseBarcodeBridge() {
+    if (!isWarehouseAssemblyPageUrl()) {
+        return false;
+    }
+
+    window.addEventListener(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
+    requestWarehouseShopOrderSnapshot();
+
+    return true;
+}
+
 // ---------- CONTROL ----------
 function startWorkerLoop() {
     if (reloadTimer) {
@@ -754,6 +1112,11 @@ function stopWorkerLoop() {
 
 // ---------- INIT ----------
 function init() {
+    if (isWarehouseAssemblyPageUrl()) {
+        initWarehouseBarcodeBridge();
+        return;
+    }
+
     sendRuntimeMessage({ type: 'CHECK_WORKER' }, (res) => {
         const runtimeError = getRuntimeLastError();
 

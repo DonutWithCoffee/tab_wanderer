@@ -48,7 +48,13 @@ function loadContentContext(documentStub, overrides = {}) {
 
     context.globalThis = context;
 
+    const warehouseExtractorSource = fs.readFileSync(
+        path.join(__dirname, '..', 'core', 'warehouse-barcode-extractor.js'),
+        'utf8'
+    );
+
     vm.createContext(context);
+    vm.runInContext(warehouseExtractorSource, context, { filename: 'core/warehouse-barcode-extractor.js' });
     vm.runInContext(source, context, { filename: 'content.js' });
 
     return context;
@@ -653,4 +659,189 @@ test('content runtime messaging does not retry invalidated lastError callbacks',
     assert.doesNotThrow(() => context.sendWithRetry({ type: 'ORDERS' }));
     assert.equal(sendCalls, 1);
     assert.equal(timeoutCalls, 0);
+});
+
+
+test('isWarehouseAssemblyPageUrl detects warehouse assembly route only', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    assert.equal(
+        context.isWarehouseAssemblyPageUrl('https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=9205-010726'),
+        true
+    );
+    assert.equal(
+        context.isWarehouseAssemblyPageUrl('https://amperkot.ru/admin/orders/?page=1'),
+        false
+    );
+    assert.equal(
+        context.isWarehouseAssemblyPageUrl('https://example.invalid/web-apps/wh3/#/wh/shop-orders/assembly/4336'),
+        false
+    );
+});
+
+test('sanitizeWarehouseShopOrderForBarcodeBridge keeps only safe barcode fields', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+    const sanitized = context.sanitizeWarehouseShopOrderForBarcodeBridge({
+        id: 4336,
+        number: '9205-010726',
+        total_quantity: 16,
+        assembled_quantity: 16,
+        ignoredHeavyField: { secret: 'not copied' },
+        items: [
+            {
+                id: 1,
+                item_id: 23870634,
+                title: 'Матовый LED RGB светодиод',
+                quantity: 15,
+                assembled_quantity: 15,
+                ignored: true
+            }
+        ],
+        assembly: [
+            {
+                id: 10,
+                quantity: 15,
+                product_item: {
+                    id: 20,
+                    barcode: '2049684',
+                    type: 1,
+                    quantity: 157,
+                    reserved_quantity: 15,
+                    product_id: 23870634,
+                    product: {
+                        id: 23870634,
+                        title: 'Матовый LED RGB светодиод',
+                        ignoredPhoto: 'large blob'
+                    },
+                    state: { title: 'На складе', ignored: true }
+                },
+                order_item: { id: 1 }
+            }
+        ]
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(sanitized)), {
+        id: '9205-010726',
+        internalId: '4336',
+        number: '9205-010726',
+        total_quantity: 16,
+        assembled_quantity: 16,
+        items: [
+            {
+                id: '1',
+                item_id: '23870634',
+                title: 'Матовый LED RGB светодиод',
+                quantity: 15,
+                assembled_quantity: 15,
+                assemble_status: ''
+            }
+        ],
+        assembly: [
+            {
+                id: '10',
+                quantity: 15,
+                product_item: {
+                    id: '20',
+                    barcode: '2049684',
+                    type: 1,
+                    quantity: 157,
+                    reserved_quantity: 15,
+                    product_id: '23870634',
+                    product: {
+                        id: '23870634',
+                        title: 'Матовый LED RGB светодиод'
+                    },
+                    state: { title: 'На складе' }
+                },
+                order_item: {
+                    id: '1',
+                    item_id: '',
+                    title: ''
+                }
+            }
+        ]
+    });
+});
+
+test('createWarehouseBarcodePreviewFromShopOrder extracts eligible and skipped barcode summary', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+    const preview = context.createWarehouseBarcodePreviewFromShopOrder({
+        id: '9205-010726',
+        items: [],
+        assembly: [
+            {
+                id: 1,
+                quantity: 1,
+                product_item: {
+                    id: 101,
+                    barcode: '2317613',
+                    type: 0,
+                    quantity: 0,
+                    reserved_quantity: 1,
+                    product_id: 24126456,
+                    product: { id: 24126456, title: 'DC-DC MT3608' }
+                }
+            },
+            {
+                id: 2,
+                quantity: 15,
+                product_item: {
+                    id: 102,
+                    barcode: '2049684',
+                    type: 1,
+                    quantity: 157,
+                    reserved_quantity: 15,
+                    product_id: 23870634,
+                    product: { id: 23870634, title: 'LED RGB' }
+                }
+            }
+        ]
+    });
+
+    assert.equal(preview.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(preview.summary)), {
+        productCount: 2,
+        eligibleCount: 1,
+        skippedCount: 1
+    });
+    assert.equal(preview.extraction.eligibleBarcodes[0].barcode, '2317613');
+    assert.equal(preview.extraction.skippedBarcodes[0].reason, 'multiBarcodeType');
+});
+
+test('handleWarehouseShopOrderBridgeResponse stores preview and reports missing shopOrder', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    const failed = context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: false,
+            error: 'warehouse shopOrder not found'
+        }
+    });
+
+    assert.equal(failed.ok, false);
+    assert.equal(context.getLastWarehouseBarcodePreview().error, 'warehouse shopOrder not found');
+
+    const ok = context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            shopOrder: {
+                id: '9205-010726',
+                assembly: [
+                    {
+                        quantity: 1,
+                        product_item: {
+                            barcode: '2317613',
+                            type: 0,
+                            reserved_quantity: 1,
+                            product_id: '24126456',
+                            product: { title: 'DC-DC MT3608' }
+                        }
+                    }
+                ]
+            }
+        }
+    });
+
+    assert.equal(ok.ok, true);
+    assert.equal(context.getLastWarehouseBarcodePreview().summary.eligibleCount, 1);
 });
