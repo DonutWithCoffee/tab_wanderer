@@ -404,8 +404,8 @@ test('popup downloads diagnostic log from quick action', () => {
 
     assert.equal(createdLinks.length, 1);
     assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
-    assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
-    assert.match(decodeURIComponent(createdLinks[0].href), /Exported log entries/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /Диагностический лог tab_wanderer/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /Экспорт: режим=полный/);
     assert.match(decodeURIComponent(createdLinks[0].href), /CONTROL START/);
     assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Диагностический лог готов.');
 });

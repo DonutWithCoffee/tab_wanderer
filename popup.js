@@ -376,6 +376,32 @@ function getExtensionVersion() {
     return 'unknown';
 }
 
+function getOptionalNumberText(value) {
+    const numeric = Number(value);
+
+    return Number.isFinite(numeric) ? String(numeric) : '—';
+}
+
+function getDiagnosticMonitorModeLabel(mode) {
+    return String(mode || 'windowed') === 'active'
+        ? 'Быстрый: только первая страница'
+        : 'Общий: первая страница + глубокая синхронизация';
+}
+
+function getDiagnosticMonitorStateLabel(state) {
+    const normalized = String(state || 'uninitialized');
+
+    if (normalized === 'active') {
+        return 'работает';
+    }
+
+    if (normalized === 'warming') {
+        return 'стартовая синхронизация';
+    }
+
+    return normalized;
+}
+
 function stringifyDiagnosticDetails(details) {
     if (details === null || details === undefined) {
         return '';
@@ -406,46 +432,67 @@ function formatDiagnosticLogEntry(entry = {}) {
     return detailsText ? `${base} ${detailsText}` : base;
 }
 
+function buildLastCollectionLogHeader(metadata = {}) {
+    if (!metadata) {
+        return 'Последний сбор: нет данных';
+    }
+
+    return [
+        `Последний сбор: причина=${getTextValue(metadata.syncReason || metadata.reason)}`,
+        `страниц=${getOptionalNumberText(metadata.pagesCollected)}`,
+        `заказов=${getOptionalNumberText(metadata.ordersCollected)}`,
+        `завершён=${getYesNo(metadata.isComplete === true)}`,
+        `лимит=${getOptionalNumberText(metadata.maxPages)}`,
+        `completion=${getTextValue(metadata.completionReason)}`
+    ].join('; ');
+}
+
+function buildMonitorStatusLogHeader(status = {}) {
+    const directState = status.directFollowUpState || {};
+
+    return [
+        'Диагностический лог tab_wanderer',
+        `Версия расширения: ${getExtensionVersion()}`,
+        `Сформирован: ${formatTimestamp(Date.now())}`,
+        `Мониторинг: включён=${getYesNo(status.isRunning === true)}; состояние=${getDiagnosticMonitorStateLabel(status.monitorState)}; режим=${getDiagnosticMonitorModeLabel(status.monitorMode)}; глубина=${getOptionalNumberText(status.deepSyncMaxPages)} страниц`,
+        `Основной worker: ${getYesNo(status.hasWorkerTab === true)}; tabId=${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`,
+        `Прямая проверка: worker=${getYesNo(status.hasDirectWorkerTab === true)}; tabId=${status.directWorkerTabId === null || status.directWorkerTabId === undefined ? '—' : String(status.directWorkerTabId)}; отслеживаемых=${getNumber(status.watchedOrdersCount)}; текущий заказ=${getTextValue(directState.currentOrderId)}`,
+        `Заказы: известно=${getNumber(status.knownOrdersCount)}; окно=${getNumber(status.windowOrdersCount)}; hash=${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}; целей уведомлений=${getNumber(status.notificationTargetsCount)}`,
+        `Журналы: диагностика=${getNumber(status.diagnosticLogCount)}; история=${getNumber(status.eventJournalCount)}; удалено диагностических=${getNumber(status.diagnosticLogDroppedEntries)}; удалено исторических=${getNumber(status.eventJournalDroppedEntries)}`,
+        `Синхронизация: ожидает перебазировки=${getYesNo(status.pendingRebaseline === true)}; причина=${getTextValue(status.pendingSyncReason)}; последний baseline=${getTextValue(status.lastBaselineDate)}; последний deep sync=${formatTimestamp(status.lastDeepSyncAt)}`,
+        buildLastCollectionLogHeader(status.lastCollectionMetadata)
+    ];
+}
+
 function getChronologicalDiagnosticLogEntries(entries = []) {
     return Array.isArray(entries)
         ? entries.slice().sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0))
         : [];
 }
 
-function buildMonitorStatusLogHeader(status = {}) {
-    return [
-        `Version: ${getExtensionVersion()}`,
-        `Generated: ${formatTimestamp(Date.now())}`,
-        `Monitor: running=${getYesNo(status.isRunning === true)}; state=${getTextValue(status.monitorState, 'uninitialized')}; mode=${getTextValue(status.monitorMode, 'windowed')}`,
-        `Worker: ${getYesNo(status.hasWorkerTab === true)}; tabId=${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`,
-        `Orders: known=${getNumber(status.knownOrdersCount)}; window=${getNumber(status.windowOrdersCount)}; hashes=${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}`,
-        `Logs: diagnostic=${getNumber(status.diagnosticLogCount)}; history=${getNumber(status.eventJournalCount)}`
-    ];
-}
-
 function buildDiagnosticLogText(snapshot = {}, status = {}) {
     const entries = getChronologicalDiagnosticLogEntries(snapshot.entries);
-    const mode = snapshot.mode === 'full' ? 'full' : 'preview';
+    const fullMode = snapshot.mode === 'full';
     const droppedEntries = getNumber(snapshot.droppedEntries || snapshot.retention?.droppedEntries);
     const retention = snapshot.retention || {};
+    const totalForMode = fullMode
+        ? getNumber(snapshot.retainedTotal || snapshot.storedTotal || snapshot.total)
+        : getNumber(snapshot.total);
     const header = [
-        'tab_wanderer diagnostic log',
         ...buildMonitorStatusLogHeader(status),
-        mode === 'full'
-            ? `Exported log entries: ${getNumber(snapshot.returned)} / ${getNumber(snapshot.retainedTotal || snapshot.total)} retained`
-            : `Returned log entries: ${getNumber(snapshot.returned)} / ${getNumber(snapshot.total)}`,
-        `Preview limit: ${getNumber(snapshot.previewLimit || 100)}`,
-        `Retention entries limit: ${getNumber(retention.maxEntries || snapshot.retentionMaxEntries || 5000)}`,
-        `Retention bytes limit: ${getNumber(retention.maxBytes || snapshot.retentionMaxBytes || 2000000)}`,
-        `Dropped old entries: ${droppedEntries}`,
-        droppedEntries > 0 ? 'Note: older diagnostic entries were removed by retention policy.' : '',
+        fullMode
+            ? `Экспорт: режим=полный; записей=${getNumber(snapshot.returned)} из ${totalForMode} сохранённых`
+            : `Экспорт: режим=предпросмотр; записей=${getNumber(snapshot.returned)} из ${totalForMode}`,
+        `Хранение: лимит=${getNumber(retention.maxEntries || snapshot.retentionMaxEntries || 5000)} записей; лимит=${getNumber(retention.maxBytes || snapshot.retentionMaxBytes || 2000000)} байт; удалено старых=${droppedEntries}`,
+        droppedEntries > 0 ? 'Внимание: часть старых диагностических записей уже удалена политикой хранения.' : '',
+        'Примечание: лог локальный; чувствительные поля скрываются; HTML, cookie, token и полный payload заказа не сохраняются.',
         ''
     ].filter(line => line !== '');
 
     if (!entries.length) {
         return [
             ...header,
-            'No diagnostic log entries.'
+            'Диагностических записей нет.'
         ].join('\n');
     }
 

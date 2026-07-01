@@ -440,7 +440,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.doesNotMatch(html, /id="optionsWatchedOrdersList"/);
     assert.match(html, /id="optionsDiagnosticLogDetails"/);
     assert.match(html, /Настройки мониторинга/);
-    assert.match(html, /Оконный: первая страница \+ глубокая синхронизация/);
+    assert.match(html, /Общий: первая страница \+ глубокая синхронизация/);
     assert.match(html, /Не уведомлять о/);
     assert.match(html, /Обновить диагностику/);
     assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
@@ -464,7 +464,7 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
     assert.equal(document.getElementById('optionsSuppressOzon').checked, false);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
-    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Оконный: первая страница + глубокая синхронизация');
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Общий: первая страница + глубокая синхронизация');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
     assert.equal(document.getElementById('optionsScopeDictionaryOrderFlags').innerText, 'Флаги: Срочный, Проблемный');
@@ -658,7 +658,7 @@ test('options page refreshes diagnostic log on demand', () => {
     });
 
     assert.equal(getSentMessagesByType(context, 'GET_DIAGNOSTIC_LOG').length, 2);
-    assert.match(document.getElementById('optionsDiagnosticLogPreview').innerText, /tab_wanderer diagnostic log/);
+    assert.match(document.getElementById('optionsDiagnosticLogPreview').innerText, /Диагностический лог tab_wanderer/);
     assert.match(document.getElementById('optionsDiagnosticLogPreview').innerText, /CONTROL START/);
 });
 
@@ -695,8 +695,8 @@ test('options page prepares diagnostic log txt download', () => {
     });
     assert.equal(createdLinks.length, 1);
     assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
-    assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
-    assert.match(decodeURIComponent(createdLinks[0].href), /Exported log entries/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /Диагностический лог tab_wanderer/);
+    assert.match(decodeURIComponent(createdLinks[0].href), /Экспорт: режим=полный/);
     assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Полный файл лога подготовлен для скачивания.');
 });
 
@@ -712,7 +712,7 @@ test('options page copies diagnostic log when clipboard is available', async () 
     await Promise.resolve();
 
     assert.equal(context.__test.clipboardWrites.length, 1);
-    assert.match(context.__test.clipboardWrites[0], /tab_wanderer diagnostic log/);
+    assert.match(context.__test.clipboardWrites[0], /Диагностический лог tab_wanderer/);
     assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Лог скопирован в буфер обмена.');
 });
 
