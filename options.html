@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="utf-8">
-    <title>Настройки tab_wanderer</title>
+    <title>Настройки мониторинга tab_wanderer</title>
     <style>
         body {
             margin: 0;
@@ -222,34 +222,35 @@
     <main class="page">
         <header class="header">
             <p class="eyebrow">tab_wanderer</p>
-            <h1>Настройки tab_wanderer</h1>
+            <h1>Настройки мониторинга</h1>
             <p class="lead">
-                Popup остаётся быстрым пультом. Настройки сохраняются автоматически на этой странице.
+                Здесь задаются режим сбора, область мониторинга и правила уведомлений. Изменения сохраняются автоматически.
             </p>
         </header>
 
         <section class="card notice">
-            <h2>Сохранение настроек</h2>
+            <h2>Статус сохранения</h2>
             <p id="optionsSettingsSaveStatus" class="muted">Загрузка настроек...</p>
         </section>
 
         <section class="card">
-            <h2>Мониторинг</h2>
+            <h2>Режим и глубина мониторинга</h2>
             <p class="muted">
-                Windowed отслеживает первую страницу и периодически проходит глубже. Active ограничивается первой страницей.
+                Оконный режим — основной рабочий режим: первая страница проверяется часто, а глубокая синхронизация периодически проходит дальше.
+                Быстрый режим проверяет только первую страницу.
             </p>
             <div class="form-grid">
                 <div>
                     <label for="optionsMonitorModeSelect">Режим</label>
                     <select id="optionsMonitorModeSelect">
-                        <option value="windowed">Windowed: первая страница + deep sync</option>
-                        <option value="active">Active: только первая страница</option>
+                        <option value="active">Быстрый: только первая страница</option>
+                        <option value="windowed">Общий: первая страница + глубокая синхронизация</option>
                     </select>
                 </div>
                 <div>
-                    <label for="optionsDeepSyncMaxPages">Глубина deep sync</label>
+                    <label for="optionsDeepSyncMaxPages">Глубина синхронизации</label>
                     <input id="optionsDeepSyncMaxPages" type="number" min="1" max="50" step="1">
-                    <p class="muted">Безопасный диапазон: 1–50 страниц. По умолчанию: 50.</p>
+                    <p class="muted">Сколько страниц проходит глубокая синхронизация. Безопасный диапазон: 1–50, по умолчанию: 50.</p>
                 </div>
             </div>
         </section>
@@ -257,21 +258,21 @@
         <section class="card">
             <h2>Уведомления</h2>
             <p class="muted">
-                Notification triggers управляют только уведомлениями. Состояние заказа обновляется даже если уведомление подавлено.
+                Этот блок управляет только desktop-уведомлениями. Состояние заказов, история и поиск обновляются даже при отключённых уведомлениях.
             </p>
 
             <div class="checkbox-list">
                 <label class="checkbox-row">
                     <input type="checkbox" id="optionsNotifyNewOrders">
-                    Уведомлять о новых заказах
+                    Показывать уведомления о новых заказах
                 </label>
                 <label class="checkbox-row">
                     <input type="checkbox" id="optionsNotifyChangedOrders">
-                    Уведомлять об изменениях заказов
+                    Показывать уведомления об изменениях заказов
                 </label>
             </div>
 
-            <h3>Поля изменений</h3>
+            <h3>Какие изменения показывать</h3>
             <div class="field-grid">
                 <label class="checkbox-row">
                     <input type="checkbox" id="optionsNotifyFieldStatus">
@@ -291,27 +292,27 @@
                 </label>
             </div>
 
-            <h3>Быстрые подавления уведомлений</h3>
+            <h3>Не уведомлять о</h3>
             <p class="muted">
-                Эти настройки не меняют область мониторинга и историю. Они только подавляют уведомления по выбранным бизнес-условиям.
+                Эти переключатели не исключают заказы из сбора и истории. Они только скрывают уведомления по выбранным бизнес-условиям.
             </p>
             <div class="checkbox-list">
                 <label class="checkbox-row">
                     <input type="checkbox" id="optionsSuppressLegalEntityPayment">
-                    Игнорировать юриков: не уведомлять при оплате “безналичный расчет для юридических лиц”
+                    Юридические лица — не показывать уведомления при оплате “безналичный расчет для юридических лиц”
                 </label>
                 <label class="checkbox-row">
                     <input type="checkbox" id="optionsSuppressOzon">
-                    Игнорировать ОЗОН: не уведомлять по заказам ОЗОН
+                    ОЗОН — не показывать уведомления по заказам ОЗОН
                 </label>
             </div>
         </section>
 
         <section class="card">
-            <h2>Область мониторинга</h2>
+            <h2>Какие заказы собирать</h2>
             <p class="muted">
-                Эти фильтры определяют, какие заказы попадают в сбор. Пустой выбор в группе означает “все”.
-                При изменении области расширение сделает безопасную перебазировку без потока уведомлений.
+                Эти фильтры определяют, какие заказы попадают в рабочее окно мониторинга. Пустой выбор в группе означает “все”.
+                При изменении области расширение выполнит безопасную перебазировку без потока уведомлений.
             </p>
             <div class="scope-grid">
                 <div class="scope-group">
@@ -355,10 +356,10 @@
 
 
         <section class="card">
-            <h2>Отслеживаемые заказы</h2>
+            <h2>Заказы и прямая проверка</h2>
             <p class="muted">
-                Управление отслеживаемыми заказами вынесено на отдельную страницу “Заказы”.
-                В настройках остаются только системные параметры мониторинга и уведомлений.
+                Поиск заказа, список отслеживаемых заказов и прямая проверка вынесены на отдельную страницу “Заказы”.
+                Здесь остаются только системные параметры мониторинга и уведомлений.
             </p>
             <div class="actions-row">
                 <button id="optionsOpenOrdersPage" type="button">Открыть страницу “Заказы”</button>
@@ -368,7 +369,7 @@
         <section class="card">
             <h2>Диагностика монитора</h2>
             <p class="muted">
-                Read-only snapshot текущего состояния расширения. Блок не запускает мониторинг и не меняет настройки.
+                Текущее состояние расширения только для чтения. Блок не запускает мониторинг и не меняет настройки.
             </p>
             <div class="diagnostics-grid">
                 <div>
@@ -397,7 +398,7 @@
                 </div>
             </div>
             <div class="actions-row">
-                <button id="optionsRefreshDiagnostics">Refresh diagnostics</button>
+                <button id="optionsRefreshDiagnostics">Обновить диагностику</button>
             </div>
             <p id="optionsDiagnosticsStatus" class="muted">Загрузка диагностики...</p>
         </section>
@@ -407,15 +408,15 @@
             <p id="optionsLoadStatus" class="muted">Загрузка текущих настроек...</p>
             <div class="summary-grid">
                 <div>
-                    <h3>Режим мониторинга</h3>
+                    <h3>Режим</h3>
                     <p id="optionsMonitorMode" class="summary-value">—</p>
                 </div>
                 <div>
-                    <h3>Глубина deep sync</h3>
+                    <h3>Глубина синхронизации</h3>
                     <p id="optionsDeepSyncSummary" class="summary-value">—</p>
                 </div>
                 <div>
-                    <h3>Область мониторинга</h3>
+                    <h3>Область сбора</h3>
                     <p id="optionsScopeSummary" class="summary-value">—</p>
                 </div>
                 <div>
@@ -433,13 +434,13 @@
             <details id="optionsDiagnosticLogDetails">
                 <summary>Диагностический лог</summary>
                 <p class="muted">
-                    Если расширение работает неправильно, скачай лог и отправь разработчику.
+                    Если расширение работает неправильно, скачай полный лог и отправь разработчику.
                 </p>
                 <div class="actions-row">
-                    <button id="optionsRefreshDiagnosticLog">Refresh log</button>
-                    <button id="optionsCopyDiagnosticLog">Copy log</button>
-                    <button id="optionsDownloadDiagnosticLog">Download .txt</button>
-                    <button id="optionsClearDiagnosticLog">Clear log</button>
+                    <button id="optionsRefreshDiagnosticLog">Обновить лог</button>
+                    <button id="optionsCopyDiagnosticLog">Копировать лог</button>
+                    <button id="optionsDownloadDiagnosticLog">Скачать .txt</button>
+                    <button id="optionsClearDiagnosticLog">Очистить лог</button>
                 </div>
                 <p id="optionsDiagnosticLogStatus" class="muted">Загрузка диагностического лога...</p>
                 <pre id="optionsDiagnosticLogPreview" class="log-preview">—</pre>

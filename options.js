@@ -318,10 +318,10 @@ function getMonitorModeLabel(config = {}) {
     const mode = normalizeMonitorMode(config.monitorMode);
 
     if (mode === 'active') {
-        return 'Active: только первая страница';
+        return 'Быстрый: только первая страница';
     }
 
-    return 'Windowed: первая страница + deep sync';
+    return 'Оконный: первая страница + глубокая синхронизация';
 }
 
 function buildScopeText(title, selectedIds, options) {
@@ -502,7 +502,7 @@ function renderScopeControls(config = {}, dictionaries = {}) {
         'optionsScopeHint',
         loadedGroups
             ? 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.'
-            : 'Справочники появятся после запуска мониторинга.'
+            : 'Справочники появятся после запуска мониторинга. До этого пустой выбор означает “все”.'
     );
 }
 
@@ -580,7 +580,7 @@ function saveDeepSyncMaxPagesFromUI() {
         deepSyncMaxPages: normalizeDeepSyncMaxPages(getValue('optionsDeepSyncMaxPages'))
     };
 
-    saveConfig(nextConfig, 'Глубина deep sync сохранена.');
+    saveConfig(nextConfig, 'Глубина синхронизации сохранена.');
 }
 
 function collectMonitorScopeFromUI(baseConfig = {}) {
@@ -671,7 +671,7 @@ function renderWatchedOrders(config = {}) {
     setText(
         'optionsWatchedOrdersStatus',
         watchedOrders.items.length
-            ? `Отслеживается заказов: ${watchedOrders.items.length}. Direct follow-up проверяет эти заказы напрямую при активном мониторинге.`
+            ? `Отслеживается заказов: ${watchedOrders.items.length}. Прямая проверка проверяет эти заказы отдельно при активном мониторинге.`
             : 'Список пуст. Добавь номер заказа для прямого отслеживания.'
     );
 
@@ -771,7 +771,7 @@ function addWatchedOrderFromUI() {
                 }
             ]
         },
-        'Отслеживаемый заказ добавлен. Первая успешная direct follow-up проверка станет baseline без уведомления.'
+        'Отслеживаемый заказ добавлен. Первая успешная прямая проверка станет baseline без уведомления.'
     );
 }
 
@@ -824,7 +824,7 @@ function collectNotificationSuppressorsFromUI(baseConfig = {}) {
     return suppressors;
 }
 
-function saveNotificationSuppressorsFromUI(successMessage = 'Быстрые подавления уведомлений сохранены.') {
+function saveNotificationSuppressorsFromUI(successMessage = 'Подавления уведомлений сохранены.') {
     const nextConfig = {
         ...currentConfig,
         notificationSuppressors: collectNotificationSuppressorsFromUI(currentConfig)
@@ -892,30 +892,30 @@ function bindSettingsAutosave() {
 
 function buildLastCollectionMetadataText(metadata) {
     if (!metadata) {
-        return 'last collection: нет';
+        return 'последний сбор: нет';
     }
 
     return [
-        `last collection: ${getTextValue(metadata.syncReason || metadata.reason)}`,
-        `pages: ${getNumber(metadata.pagesCollected)}`,
-        `orders: ${getNumber(metadata.ordersCollected)}`,
-        `complete: ${getYesNo(metadata.isComplete === true)}`,
-        `max pages: ${getNumber(metadata.maxPages)}`
+        `последний сбор: ${getTextValue(metadata.syncReason || metadata.reason)}`,
+        `страниц: ${getNumber(metadata.pagesCollected)}`,
+        `заказов: ${getNumber(metadata.ordersCollected)}`,
+        `завершён: ${getYesNo(metadata.isComplete === true)}`,
+        `лимит: ${getNumber(metadata.maxPages)}`
     ].join('; ');
 }
 
 function buildCollectionSessionText(session) {
     if (!session) {
-        return 'session: нет';
+        return 'сессия: нет';
     }
 
     return [
-        `session: ${getTextValue(session.mode)}`,
-        `orders: ${getNumber(session.ordersCount)}`,
-        `current page: ${getNumber(session.currentPage, 1)}`,
-        `last page: ${getNumber(session.lastCollectedPage)}`,
-        `next: ${getNumber(session.nextPage, 1)}`,
-        `attempts: ${getNumber(session.advanceAttempts)}`
+        `сессия: ${getTextValue(session.mode)}`,
+        `заказов: ${getNumber(session.ordersCount)}`,
+        `текущая страница: ${getNumber(session.currentPage, 1)}`,
+        `последняя страница: ${getNumber(session.lastCollectedPage)}`,
+        `следующая: ${getNumber(session.nextPage, 1)}`,
+        `попыток: ${getNumber(session.advanceAttempts)}`
     ].join('; ');
 }
 
@@ -924,10 +924,10 @@ function renderMonitorDiagnostics(status = {}) {
     setText(
         'optionsDiagnosticsRuntime',
         [
-            `running: ${getYesNo(status.isRunning === true)}`,
-            `state: ${getTextValue(status.monitorState, 'uninitialized')}`,
-            `mode: ${getTextValue(status.monitorMode, 'windowed')}`,
-            `deep pages: ${getNumber(status.deepSyncMaxPages, OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES)}`
+            `работает: ${getYesNo(status.isRunning === true)}`,
+            `состояние: ${getTextValue(status.monitorState, 'uninitialized')}`,
+            `режим: ${getMonitorModeLabel({ monitorMode: status.monitorMode })}`,
+            `глубина: ${getNumber(status.deepSyncMaxPages, OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES)} страниц`
         ].join('; ')
     );
 
@@ -942,28 +942,28 @@ function renderMonitorDiagnostics(status = {}) {
     setText(
         'optionsDiagnosticsOrders',
         [
-            `known: ${getNumber(status.knownOrdersCount)}`,
-            `window: ${getNumber(status.windowOrdersCount)}`,
+            `известно: ${getNumber(status.knownOrdersCount)}`,
+            `окно: ${getNumber(status.windowOrdersCount)}`,
             `hashes: ${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}`,
-            `notifications: ${getNumber(status.notificationTargetsCount)}`
+            `целей уведомлений: ${getNumber(status.notificationTargetsCount)}`
         ].join('; ')
     );
 
     setText(
         'optionsDiagnosticsJournal',
         [
-            `history: ${getNumber(status.eventJournalCount)}`,
-            `diagnostic: ${getNumber(status.diagnosticLogCount)}`
+            `история: ${getNumber(status.eventJournalCount)}`,
+            `диагностика: ${getNumber(status.diagnosticLogCount)}`
         ].join('; ')
     );
 
     setText(
         'optionsDiagnosticsSync',
         [
-            `pending rebaseline: ${getYesNo(status.pendingRebaseline === true)}`,
-            `reason: ${getTextValue(status.pendingSyncReason)}`,
-            `last baseline: ${getTextValue(status.lastBaselineDate)}`,
-            `last deep sync: ${getNumber(status.lastDeepSyncAt)}`
+            `ожидает перебазировки: ${getYesNo(status.pendingRebaseline === true)}`,
+            `причина: ${getTextValue(status.pendingSyncReason)}`,
+            `последний baseline: ${getTextValue(status.lastBaselineDate)}`,
+            `последняя глубокая синхронизация: ${getNumber(status.lastDeepSyncAt)}`
         ].join('; ')
     );
 
@@ -1158,7 +1158,7 @@ function copyDiagnosticLog() {
     const clipboard = globalThis.navigator?.clipboard;
 
     if (!clipboard?.writeText) {
-        setText('optionsDiagnosticLogStatus', 'Копирование недоступно в этом браузере. Используй Download .txt.');
+        setText('optionsDiagnosticLogStatus', 'Копирование недоступно в этом браузере. Используй скачивание .txt.');
         return;
     }
 
@@ -1167,7 +1167,7 @@ function copyDiagnosticLog() {
             setText('optionsDiagnosticLogStatus', 'Лог скопирован в буфер обмена.');
         })
         .catch(() => {
-            setText('optionsDiagnosticLogStatus', 'Не удалось скопировать лог. Используй Download .txt.');
+            setText('optionsDiagnosticLogStatus', 'Не удалось скопировать лог. Используй скачивание .txt.');
         });
 }
 

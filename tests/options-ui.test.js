@@ -439,6 +439,10 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.doesNotMatch(html, /id="optionsAddWatchedOrder"/);
     assert.doesNotMatch(html, /id="optionsWatchedOrdersList"/);
     assert.match(html, /id="optionsDiagnosticLogDetails"/);
+    assert.match(html, /Настройки мониторинга/);
+    assert.match(html, /Оконный: первая страница \+ глубокая синхронизация/);
+    assert.match(html, /Не уведомлять о/);
+    assert.match(html, /Обновить диагностику/);
     assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsApplyNotificationTriggers"/);
@@ -460,14 +464,14 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
     assert.equal(document.getElementById('optionsSuppressOzon').checked, false);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
-    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Windowed: первая страница + deep sync');
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Оконный: первая страница + глубокая синхронизация');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
     assert.equal(document.getElementById('optionsScopeDictionaryOrderFlags').innerText, 'Флаги: Срочный, Проблемный');
     assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ');
-    assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /deep pages: 50/);
+    assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /глубина: 50 страниц/);
 });
 
 
@@ -503,7 +507,7 @@ test('options page autosaves monitor mode changes', () => {
     assert.equal(updateMessages[0].userConfig.monitorMode, 'active');
     assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 50);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), ['6806']);
-    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Active: только первая страница');
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Быстрый: только первая страница');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Режим мониторинга сохранён.');
 });
 
@@ -559,7 +563,7 @@ test('options page autosaves and clamps deep sync max pages', () => {
     assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 50);
     assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Глубина deep sync сохранена.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Глубина синхронизации сохранена.');
 });
 
 test('options page autosaves notification trigger settings', () => {
@@ -602,7 +606,7 @@ test('options page autosaves quick notification suppressors', () => {
     assert.equal(updateMessages[0].userConfig.notificationSuppressors.ignoreOzon, false);
     assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreLegalEntityPayment, true);
     assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreOzon, true);
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Быстрые подавления уведомлений сохранены.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Подавления уведомлений сохранены.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: игнорируются; ОЗОН: игнорируется');
 });
 
@@ -630,7 +634,7 @@ test('options page refreshes monitor diagnostics on demand', () => {
 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
     assert.equal(document.getElementById('optionsDiagnosticsStatus').innerText, 'Диагностика загружена.');
-    assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /max pages: 50/);
+    assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /лимит: 50/);
 });
 
 test('options page shows diagnostics load error when GET_MONITOR_STATUS fails', () => {
