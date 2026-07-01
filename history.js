@@ -8,18 +8,18 @@ let currentOrdersConfig = {
 };
 
 const EVENT_TYPE_LABELS = {
-    'new-order': 'Первое обнаружение заказа',
+    'new-order': 'Заказ впервые увиден',
     'order-changed': 'Изменение заказа',
     'scope-changed': 'Смена области мониторинга',
-    'direct-follow-up': 'Direct follow-up'
+    'direct-follow-up': 'Прямая проверка заказа'
 };
 
 const EVENT_KIND_LABELS = {
     live: 'Список заказов',
-    'catch-up': 'Catch-up после запуска',
-    'scope-catch-up': 'Catch-up после смены области',
+    'catch-up': 'Синхронизация после запуска',
+    'scope-catch-up': 'Синхронизация после смены области',
     'scope-change': 'Смена области',
-    'direct-follow-up': 'Direct follow-up'
+    'direct-follow-up': 'Прямая проверка'
 };
 
 const SYNC_REASON_LABELS = {
@@ -220,10 +220,47 @@ function isOrderWatched(orderId) {
 
 function getWatchedOrderStatusLabel(status) {
     if (status === 'unresolved') {
-        return 'не найден / ошибка';
+        return 'требует внимания';
     }
 
     return 'активен';
+}
+
+function getWatchedOrderStatusBadgeClass(status) {
+    return status === 'unresolved' ? 'badge-warning' : 'badge-positive';
+}
+
+function renderBadge(value, className = '') {
+    return `<span class="badge ${escapeHtml(className)}">${escapeHtml(value)}</span>`;
+}
+
+function formatEventCount(value) {
+    const count = Number(value);
+
+    if (!Number.isFinite(count) || count < 0) {
+        return '0 событий';
+    }
+
+    const normalized = Math.trunc(count);
+
+    if (normalized % 10 === 1 && normalized % 100 !== 11) {
+        return `${normalized} событие`;
+    }
+
+    if ([2, 3, 4].includes(normalized % 10) && ![12, 13, 14].includes(normalized % 100)) {
+        return `${normalized} события`;
+    }
+
+    return `${normalized} событий`;
+}
+
+function buildOrderMetaParts(context = {}) {
+    return [
+        context.status ? `статус: ${formatValue(context.status)}` : '',
+        context.delivery ? `доставка: ${formatValue(context.delivery)}` : '',
+        context.payment ? `оплата: ${formatValue(context.payment)}` : '',
+        context.city ? `город: ${formatValue(context.city)}` : ''
+    ].filter(Boolean);
 }
 
 function buildLookupOptions(queryOverride) {
@@ -317,18 +354,22 @@ function renderEntry(entry) {
 
 function renderCandidate(candidate) {
     const context = candidate.context || {};
-    const status = context.status ? `Статус: ${formatValue(context.status)}` : 'Статус неизвестен';
-    const watched = candidate.isWatched ? ' · отслеживается' : '';
+    const metaParts = buildOrderMetaParts(context);
+    const eventCount = formatEventCount(candidate.eventCount);
+    const watched = candidate.isWatched ? renderBadge('отслеживается', 'badge-positive') : renderBadge('не отслеживается', 'badge-muted');
 
     return `
         <div class="candidate-item" data-order-id="${escapeHtml(candidate.orderId || '')}">
             <div>
-                <strong>${escapeHtml(candidate.orderId || '')}</strong>
+                <div class="candidate-title">${escapeHtml(candidate.orderId || '')}</div>
                 <div class="candidate-meta">
-                    ${escapeHtml(status)} · последнее событие: ${escapeHtml(formatTimestamp(candidate.lastSeenAt))}${escapeHtml(watched)}
+                    ${escapeHtml(metaParts.length ? metaParts.join(' · ') : 'состояние неизвестно')}
+                    · последнее событие: ${escapeHtml(formatTimestamp(candidate.lastSeenAt))}
+                    · ${escapeHtml(eventCount)}
                 </div>
+                <div>${watched}</div>
             </div>
-            <button type="button" data-order-id="${escapeHtml(candidate.orderId || '')}">Открыть</button>
+            <button type="button" data-order-id="${escapeHtml(candidate.orderId || '')}">Выбрать</button>
         </div>
     `;
 }
@@ -363,24 +404,28 @@ function renderOrderSummary(response) {
         ? `<a href="${escapeHtml(order.orderUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>`
         : '';
     const watched = isOrderWatched(orderId) || order.isWatched === true;
-    const watchedLabel = watched ? 'Да' : 'Нет';
+    const watchedBadge = watched
+        ? renderBadge('прямая проверка включена', 'badge-positive')
+        : renderBadge('прямая проверка выключена', 'badge-muted');
     const watchButton = watched
-        ? `<button type="button" data-watch-action="remove" data-order-id="${escapeHtml(orderId)}">Убрать из отслеживания</button>`
-        : `<button type="button" data-watch-action="add" data-order-id="${escapeHtml(orderId)}">Отслеживать</button>`;
+        ? `<button type="button" data-watch-action="remove" data-order-id="${escapeHtml(orderId)}">Отключить прямую проверку</button>`
+        : `<button type="button" data-watch-action="add" data-order-id="${escapeHtml(orderId)}">Включить прямую проверку</button>`;
 
     setInnerHtml('orderSummary', `
         <section class="order-summary">
             <div class="order-summary-title">Заказ ${escapeHtml(orderId)}</div>
+            <div>${watchedBadge}</div>
             <div class="order-summary-meta">
                 Последнее известное событие: ${escapeHtml(formatTimestamp(order.lastSeenAt))}
-                · Отслеживается: ${escapeHtml(watchedLabel)}
+                · ${escapeHtml(formatEventCount(order.eventCount))}
                 ${orderUrl ? ` · ${orderUrl}` : ''}
             </div>
             <div class="actions-row">${watchButton}</div>
-            <div class="history-diff">
+            <div class="current-state">
+                <div class="order-summary-title">Последнее известное состояние</div>
                 ${renderCurrentState(order.context || {})}
             </div>
-            <p class="hint">
+            <p class="hint support-note">
                 Показаны только изменения, которые обнаружил плагин. Это не полная серверная история заказа.
             </p>
         </section>
@@ -389,7 +434,7 @@ function renderOrderSummary(response) {
 
 function renderHistory(response) {
     if (!response?.ok) {
-        setInnerText('historyStatus', 'Не удалось загрузить изменения по заказу');
+        setInnerText('historyStatus', 'Не удалось загрузить данные по заказу');
         setInnerHtml('historyCandidates', '');
         setInnerHtml('orderSummary', '');
         setInnerHtml('historyList', '');
@@ -408,7 +453,7 @@ function renderHistory(response) {
     }
 
     if (status === 'invalid-query') {
-        setInnerText('historyStatus', 'Введите полный номер заказа или первые 4 цифры до дефиса');
+        setInnerText('historyStatus', 'Введите 4 цифры или полный номер заказа в формате 1234-110626');
         setInnerHtml('historyCandidates', '');
         setInnerHtml('orderSummary', '');
         setInnerHtml('historyList', '');
@@ -416,10 +461,10 @@ function renderHistory(response) {
     }
 
     if (status === 'not-found') {
-        setInnerText('historyStatus', `Заказ ${response.query || ''} не найден в локальных данных плагина`);
+        setInnerText('historyStatus', `Заказ ${response.query || ''} не найден в локальной базе плагина`);
         setInnerHtml('historyCandidates', '');
         setInnerHtml('orderSummary', '');
-        setInnerHtml('historyList', '<div class="history-empty">Плагин показывает только заказы, которые уже видел.</div>');
+        setInnerHtml('historyList', '<div class="history-empty">Плагин показывает только заказы, которые уже видел. Проверьте номер или дождитесь следующей синхронизации.</div>');
         return;
     }
 
@@ -427,20 +472,26 @@ function renderHistory(response) {
     renderOrderSummary(response);
 
     if (status === 'multiple-candidates') {
-        setInnerText('historyStatus', `Найдено несколько заказов: ${(response.candidates || []).length}`);
+        setInnerText('historyStatus', `Найдено несколько заказов: ${(response.candidates || []).length}. Выберите полный номер.`);
         setInnerHtml('orderSummary', '');
         setInnerHtml('historyList', '');
         return;
     }
 
-    setInnerText('historyStatus', `Заказ найден: ${response.selectedOrderId || ''}. Событий: ${entries.length}`);
+    setInnerText('historyStatus', `Заказ ${response.selectedOrderId || ''} найден · ${formatEventCount(entries.length)}`);
 
     if (!entries.length) {
-        setInnerHtml('historyList', '<div class="history-empty">Изменений по этому заказу пока не записано</div>');
+        setInnerHtml('historyList', '<div class="history-empty">Изменений по этому заказу пока не записано. Последнее состояние показано выше.</div>');
         return;
     }
 
-    setInnerHtml('historyList', entries.map(renderEntry).join(''));
+    setInnerHtml('historyList', `
+        <section class="candidate-list">
+            <div class="order-summary-title">Обнаруженные изменения</div>
+            <p class="hint">Это локальная история плагина, а не полный журнал админки.</p>
+            ${entries.map(renderEntry).join('')}
+        </section>
+    `);
 }
 
 
@@ -450,30 +501,30 @@ function renderWatchedOrders(config = currentOrdersConfig) {
     setInnerText(
         'ordersWatchedStatus',
         watchedOrders.items.length
-            ? `Отслеживается заказов: ${watchedOrders.items.length}`
+            ? `В прямой проверке: ${watchedOrders.items.length}`
             : 'Список отслеживаемых заказов пуст.'
     );
 
     if (!watchedOrders.items.length) {
-        setInnerHtml('ordersWatchedList', '<div class="history-empty">Добавьте полный номер заказа, чтобы включить direct follow-up.</div>');
+        setInnerHtml('ordersWatchedList', '<div class="history-empty">Добавьте полный номер заказа, чтобы включить прямую проверку конкретной карточки заказа.</div>');
         return;
     }
 
     setInnerHtml('ordersWatchedList', watchedOrders.items.map((item) => `
         <article class="watched-order-row" data-order-id="${escapeHtml(item.id)}">
             <div>
-                <strong>${escapeHtml(item.id)}</strong>
+                <div class="watched-orders-title">${escapeHtml(item.id)}</div>
+                ${renderBadge(getWatchedOrderStatusLabel(item.status), getWatchedOrderStatusBadgeClass(item.status))}
                 <div class="watched-order-meta">
-                    статус: ${escapeHtml(getWatchedOrderStatusLabel(item.status))};
-                    добавлен: ${escapeHtml(formatTimestamp(item.addedAt))};
-                    первая проверка: ${escapeHtml(formatTimestamp(item.lastBaselineAt))};
-                    последняя проверка: ${escapeHtml(formatTimestamp(item.lastCheckedAt))};
-                    последнее событие: ${escapeHtml(formatTimestamp(item.lastEventAt))}
-                    ${item.lastError ? `; ошибка: ${escapeHtml(item.lastError)}` : ''}
+                    Добавлен: ${escapeHtml(formatTimestamp(item.addedAt))}<br>
+                    Baseline: ${escapeHtml(formatTimestamp(item.lastBaselineAt))}<br>
+                    Последняя проверка: ${escapeHtml(formatTimestamp(item.lastCheckedAt))}<br>
+                    Последнее изменение: ${escapeHtml(formatTimestamp(item.lastEventAt))}
+                    ${item.lastError ? `<br>Ошибка: ${escapeHtml(item.lastError)}` : ''}
                 </div>
             </div>
             <div class="watched-order-actions">
-                <button type="button" data-watch-action="open" data-order-id="${escapeHtml(item.id)}">Открыть</button>
+                <button type="button" data-watch-action="open" data-order-id="${escapeHtml(item.id)}">Показать</button>
                 <button type="button" data-watch-action="remove" data-order-id="${escapeHtml(item.id)}">Удалить</button>
             </div>
         </article>
@@ -545,8 +596,8 @@ function addWatchedOrder(orderId, source = 'orders-page') {
     };
 
     saveOrdersConfig(nextConfig, source === 'summary'
-        ? `Заказ №${id} добавлен в отслеживаемые.`
-        : `Заказ №${id} добавлен. Первая direct follow-up проверка станет baseline без уведомления.`);
+        ? `Для заказа №${id} включена прямая проверка.`
+        : `Заказ №${id} добавлен. Первая прямая проверка станет baseline без уведомления.`);
 }
 
 function removeWatchedOrder(orderId) {
@@ -560,7 +611,7 @@ function removeWatchedOrder(orderId) {
         }
     };
 
-    saveOrdersConfig(nextConfig, `Заказ №${id} удалён из отслеживаемых.`);
+    saveOrdersConfig(nextConfig, `Для заказа №${id} прямая проверка отключена.`);
 }
 
 function addWatchedOrderFromInput() {
@@ -578,7 +629,7 @@ function loadOrderHistory(queryOverride) {
     const statusEl = document.getElementById('historyStatus');
 
     if (statusEl) {
-        statusEl.innerText = 'Поиск...';
+        statusEl.innerText = 'Ищу заказ...';
     }
 
     sendMessage({

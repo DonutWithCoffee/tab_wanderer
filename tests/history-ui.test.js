@@ -264,7 +264,8 @@ test('history page is order lookup, not full event timeline', () => {
     const html = readHistoryHtml();
 
     assert.match(html, /Заказы/);
-    assert.match(html, /Поиск изменений по заказу/);
+    assert.match(html, /Заказы и отслеживание/);
+    assert.match(html, /Найти заказ/);
     assert.match(html, /id="historyOrderQuery"/);
     assert.match(html, /id="searchHistory"/);
     assert.match(html, /id="resetHistorySearch"/);
@@ -311,7 +312,7 @@ test('history page requests order lookup and renders selected order changes', ()
         }
     });
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Заказ найден: 1001-300326. Событий: 2');
+    assert.equal(document.getElementById('historyStatus').innerText, 'Заказ 1001-300326 найден · 2 события');
     assert.match(document.getElementById('orderSummary').innerHTML, /Заказ 1001-300326/);
     assert.match(document.getElementById('orderSummary').innerHTML, /Оплачен/);
     assert.match(document.getElementById('orderSummary').innerHTML, /ОЗОН/);
@@ -320,7 +321,7 @@ test('history page requests order lookup and renders selected order changes', ()
     assert.match(document.getElementById('historyList').innerHTML, /Статус/);
     assert.match(document.getElementById('historyList').innerHTML, /Новый/);
     assert.match(document.getElementById('historyList').innerHTML, /Оплачен/);
-    assert.match(document.getElementById('historyList').innerHTML, /Первое обнаружение заказа/);
+    assert.match(document.getElementById('historyList').innerHTML, /Заказ впервые увиден/);
 });
 
 test('history page renders multiple short-number candidates without showing global events', () => {
@@ -355,7 +356,7 @@ test('history page renders multiple short-number candidates without showing glob
 
     document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Найдено несколько заказов: 2');
+    assert.equal(document.getElementById('historyStatus').innerText, 'Найдено несколько заказов: 2. Выберите полный номер.');
     assert.match(document.getElementById('historyCandidates').innerHTML, /1001-300326/);
     assert.match(document.getElementById('historyCandidates').innerHTML, /1001-290326/);
     assert.equal(document.getElementById('orderSummary').innerHTML, '');
@@ -404,7 +405,7 @@ test('history page shows not-found and invalid lookup states', () => {
     invalid.__test.document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
     assert.equal(
         invalid.__test.document.getElementById('historyStatus').innerText,
-        'Введите полный номер заказа или первые 4 цифры до дефиса'
+        'Введите 4 цифры или полный номер заказа в формате 1234-110626'
     );
 });
 
@@ -461,7 +462,7 @@ test('orders page toggles selected order watch state from summary', () => {
     const document = context.__test.document;
 
     document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
-    assert.match(document.getElementById('orderSummary').innerHTML, /Отслеживать/);
+    assert.match(document.getElementById('orderSummary').innerHTML, /Включить прямую проверку/);
 
     const summaryButtonTarget = {
         dataset: {
@@ -489,6 +490,6 @@ test('history page shows order lookup load failure', () => {
 
     document.getElementById('searchHistory').dispatchEvent({ type: 'click' });
 
-    assert.equal(document.getElementById('historyStatus').innerText, 'Не удалось загрузить изменения по заказу');
+    assert.equal(document.getElementById('historyStatus').innerText, 'Не удалось загрузить данные по заказу');
     assert.equal(document.getElementById('historyList').innerHTML, '');
 });

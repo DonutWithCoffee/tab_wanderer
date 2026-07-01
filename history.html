@@ -5,62 +5,91 @@
     <title>tab_wanderer orders</title>
     <style>
         body {
-            max-width: 920px;
+            max-width: 960px;
             margin: 16px auto;
-            padding: 0 16px;
+            padding: 0 16px 32px;
             font-family: Arial, sans-serif;
+            color: #222;
+            background: #f7f7f7;
         }
 
-        .hint {
-            color: #555;
-            font-size: 13px;
-            line-height: 1.35;
+        h2,
+        h3 {
+            margin: 0;
         }
 
+        button {
+            cursor: pointer;
+        }
+
+        .page-header,
         .lookup-panel,
         .order-summary,
         .candidate-list,
         .history-entry,
         .watched-orders-panel,
-        .watched-order-row {
+        .watched-order-row,
+        .status-panel {
             border: 1px solid #ddd;
-            border-radius: 6px;
+            border-radius: 8px;
             background: #fff;
-            padding: 12px;
+            padding: 14px;
             margin: 12px 0;
         }
 
+        .page-header,
         .lookup-panel,
         .watched-orders-panel {
             background: #fafafa;
         }
 
+        .hint {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.45;
+            margin: 8px 0 0;
+        }
+
+        .section-subtitle {
+            color: #444;
+            font-size: 14px;
+            line-height: 1.45;
+            margin: 8px 0 0;
+        }
+
         .lookup-row,
-        .inline-form {
+        .inline-form,
+        .actions-row {
             display: flex;
             gap: 8px;
             align-items: center;
             flex-wrap: wrap;
+            margin-top: 10px;
         }
 
         .lookup-row input,
         .inline-form input {
-            min-width: 220px;
+            min-width: 240px;
             flex: 1;
-            padding: 8px;
+            padding: 9px;
             font-size: 14px;
         }
 
         .lookup-row button,
         .inline-form button,
-        .watched-order-actions button {
+        .watched-order-actions button,
+        .actions-row button {
             padding: 8px 12px;
         }
 
         #historyStatus,
         #ordersWatchedStatus {
-            margin: 8px 0 12px;
+            margin: 0;
             font-weight: bold;
+        }
+
+        .status-panel {
+            background: #fff;
         }
 
         .candidate-item,
@@ -72,7 +101,7 @@
         }
 
         .candidate-item {
-            padding: 8px 0;
+            padding: 10px 0;
             border-top: 1px solid #eee;
         }
 
@@ -88,23 +117,27 @@
         .watched-order-meta {
             color: #555;
             font-size: 12px;
-            margin-top: 4px;
+            margin-top: 5px;
+            line-height: 1.45;
         }
 
         .history-entry-title,
         .order-summary-title,
-        .watched-orders-title {
+        .watched-orders-title,
+        .candidate-title {
             font-weight: bold;
             margin-bottom: 6px;
         }
 
-        .history-diff {
-            margin-top: 8px;
+        .history-diff,
+        .current-state {
+            margin-top: 10px;
         }
 
         .history-diff-row,
         .history-current-row {
-            margin: 4px 0;
+            margin: 5px 0;
+            line-height: 1.35;
         }
 
         .history-field {
@@ -113,6 +146,36 @@
 
         .history-empty {
             color: #555;
+            background: #fafafa;
+            border: 1px dashed #ddd;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 12px 0;
+        }
+
+        .badge {
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 999px;
+            padding: 2px 8px;
+            margin: 2px 4px 2px 0;
+            font-size: 12px;
+            background: #f7f7f7;
+            white-space: nowrap;
+        }
+
+        .badge-positive {
+            border-color: #9ac59a;
+            background: #f3fbf3;
+        }
+
+        .badge-muted {
+            color: #555;
+        }
+
+        .badge-warning {
+            border-color: #e2c27a;
+            background: #fff8e6;
         }
 
         .watched-order-actions {
@@ -121,30 +184,42 @@
             flex-wrap: wrap;
             justify-content: flex-end;
         }
+
+        .support-note {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
     </style>
 </head>
 <body>
 
-<h2>Заказы</h2>
-
-<p class="hint">
-    Здесь можно найти изменения по конкретному заказу и управлять отслеживаемыми заказами.
-    Плагин показывает только изменения, которые сам обнаружил. Это не полная серверная история заказа в админке.
-</p>
+<header class="page-header">
+    <h2>Заказы и отслеживание</h2>
+    <p class="section-subtitle">
+        Рабочий экран для поиска заказа в локальной базе плагина и управления прямой проверкой выбранных заказов.
+    </p>
+    <p class="hint">
+        Плагин показывает только заказы и изменения, которые сам обнаружил. Это не полная серверная история заказа в админке.
+    </p>
+</header>
 
 <section class="lookup-panel" aria-label="Поиск заказа">
-    <h3>Поиск изменений по заказу</h3>
+    <h3>Найти заказ</h3>
+    <p class="hint">
+        Введите полный номер заказа или первые 4 цифры до дефиса. Если найдено несколько заказов с одинаковыми первыми цифрами, выберите полный номер из списка.
+    </p>
     <div class="lookup-row">
         <input id="historyOrderQuery" type="search" placeholder="Например: 1234 или 1234-110626" autocomplete="off">
         <button id="searchHistory">Найти</button>
         <button id="resetHistorySearch">Очистить</button>
     </div>
-    <p class="hint">
-        По первым 4 цифрам плагин ищет локально известные заказы. Если найдено несколько — выберите полный номер.
-    </p>
 </section>
 
-<div id="historyStatus">Введите номер заказа для поиска</div>
+<section class="status-panel" aria-live="polite">
+    <div id="historyStatus">Введите номер заказа для поиска</div>
+</section>
+
 <div id="historyCandidates"></div>
 <div id="orderSummary"></div>
 <div id="historyList"></div>
@@ -152,13 +227,15 @@
 <section class="watched-orders-panel" aria-label="Отслеживаемые заказы">
     <h3>Отслеживаемые заказы</h3>
     <p class="hint">
-        Direct follow-up проверяет эти заказы напрямую при активном мониторинге, отдельно от области мониторинга списка.
+        Прямая проверка открывает конкретные карточки заказов при активном мониторинге. Первая проверка нового заказа становится baseline и не создаёт уведомление.
     </p>
     <div class="inline-form">
         <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
         <button id="ordersAddWatchedOrder" type="button">Добавить</button>
     </div>
-    <div id="ordersWatchedStatus">Загрузка списка...</div>
+    <div class="status-panel">
+        <div id="ordersWatchedStatus">Загрузка списка...</div>
+    </div>
     <div id="ordersWatchedList"></div>
 </section>
 
