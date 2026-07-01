@@ -771,6 +771,23 @@ function processDirectFollowUpOrder(order, orderId, now = Date.now()) {
     }
 
     const changedFields = getChangedFields(prevOrder, order);
+
+    if (!changedFields.length) {
+        storeDirectFollowUpSnapshot(normalizedId, order);
+        storeOrderSnapshotInMainState(normalizedId, order);
+
+        log('INFO', 'DIRECT_FOLLOW_UP', 'normalized no-change', {
+            orderId: normalizedId
+        });
+
+        return {
+            ok: true,
+            eventCreated: false,
+            notified: false,
+            reason: 'direct-follow-up-normalized-no-change'
+        };
+    }
+
     const eventContext = {
         prevOrder,
         prevHash,
@@ -1406,6 +1423,22 @@ function processOrders(orders, options = {}) {
         const changedFields = isNewOrder
             ? []
             : getChangedFields(prevOrder, order);
+
+        if (!isNewOrder && !changedFields.length) {
+            if (!testMode) {
+                knownOrdersDB[order.id] = order;
+                knownOrdersHashDB[order.id] = newHash;
+                windowOrdersDB[order.id] = order;
+                windowOrdersHashDB[order.id] = newHash;
+                hasStateUpdates = true;
+            }
+
+            log('INFO', 'CHANGE', 'normalized no-change', {
+                id: order.id
+            });
+
+            continue;
+        }
 
         log('INFO', 'CHANGE', 'event', {
             id: order.id,

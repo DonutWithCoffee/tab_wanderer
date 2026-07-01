@@ -71,6 +71,28 @@ test('getHash ignores context-only date and contractor fields', () => {
     assert.equal(hashA, hashB);
 });
 
+test('order hash and changed fields ignore dynamic local city time', () => {
+    const context = loadBackgroundContext();
+
+    const prevOrder = {
+        status: 'Новый',
+        delivery: 'Курьер',
+        payment: 'Оплата онлайн',
+        city: 'Мытищи, Московская обл. (местное время: 12:26)',
+        tags: []
+    };
+    const nextOrder = {
+        status: 'Новый',
+        delivery: 'Курьер',
+        payment: 'Оплата онлайн',
+        city: 'Мытищи, Московская обл. (местное время: 12:28)',
+        tags: []
+    };
+
+    assert.equal(context.getHash(prevOrder), context.getHash(nextOrder));
+    assert.deepEqual(JSON.parse(JSON.stringify(context.getChangedFields(prevOrder, nextOrder))), []);
+});
+
 test('getChangedFields returns deterministic field list for normalized order changes', () => {
     const context = loadBackgroundContext();
 

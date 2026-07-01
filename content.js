@@ -99,6 +99,24 @@ function normalizeCellText(text) {
         .trim();
 }
 
+function stripDynamicOrderText(text) {
+    return normalizeCellText(text)
+        .replace(/\s*\(?\s*местное\s+время\s*:\s*[^)]*\)?/giu, '')
+        .replace(/\s*\(?\s*обновлено\s+[^)]*\)?/giu, '')
+        .replace(/\s*\(?\s*\d+\s*(?:секунд[уы]?|сек\.?|минут[уы]?|мин\.?|час(?:а|ов)?)\s+назад\s*\)?/giu, '')
+        .trim();
+}
+
+function normalizeOrderFieldText(fieldName, value) {
+    const normalized = normalizeCellText(value);
+
+    if (['city', 'manager', 'contractor', 'delivery', 'payment', 'status'].includes(fieldName)) {
+        return stripDynamicOrderText(normalized);
+    }
+
+    return normalized;
+}
+
 function extractPrimaryDate(text) {
     const raw = String(text || '');
     const firstLine = raw.split('\n')[0] || '';
@@ -211,9 +229,9 @@ function parseOrders() {
             ? new URL(rawHref, window.location.origin).toString()
             : '';
 
-        const status = cells[map.status]?.innerText?.trim() || '';
-        const delivery = cells[map.delivery]?.innerText?.trim() || '';
-        const payment = cells[map.payment]?.innerText?.trim() || '';
+        const status = normalizeOrderFieldText('status', cells[map.status]?.innerText || '');
+        const delivery = normalizeOrderFieldText('delivery', cells[map.delivery]?.innerText || '');
+        const payment = normalizeOrderFieldText('payment', cells[map.payment]?.innerText || '');
         const date = map.date !== undefined
             ? extractPrimaryDateFromCell(cells[map.date])
             : '';
@@ -227,13 +245,13 @@ function parseOrders() {
             ? parseProductsProgress(cells[map.products]?.innerText || '')
             : { productsDone: null, productsTotal: null };
         const manager = map.manager !== undefined
-            ? (cells[map.manager]?.innerText?.trim() || '')
+            ? normalizeOrderFieldText('manager', cells[map.manager]?.innerText || '')
             : '';
         const city = map.city !== undefined
-            ? (cells[map.city]?.innerText?.trim() || '')
+            ? normalizeOrderFieldText('city', cells[map.city]?.innerText || '')
             : '';
         const contractor = map.contractor !== undefined
-            ? (cells[map.contractor]?.innerText?.trim() || '')
+            ? normalizeOrderFieldText('contractor', cells[map.contractor]?.innerText || '')
             : '';
 
         const hasAutoreserve = !!r.querySelector('.fa-lock');
@@ -563,6 +581,10 @@ function findSectionDetailValue(sectionTitle, labels = [], expectedLabels = labe
     return findDetailValueByLabels(labels, sectionLines);
 }
 
+function normalizeDetailValue(fieldName, value) {
+    return normalizeOrderFieldText(fieldName, value);
+}
+
 function findOrderTagValues() {
     const infoLines = findOrderDetailsSectionLines('Информация о заказе', ['Теги']);
 
@@ -623,12 +645,21 @@ function parseOrderDetails(expectedOrderId = '') {
     return {
         id,
         internalId: id,
-        status: findSectionDetailValue('Информация о заказе', ['Статус заказа', 'Статус'])
-            || findDetailValueByLabels(['Статус заказа', 'Статус']),
-        delivery: findSectionDetailValue('Доставка', ['Способ доставки'], ['Способ доставки'])
-            || findDetailValueByLabels(['Способ доставки', 'Доставка']),
-        payment: findSectionDetailValue('Оплата', ['Способ оплаты'], ['Способ оплаты'])
-            || findDetailValueByLabels(['Способ оплаты', 'Оплата']),
+        status: normalizeDetailValue(
+            'status',
+            findSectionDetailValue('Информация о заказе', ['Статус заказа', 'Статус'])
+                || findDetailValueByLabels(['Статус заказа', 'Статус'])
+        ),
+        delivery: normalizeDetailValue(
+            'delivery',
+            findSectionDetailValue('Доставка', ['Способ доставки'], ['Способ доставки'])
+                || findDetailValueByLabels(['Способ доставки', 'Доставка'])
+        ),
+        payment: normalizeDetailValue(
+            'payment',
+            findSectionDetailValue('Оплата', ['Способ оплаты'], ['Способ оплаты'])
+                || findDetailValueByLabels(['Способ оплаты', 'Оплата'])
+        ),
         date: findSectionDetailValue('Информация о заказе', ['Время оформления', 'Дата заказа', 'Создан', 'Дата'])
             || findDetailValueByLabels(['Дата заказа', 'Создан', 'Дата']),
         phoneNormalized: normalizePhone(
@@ -638,12 +669,21 @@ function parseOrderDetails(expectedOrderId = '') {
         totalAmount: parseIntegerValue(totalAmountText),
         productsDone: productsProgress.productsDone,
         productsTotal: productsProgress.productsTotal,
-        manager: findSectionDetailValue('Информация о заказе', ['Ответственный менеджер', 'Менеджер'])
-            || findDetailValueByLabels(['Ответственный менеджер', 'Менеджер']),
-        city: findSectionDetailValue('Данные заказа', ['Город'], ['Город'])
-            || findDetailValueByLabels(['Город']),
-        contractor: findSectionDetailValue('Данные заказа', ['Клиент', 'Контрагент', 'Юридическое лицо'], ['Клиент'])
-            || findDetailValueByLabels(['Контрагент', 'Юридическое лицо']),
+        manager: normalizeDetailValue(
+            'manager',
+            findSectionDetailValue('Информация о заказе', ['Ответственный менеджер', 'Менеджер'])
+                || findDetailValueByLabels(['Ответственный менеджер', 'Менеджер'])
+        ),
+        city: normalizeDetailValue(
+            'city',
+            findSectionDetailValue('Данные заказа', ['Город'], ['Город'])
+                || findDetailValueByLabels(['Город'])
+        ),
+        contractor: normalizeDetailValue(
+            'contractor',
+            findSectionDetailValue('Данные заказа', ['Клиент', 'Контрагент', 'Юридическое лицо'], ['Клиент'])
+                || findDetailValueByLabels(['Контрагент', 'Юридическое лицо'])
+        ),
         orderUrl: rawUrl,
         hasAutoreserve: !!document.querySelector('.fa-lock'),
         tags

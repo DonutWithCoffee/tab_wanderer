@@ -15,6 +15,24 @@ function normalize(value) {
         .trim();
 }
 
+function stripDynamicOrderText(value) {
+    return String(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s*\(?\s*местное\s+время\s*:\s*[^)]*\)?/giu, '')
+        .replace(/\s*\(?\s*обновлено\s+[^)]*\)?/giu, '')
+        .replace(/\s*\(?\s*\d+\s*(?:секунд[уы]?|сек\.?|минут[уы]?|мин\.?|час(?:а|ов)?)\s+назад\s*\)?/giu, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function normalizeOrderSnapshotValue(fieldName, value) {
+    if (fieldName === 'city') {
+        return stripDynamicOrderText(value);
+    }
+
+    return value;
+}
+
 function normalizeDateForHash(value) {
     const raw = String(value || '');
     const firstLine = raw.split('\n')[0] || '';
@@ -39,7 +57,7 @@ function normalizeOrderEventField(order, fieldName) {
         return normalizeTagsForDiff(order?.tags);
     }
 
-    return normalize(order?.[fieldName]);
+    return normalize(normalizeOrderSnapshotValue(fieldName, order?.[fieldName]));
 }
 
 function getOrderEventFingerprint(order) {
@@ -116,6 +134,8 @@ function mergeOrderSnapshots(baseOrder, incomingOrder) {
 
 globalThis.ORDER_EVENT_FIELDS = ORDER_EVENT_FIELDS;
 globalThis.normalize = normalize;
+globalThis.stripDynamicOrderText = stripDynamicOrderText;
+globalThis.normalizeOrderSnapshotValue = normalizeOrderSnapshotValue;
 globalThis.normalizeDateForHash = normalizeDateForHash;
 globalThis.normalizeTagsForDiff = normalizeTagsForDiff;
 globalThis.normalizeOrderEventField = normalizeOrderEventField;

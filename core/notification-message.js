@@ -19,15 +19,23 @@ const NOTIFICATION_NEW_ORDER_FIELDS = [
 ];
 
 function formatNotificationValue(value) {
+    const normalizeDisplayText = (item) => {
+        const text = String(item ?? '').trim();
+
+        return typeof stripDynamicOrderText === 'function'
+            ? stripDynamicOrderText(text)
+            : text;
+    };
+
     if (Array.isArray(value)) {
         const values = value
-            .map(item => String(item || '').trim())
+            .map(normalizeDisplayText)
             .filter(Boolean);
 
         return values.length ? values.join(', ') : '—';
     }
 
-    const text = String(value ?? '').trim();
+    const text = normalizeDisplayText(value);
 
     return text || '—';
 }

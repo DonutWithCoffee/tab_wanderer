@@ -515,6 +515,33 @@ test('parseOrderDetails extracts watched order payload from order page text', ()
     });
 });
 
+test('parseOrderDetails strips dynamic local time from order city', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            bodyText: [
+                'Информация о заказе',
+                'Статус',
+                'Новый',
+                'Данные заказа',
+                'Город',
+                'Мытищи, Московская обл. (местное время: 12:26)',
+                'Телефон',
+                '+7 921 324-15-66',
+                'Доставка',
+                'Способ доставки',
+                'Курьер',
+                'Оплата',
+                'Способ оплаты',
+                'Оплата онлайн'
+            ].join('\n')
+        })
+    );
+
+    const order = context.parseOrderDetails('3010-010726');
+
+    assert.equal(order.city, 'Мытищи, Московская обл.');
+});
+
 test('parseOrderDetails reads real admin order page layout without table total noise', () => {
     const context = loadContentContext(
         createDocumentStub({

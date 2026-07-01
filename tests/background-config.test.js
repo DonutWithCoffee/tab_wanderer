@@ -2757,6 +2757,76 @@ test('DIRECT_ORDER after direct baseline records event and notifies through shar
     assert.equal(watchedItem.lastError, null);
 });
 
+test('DIRECT_ORDER ignores dynamic local city time changes', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const prevOrder = createOrder({
+        id: '3010-010726',
+        city: 'Мытищи, Московская обл. (местное время: 12:26)'
+    });
+    const nextOrder = createOrder({
+        id: '3010-010726',
+        city: 'Мытищи, Московская обл. (местное время: 12:28)'
+    });
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: 88,
+        directFollowUpState: {
+            currentOrderId: '3010-010726',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000
+        },
+        knownOrdersDB: {
+            '3010-010726': prevOrder
+        },
+        knownOrdersHashDB: {
+            '3010-010726': 'legacy-hash-with-local-time'
+        },
+        directFollowUpOrdersDB: {
+            '3010-010726': prevOrder
+        },
+        directFollowUpHashDB: {
+            '3010-010726': 'legacy-direct-hash-with-local-time'
+        },
+        eventJournal: [],
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '3010-010726', lastBaselineAt: 1700000000000 }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '3010-010726',
+            data: nextOrder
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/admin/orders/3010-010726/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, true);
+    assert.equal(response.checked, true);
+    assert.equal(context.__test.notifications.length, 0);
+    assert.equal(state.eventJournal.length, 0);
+    assert.equal(state.directFollowUpHashDB['3010-010726'], getHashForOrder(context, nextOrder));
+    assert.equal(state.knownOrdersHashDB['3010-010726'], getHashForOrder(context, nextOrder));
+});
+
 test('DIRECT_ORDER first direct baseline preserves fuller known list state', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
