@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: `0.9.9.8 Docs/version checkpoint`.
+Актуально на момент: `Pre-1.0 diagnostics/log polish checkpoint`.
 
 Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,10 +11,10 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot
-Текущая стадия: 0.9.9.8 Docs/version checkpoint
+Текущая стадия: Pre-1.0 diagnostics/log polish checkpoint
 Manifest version: 0.9.9
 Build checkpoint: 0.9.9.8
-Tests: 168 pass / 0 fail
+Tests: 171 pass / 0 fail
 ```
 
 Roadmap:
@@ -24,8 +24,8 @@ Roadmap:
 0.9.6 — Deep Collection ✅
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
-0.9.9 — Product completion QA before UI polish ✅ current checkpoint
-Pre-1.0 — UI/UX polish with user ⏳ next
+0.9.9 — Product completion QA before UI polish ✅
+Pre-1.0 — UI/UX polish with user ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 Post-1.0 — centralized collector / Ozon automation / Firefox fork
@@ -41,6 +41,7 @@ fix(history): bound event journal retention
 fix(core): suppress startup catch-up notifications
 refactor(config): remove legacy monitor scope predicates
 docs(project): sync 0.9.9 checkpoint
+polish(diagnostics): clarify log export and smoke checklist
 ```
 
 ---
@@ -74,7 +75,7 @@ small coherent slices
 avoid unrelated refactor
 prefer 1–3 files per small implementation step when practical
 but commit coherent vertical behavior slices, not tiny partial commits
-full-file rewrites should be shown as final file only
+patches should be provided as full replacement files for fast copy-paste
 if unsure about current code, ask user for fresh archive/files
 ```
 
@@ -706,7 +707,7 @@ npm test
 Current checkpoint:
 
 ```text
-168 pass 0 fail
+171 pass 0 fail
 ```
 
 Test suites cover:

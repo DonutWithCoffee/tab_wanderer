@@ -9,11 +9,11 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 0.9.9.8 Docs/version checkpoint
+Стадия разработки: Pre-1.0 diagnostics/log polish checkpoint
 Manifest version: 0.9.9
 Build checkpoint: 0.9.9.8
-Текущий фокус: product completion QA перед pre-1.0 UI/UX polish
-Tests: 168 pass / 0 fail
+Текущий фокус: UI/UX polish + manual smoke QA перед 1.0 RC
+Tests: 171 pass / 0 fail
 ```
 
 Документы проекта:
@@ -429,14 +429,14 @@ npm test
 Текущий checkpoint:
 
 ```text
-168 pass 0 fail
+171 pass 0 fail
 ```
 
 ---
 
 ## Release direction
 
-Следующий этап после этого checkpoint:
+Текущий этап после diagnostics/log polish checkpoint:
 
 ```text
 Pre-1.0 UI/UX polish

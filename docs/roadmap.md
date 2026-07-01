@@ -1,6 +1,6 @@
 # tab_wanderer — Roadmap
 
-Документ фиксирует путь разработки от текущего состояния `0.9.9.8` до `1.0` и post-1.0.
+Документ фиксирует путь разработки от текущего состояния `Pre-1.0 diagnostics/log polish checkpoint` до `1.0` и post-1.0.
 
 ---
 
@@ -11,8 +11,8 @@
 0.9.6 — Deep Collection ✅
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
-0.9.9 — Product completion QA before UI polish ✅ current checkpoint
-Pre-1.0 — UI/UX polish with user ⏳ next
+0.9.9 — Product completion QA before UI polish ✅
+Pre-1.0 — UI/UX polish with user ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 ```
@@ -22,7 +22,7 @@ Version state:
 ```text
 Manifest version: 0.9.9
 Build checkpoint: 0.9.9.8
-Tests: 168 pass / 0 fail
+Tests: 171 pass / 0 fail
 ```
 
 Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest поднимается до `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
@@ -236,7 +236,7 @@ popup only adds watched order by full orderId
 Options links to Orders page instead of managing watchlist directly
 ```
 
-### 0.9.9.8 — Docs/version checkpoint ✅ current
+### 0.9.9.8 — Docs/version checkpoint ✅ done
 
 ```text
 README synced
@@ -249,7 +249,7 @@ test count recorded: 168 pass / 0 fail
 
 ---
 
-## Pre-1.0 — UI/UX polish with user ⏳ next
+## Pre-1.0 — UI/UX polish with user ⏳ current
 
 Цель:
 
@@ -268,6 +268,15 @@ empty/loading/error states
 visual hierarchy
 wording pass
 manual browser smoke QA
+```
+
+### Pre-1.0 diagnostics/log polish checkpoint ✅ current
+
+```text
+log export wording clarified
+smoke checklist clarified
+manual QA checklist aligned with current diagnostics behavior
+test count recorded: 171 pass / 0 fail
 ```
 
 Границы этапа:
