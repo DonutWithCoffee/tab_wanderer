@@ -103,17 +103,17 @@ function loadPopupConfig() {
 
         currentPopupConfig = res.userConfig || currentPopupConfig;
         updateQuickSuppressorControls(currentPopupConfig);
-        setText('quickSuppressStatus', 'Быстрые фильтры управляют только уведомлениями.');
+        setText('quickSuppressStatus', 'Фильтры скрывают только уведомления. Состояние заказов всё равно обновляется.');
     });
 }
 
-function savePopupConfig(nextConfig, successMessage = 'Быстрые фильтры сохранены.') {
-    setText('quickSuppressStatus', 'Сохраняем быстрые фильтры...');
+function savePopupConfig(nextConfig, successMessage = 'Фильтры уведомлений сохранены.') {
+    setText('quickSuppressStatus', 'Сохраняем фильтры уведомлений...');
 
     send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
         if (!res?.ok) {
             updateQuickSuppressorControls(currentPopupConfig);
-            setText('quickSuppressStatus', 'Ошибка сохранения быстрых фильтров.');
+            setText('quickSuppressStatus', 'Ошибка сохранения фильтров уведомлений.');
             return;
         }
 
@@ -236,22 +236,46 @@ function addWatchedOrderFromPopup() {
             input.value = '';
         }
 
-        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен. Управление списком — на странице “Заказы”.`);
+        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен. Список и история — на странице “Заказы”.`);
     });
 }
 
 function getStatusLabel(status = {}) {
     if (status.isRunning !== true) {
-        return 'Статус: STOPPED';
+        return 'Статус: выключен';
     }
 
     const state = String(status.monitorState || 'active');
 
     if (state === 'warming') {
-        return 'Статус: WARMING';
+        return 'Статус: запускается';
     }
 
-    return 'Статус: RUNNING';
+    return 'Статус: работает';
+}
+
+
+function getMonitorModeLabel(value) {
+    return value === 'active' ? 'активный' : 'по фильтрам админки';
+}
+
+function buildStatusDetails(status = {}) {
+    if (status.isRunning !== true) {
+        return 'Мониторинг остановлен. Уведомления не отправляются.';
+    }
+
+    const parts = [
+        `режим: ${getMonitorModeLabel(status.monitorMode)}`,
+        `окно: ${getNumber(status.windowOrdersCount)}`,
+        `известно: ${getNumber(status.knownOrdersCount)}`,
+        `worker: ${status.hasWorkerTab === true ? 'есть' : 'нет'}`
+    ];
+
+    if (String(status.monitorState || '') === 'warming') {
+        parts.unshift('идёт стартовая синхронизация без пачки уведомлений');
+    }
+
+    return parts.join(' · ');
 }
 
 function updateStatus(status = {}) {
@@ -269,6 +293,8 @@ function updateStatus(status = {}) {
         eventJournalCount: getNumber(status.eventJournalCount)
     };
 
+    setText('statusDetails', buildStatusDetails(currentMonitorStatus));
+
     const statusEl = document.getElementById('status');
 
     if (statusEl) {
@@ -285,7 +311,7 @@ function updateStatus(status = {}) {
     const toggleBtn = document.getElementById('toggleMonitor');
 
     if (toggleBtn) {
-        toggleBtn.innerText = currentMonitorStatus.isRunning ? 'Stop monitoring' : 'Start monitoring';
+        toggleBtn.innerText = currentMonitorStatus.isRunning ? 'Остановить мониторинг' : 'Включить мониторинг';
     }
 }
 
@@ -471,11 +497,11 @@ function downloadTextFile(filename, text) {
 }
 
 function downloadDiagnosticLogFromPopup() {
-    setText('diagnosticLogStatus', 'Preparing diagnostic log...');
+    setText('diagnosticLogStatus', 'Готовим диагностический лог...');
 
     send({ type: 'GET_MONITOR_STATUS' }, (statusRes) => {
         if (!statusRes?.ok) {
-            setText('diagnosticLogStatus', 'Failed to load monitor status.');
+            setText('diagnosticLogStatus', 'Не удалось загрузить состояние мониторинга.');
             return;
         }
 
@@ -487,7 +513,7 @@ function downloadDiagnosticLogFromPopup() {
             }
         }, (logRes) => {
             if (!logRes?.ok) {
-                setText('diagnosticLogStatus', 'Failed to load diagnostic log.');
+                setText('diagnosticLogStatus', 'Не удалось загрузить диагностический лог.');
                 return;
             }
 
@@ -496,7 +522,7 @@ function downloadDiagnosticLogFromPopup() {
 
             setText(
                 'diagnosticLogStatus',
-                downloaded ? 'Diagnostic log prepared.' : 'Failed to prepare diagnostic log.'
+                downloaded ? 'Диагностический лог готов.' : 'Не удалось подготовить диагностический лог.'
             );
         });
     });

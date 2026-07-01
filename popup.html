@@ -4,90 +4,139 @@
     <meta charset="UTF-8">
     <style>
         body {
-            min-width: 300px;
+            box-sizing: border-box;
+            min-width: 340px;
             margin: 0;
             padding: 14px;
             font-family: Arial, sans-serif;
             color: #222;
+            background: #fff;
         }
 
         h3 {
-            margin: 0 0 8px;
-        }
-
-        #version {
-            margin-bottom: 8px;
-            color: #666;
-            font-size: 12px;
-        }
-
-        #status {
-            margin-bottom: 12px;
-            font-weight: bold;
-        }
-
-        .running {
-            color: green;
-        }
-
-        .stopped {
-            color: red;
-        }
-
-        .warming {
-            color: #a15c00;
-        }
-
-        .actions-group {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+            margin: 0;
+            font-size: 16px;
         }
 
         button {
+            box-sizing: border-box;
+            width: 100%;
             padding: 8px 10px;
+            border: 1px solid #cfcfcf;
+            border-radius: 6px;
+            background: #fff;
             cursor: pointer;
-            text-align: left;
+            text-align: center;
+            font-size: 13px;
         }
 
-        .hint {
-            margin: 8px 0 0;
-            color: #555;
+        button:hover {
+            background: #f3f3f3;
+        }
+
+        .header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        #version {
+            color: #666;
             font-size: 12px;
-            line-height: 1.35;
+            white-space: nowrap;
         }
 
-        .quick-settings {
-            margin: 12px 0;
+        .status-card {
+            margin-bottom: 12px;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 8px;
             background: #f8f8f8;
         }
 
+        #status {
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        #statusDetails {
+            color: #555;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
+        .running {
+            color: #168018;
+        }
+
+        .stopped {
+            color: #b00020;
+        }
+
+        .warming {
+            color: #a15c00;
+        }
+
+        .primary-action {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+
+        .actions-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .actions-grid .wide {
+            grid-column: 1 / -1;
+        }
+
+        .hint {
+            margin: 7px 0 0;
+            color: #555;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
+        .section {
+            margin: 12px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .section-title {
+            margin: 0 0 8px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
         .inline-form {
             display: flex;
             gap: 6px;
             align-items: center;
-            flex-wrap: wrap;
         }
 
         .inline-form input[type="text"] {
             box-sizing: border-box;
             flex: 1;
-            min-width: 150px;
-            padding: 7px;
-            font-size: 12px;
+            min-width: 0;
+            padding: 8px;
+            border: 1px solid #cfcfcf;
+            border-radius: 6px;
+            font-size: 13px;
         }
 
         .inline-form button {
             flex: 0 0 auto;
-        }
-
-        .quick-settings-title {
-            margin: 0 0 8px;
-            font-size: 13px;
-            font-weight: bold;
+            width: auto;
+            white-space: nowrap;
         }
 
         .checkbox-row {
@@ -105,38 +154,43 @@
     </style>
 </head>
 <body>
-    <h3>tab_wanderer</h3>
+    <div class="header">
+        <h3>Tab Wanderer</h3>
+        <div id="version"></div>
+    </div>
 
-    <div id="version"></div>
-    <div id="status">Статус: ...</div>
+    <div class="status-card">
+        <div id="status">Статус: загрузка...</div>
+        <div id="statusDetails">Получаем состояние мониторинга...</div>
+        <button id="toggleMonitor" class="primary-action">Включить мониторинг</button>
+    </div>
 
-    <div class="quick-settings">
-        <p class="quick-settings-title">Быстрые фильтры уведомлений</p>
+    <div class="section">
+        <p class="section-title">Не уведомлять о:</p>
         <label class="checkbox-row">
             <input type="checkbox" id="popupIgnoreLegalEntityPayment">
-            Игнорировать юриков
+            Юрлицах / безналичной оплате для юридических лиц
         </label>
         <label class="checkbox-row">
             <input type="checkbox" id="popupIgnoreOzon">
-            Игнорировать ОЗОН
+            ОЗОН-заказах
         </label>
         <div id="quickSuppressStatus" class="hint">Загрузка фильтров...</div>
     </div>
 
-    <div class="quick-settings">
-        <p class="quick-settings-title">Быстрое отслеживание</p>
+    <div class="section">
+        <p class="section-title">Добавить в отслеживание</p>
         <div class="inline-form">
             <input id="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
-            <button id="popupAddWatchedOrder" type="button">Отслеживать</button>
+            <button id="popupAddWatchedOrder" type="button">Добавить</button>
         </div>
-        <div id="popupWatchedOrderStatus" class="hint">Введите полный номер заказа.</div>
+        <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа. Список — на странице “Заказы”.</div>
     </div>
 
-    <div class="actions-group">
-        <button id="toggleMonitor">Start monitoring</button>
-        <button id="openOptions">Open settings</button>
-        <button id="openHistory">Открыть заказы</button>
-        <button id="downloadDiagnosticLog">Download diagnostic log</button>
+    <div class="actions-grid">
+        <button id="openHistory">Заказы</button>
+        <button id="openOptions">Настройки</button>
+        <button id="downloadDiagnosticLog" class="wide">Скачать диагностический лог</button>
     </div>
 
     <div id="diagnosticLogStatus" class="hint"></div>

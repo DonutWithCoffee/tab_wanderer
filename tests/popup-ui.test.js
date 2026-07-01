@@ -104,6 +104,7 @@ function createPopupDom() {
     for (const id of [
         'version',
         'status',
+        'statusDetails',
         'toggleMonitor',
         'openOptions',
         'openHistory',
@@ -256,6 +257,7 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="openOptions"/);
     assert.match(html, /id="openHistory"/);
     assert.match(html, /id="downloadDiagnosticLog"/);
+    assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupIgnoreOzon"/);
     assert.match(html, /id="popupWatchedOrderInput"/);
@@ -274,8 +276,10 @@ test('popup loads monitor status and toggles running state through one button', 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 1);
     assert.equal(getSentMessagesByType(context, 'GET_CONFIG').length, 1);
     assert.equal(document.getElementById('version').innerText, 'v0.9.8-test');
-    assert.equal(document.getElementById('status').innerText, 'Статус: RUNNING');
-    assert.equal(document.getElementById('toggleMonitor').innerText, 'Stop monitoring');
+    assert.equal(document.getElementById('status').innerText, 'Статус: работает');
+    assert.match(document.getElementById('statusDetails').innerText, /режим: по фильтрам админки/);
+    assert.match(document.getElementById('statusDetails').innerText, /окно: 10/);
+    assert.equal(document.getElementById('toggleMonitor').innerText, 'Остановить мониторинг');
 
     document.getElementById('toggleMonitor').dispatchEvent({
         type: 'click',
@@ -297,8 +301,9 @@ test('popup starts monitoring when status is stopped', () => {
     });
     const document = context.__test.document;
 
-    assert.equal(document.getElementById('status').innerText, 'Статус: STOPPED');
-    assert.equal(document.getElementById('toggleMonitor').innerText, 'Start monitoring');
+    assert.equal(document.getElementById('status').innerText, 'Статус: выключен');
+    assert.equal(document.getElementById('statusDetails').innerText, 'Мониторинг остановлен. Уведомления не отправляются.');
+    assert.equal(document.getElementById('toggleMonitor').innerText, 'Включить мониторинг');
 
     document.getElementById('toggleMonitor').dispatchEvent({
         type: 'click',
@@ -350,7 +355,7 @@ test('popup quick suppressor toggles update config only for notifications', () =
         ignoreLegalEntityPayment: true,
         ignoreOzon: false
     });
-    assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Быстрые фильтры сохранены.');
+    assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Фильтры уведомлений сохранены.');
 });
 
 test('popup adds watched order by full order id only', () => {
@@ -375,7 +380,7 @@ test('popup adds watched order by full order id only', () => {
         '1234-110626'
     ]);
     assert.equal(input.value, '');
-    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен. Управление списком — на странице “Заказы”.');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен. Список и история — на странице “Заказы”.');
 });
 
 test('popup downloads diagnostic log from quick action', () => {
@@ -402,5 +407,5 @@ test('popup downloads diagnostic log from quick action', () => {
     assert.match(decodeURIComponent(createdLinks[0].href), /tab_wanderer diagnostic log/);
     assert.match(decodeURIComponent(createdLinks[0].href), /Exported log entries/);
     assert.match(decodeURIComponent(createdLinks[0].href), /CONTROL START/);
-    assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Diagnostic log prepared.');
+    assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Диагностический лог готов.');
 });
