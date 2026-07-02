@@ -1063,18 +1063,32 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const ozonApply = lastWarehouseOzonUiApply || null;
     const ozonSummary = ozon?.plan?.summary || {};
     const products = createWarehouseBarcodePreviewProductRows(preview.extraction?.productsById || {}, ozon);
-    const actions = [
-        { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' }
-    ];
-
-    if (Number(summary.eligibleCount) > 0) {
-        actions.push({
-            id: 'ozon-ui-apply',
-            label: ozonApply?.status === 'loading' ? 'Добавляем в Ozon...' : 'Добавить в Ozon',
-            variant: 'secondary',
-            disabled: ozonApply?.status === 'loading'
-        });
-    }
+    const hasEligibleBarcodes = Number(summary.eligibleCount) > 0;
+    const isOzonBusy = ozon?.status === 'loading' || ozonApply?.status === 'loading';
+    const actions = hasEligibleBarcodes
+        ? [
+            {
+                id: 'ozon-resolve',
+                label: ozon?.status === 'loading' ? 'Проверяем штрихкоды...' : 'Проверить штрихкоды',
+                variant: 'primary',
+                disabled: isOzonBusy
+            },
+            {
+                id: 'ozon-ui-apply',
+                label: ozonApply?.status === 'loading' ? 'Добавляем в Ozon...' : 'Добавить в Ozon',
+                variant: 'secondary',
+                disabled: isOzonBusy
+            },
+            {
+                id: 'warehouse-refresh',
+                label: 'Обновить склад',
+                variant: 'secondary',
+                disabled: isOzonBusy
+            }
+        ]
+        : [
+            { id: 'warehouse-refresh', label: 'Обновить склад', variant: 'primary' }
+        ];
 
     const metrics = [
         { label: 'Заказ', value: orderId },

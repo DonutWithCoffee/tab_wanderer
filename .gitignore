@@ -1,2 +1,4 @@
 # Local/private admin samples for development context
 /docs/private/
+*.patch
+tab_wanderer_*.zip

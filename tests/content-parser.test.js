@@ -884,8 +884,9 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
         title: 'tab_wanderer · Ozon barcodes',
         actionLabel: 'Проверить штрихкоды',
         actions: [
-            { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' },
-            { id: 'ozon-ui-apply', label: 'Добавить в Ozon', variant: 'secondary', disabled: false }
+            { id: 'ozon-resolve', label: 'Проверить штрихкоды', variant: 'primary', disabled: false },
+            { id: 'ozon-ui-apply', label: 'Добавить в Ozon', variant: 'secondary', disabled: false },
+            { id: 'warehouse-refresh', label: 'Обновить склад', variant: 'secondary', disabled: false }
         ],
         status: 'ready',
         message: 'Локальный предпросмотр. Записи в Ozon пока нет.',

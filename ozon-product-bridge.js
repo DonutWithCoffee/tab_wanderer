@@ -172,8 +172,29 @@
         };
     }
 
+    function createSourceFromDomRow(productId) {
+        const resolvedProduct = resolveProductFromDomRow(productId);
+
+        debug.lastDomRowCount = resolvedProduct.rowCount;
+        debug.lastDomSku = resolvedProduct.product?.ozonSku || '';
+        debug.lastDomResolveError = resolvedProduct.error || '';
+
+        if (!resolvedProduct.ok || !resolvedProduct.product) {
+            return null;
+        }
+
+        return {
+            sourceType: 'dom-row',
+            source: {
+                products: [resolvedProduct.product]
+            },
+            items: [sanitizeOzonProductItem(resolvedProduct.product)].filter(Boolean)
+        };
+    }
+
     function findProductSource(productId) {
         const sources = [
+            createSourceFromDomRow(productId),
             createSourceFromApiResponse(debug.lastProductsListResponse),
             createSourceFromModuleState(window.__MODULE_STATE__),
             createSourceFromModuleState(window.__INITIAL_STATE__),
@@ -593,6 +614,135 @@
         return best.slice(0, 3);
     }
 
+    function extractOzonSkuFromDomText(text) {
+        const normalizedText = normalizeText(text);
+        const match = normalizedText.match(/(?:^|\s)sku\s*[:№#-]?\s*(\d{6,})/i);
+
+        return normalizeId(match?.[1]);
+    }
+
+    function extractOzonTitleFromDomRow(row, productId) {
+        const expectedProductId = normalizeId(productId);
+        const lines = normalizeText(row?.innerText || row?.textContent)
+            .split(/(?=Артикул\s+\d+)|(?=SKU\s+\d+)/i)
+            .map(normalizeText)
+            .filter(Boolean);
+
+        const titleLine = lines.find(line => {
+            const lowerLine = line.toLowerCase();
+
+            return !line.includes(expectedProductId)
+                && !/^sku\s+\d+/i.test(line)
+                && !lowerLine.includes('штрихкод')
+                && !lowerLine.includes('добавить')
+                && line.length > 3;
+        });
+
+        return titleLine || '';
+    }
+
+    function pushUniqueBarcode(target, value, excludedValues = []) {
+        const barcode = normalizeId(value);
+
+        if (!barcode || barcode.length < 5 || excludedValues.includes(barcode) || target.includes(barcode)) {
+            return false;
+        }
+
+        target.push(barcode);
+        return true;
+    }
+
+    function extractVisibleOzonBarcodesFromDomRow(row, productId, ozonSku) {
+        const existingBarcodes = [];
+        const excludedValues = [normalizeId(productId), normalizeId(ozonSku)].filter(Boolean);
+
+        for (const node of Array.from(row?.querySelectorAll?.('[data-style="text"]') || [])) {
+            const text = normalizeText(node.innerText || node.textContent);
+            pushUniqueBarcode(existingBarcodes, text, excludedValues);
+        }
+
+        for (const node of Array.from(row?.querySelectorAll?.('[data-style="count"]') || [])) {
+            const container = node.parentElement || node.closest?.('td') || null;
+            const textNode = container?.querySelector?.('[data-style="text"]');
+            const text = normalizeText(textNode?.innerText || textNode?.textContent);
+            pushUniqueBarcode(existingBarcodes, text, excludedValues);
+        }
+
+        return existingBarcodes;
+    }
+
+    function resolveProductFromDomRow(productId) {
+        const expectedProductId = normalizeId(productId);
+
+        if (!expectedProductId) {
+            return {
+                ok: false,
+                error: 'productIdMissing',
+                productId: expectedProductId,
+                rowCount: 0,
+                product: null
+            };
+        }
+
+        const rows = findProductRows(expectedProductId);
+
+        if (rows.length !== 1) {
+            return {
+                ok: false,
+                error: rows.length > 1 ? 'productRowAmbiguous' : 'productRowNotFound',
+                productId: expectedProductId,
+                rowCount: rows.length,
+                product: null
+            };
+        }
+
+        const row = rows[0];
+        const text = normalizeText(row.innerText || row.textContent);
+        const ozonSku = extractOzonSkuFromDomText(text);
+
+        if (!ozonSku) {
+            return {
+                ok: false,
+                error: 'skuMissing',
+                productId: expectedProductId,
+                rowCount: rows.length,
+                product: null
+            };
+        }
+
+        const title = extractOzonTitleFromDomRow(row, expectedProductId);
+        const existingBarcodes = extractVisibleOzonBarcodesFromDomRow(row, expectedProductId, ozonSku);
+        const product = {
+            offerId: expectedProductId,
+            offer_id: expectedProductId,
+            ozonSku,
+            sku: ozonSku,
+            title,
+            name: title,
+            existingBarcodes,
+            barcodes: existingBarcodes,
+            part_item: {
+                offer_id: expectedProductId,
+                name: title
+            },
+            part_sources: {
+                sources: [{ sku: ozonSku }]
+            },
+            part_barcodes: {
+                barcodes: existingBarcodes
+            },
+            source: 'dom-row'
+        };
+
+        return {
+            ok: true,
+            error: null,
+            productId: expectedProductId,
+            rowCount: rows.length,
+            product
+        };
+    }
+
     function findButtonByText(root, text) {
         const expectedText = normalizeText(text).toLowerCase();
         const buttons = Array.from((root || document).querySelectorAll('button, [role="button"]'));
@@ -602,21 +752,98 @@
             || null;
     }
 
-    function findAddBarcodeButtonForProduct(productId) {
+    function findExistingBarcodeCellTrigger(row) {
+        const directBarcodeContainer = Array.from(row.querySelectorAll('[data-style="count"]'))
+            .find(element => isVisibleElement(element) && /штрихкод/i.test(getElementText(element)));
+
+        if (directBarcodeContainer) {
+            let current = directBarcodeContainer.parentElement;
+
+            while (current && current !== row) {
+                const currentText = getElementText(current);
+                const currentRect = current.getBoundingClientRect?.();
+
+                if (currentRect
+                    && currentRect.width > 0
+                    && currentRect.height > 0
+                    && currentText.includes('+')
+                    && /штрихкод/i.test(currentText)
+                    && /\d{6,}/.test(currentText)) {
+                    return current;
+                }
+
+                current = current.parentElement;
+            }
+
+            return directBarcodeContainer.parentElement || directBarcodeContainer;
+        }
+
+        const barcodeCells = Array.from(row.querySelectorAll('td, [role="cell"]'))
+            .filter(isVisibleElement)
+            .filter(cell => {
+                const text = getElementText(cell);
+                return /\d{6,}/.test(text) && /штрихкод/i.test(text);
+            })
+            .sort((a, b) => getElementText(a).length - getElementText(b).length);
+
+        for (const cell of barcodeCells) {
+            const compactContainer = Array.from(cell.querySelectorAll('div, span'))
+                .filter(isVisibleElement)
+                .filter(element => {
+                    const text = getElementText(element);
+                    return /\d{6,}/.test(text) && /штрихкод/i.test(text);
+                })
+                .sort((a, b) => getElementText(a).length - getElementText(b).length)[0];
+
+            if (compactContainer) {
+                return compactContainer;
+            }
+
+            return cell;
+        }
+
+        return null;
+    }
+
+    function findBarcodeDrawerTriggerForProduct(productId) {
         const rows = findProductRows(productId);
 
         if (rows.length !== 1) {
-            return { ok: false, error: rows.length > 1 ? 'Ozon product row is ambiguous' : 'Ozon product row not found', rowCount: rows.length, button: null };
+            return {
+                ok: false,
+                error: rows.length > 1 ? 'Ozon product row is ambiguous' : 'Ozon product row not found',
+                rowCount: rows.length,
+                trigger: null,
+                triggerType: ''
+            };
         }
 
         const row = rows[0];
-        const button = findButtonByText(row, 'Добавить');
+        const addButton = findButtonByText(row, 'Добавить');
 
-        if (!button) {
-            return { ok: false, error: 'Ozon barcode add button not found', rowCount: rows.length, button: null };
+        if (addButton) {
+            return { ok: true, error: '', rowCount: rows.length, trigger: addButton, triggerType: 'add-button' };
         }
 
-        return { ok: true, error: '', rowCount: rows.length, button };
+        const existingBarcodeTrigger = findExistingBarcodeCellTrigger(row);
+
+        if (existingBarcodeTrigger) {
+            return {
+                ok: true,
+                error: '',
+                rowCount: rows.length,
+                trigger: existingBarcodeTrigger,
+                triggerType: 'existing-barcode-cell'
+            };
+        }
+
+        return {
+            ok: false,
+            error: 'Ozon barcode drawer trigger not found',
+            rowCount: rows.length,
+            trigger: null,
+            triggerType: ''
+        };
     }
 
     function findBarcodeDrawerByTitle() {
@@ -724,14 +951,52 @@
         };
     }
 
+    function findDrawerAddBarcodeButton() {
+        const drawer = findBarcodeDrawerByTitle();
+
+        if (!drawer) {
+            return null;
+        }
+
+        const controls = Array.from(drawer.querySelectorAll('button, [role="button"]'))
+            .map(getClickableElement)
+            .filter(Boolean);
+
+        return Array.from(new Set(controls))
+            .filter(isVisibleElement)
+            .filter(control => !isDisabledControl(control))
+            .filter(control => {
+                const text = getElementText(control).toLowerCase();
+
+                return text === 'добавить штрихкод';
+            })[0] || null;
+    }
+
     async function waitForBarcodeInput(timeoutMs = 12000) {
         const startedAt = Date.now();
+        let addBarcodeModeClicked = false;
 
         while (Date.now() - startedAt <= timeoutMs) {
             const input = findBarcodeInput();
 
             if (input) {
                 return input;
+            }
+
+            if (!addBarcodeModeClicked) {
+                const addBarcodeButton = findDrawerAddBarcodeButton();
+
+                if (addBarcodeButton) {
+                    addBarcodeModeClicked = true;
+                    debug.lastUiApply = {
+                        ...debug.lastUiApply,
+                        intermediateAddBarcodeButton: getElementSummary(addBarcodeButton),
+                        intermediateAddBarcodeButtonClicked: true
+                    };
+                    dispatchMouseClick(addBarcodeButton);
+                    await delay(500);
+                    continue;
+                }
             }
 
             await delay(250);
@@ -1232,7 +1497,7 @@
         let addButtonResult = null;
 
         for (let openAttempt = 1; openAttempt <= 3; openAttempt += 1) {
-            addButtonResult = findAddBarcodeButtonForProduct(normalizedProductId);
+            addButtonResult = findBarcodeDrawerTriggerForProduct(normalizedProductId);
 
             if (!addButtonResult.ok) {
                 debug.lastUiApply = {
@@ -1250,10 +1515,11 @@
                 ...debug.lastUiApply,
                 openAttempt,
                 rowCount: addButtonResult.rowCount,
-                addButton: getElementSummary(addButtonResult.button)
+                drawerTrigger: getElementSummary(addButtonResult.trigger),
+                drawerTriggerType: addButtonResult.triggerType
             };
 
-            dispatchMouseClick(addButtonResult.button);
+            dispatchMouseClick(addButtonResult.trigger);
             input = await waitForBarcodeInput(openAttempt === 1 ? 5000 : 7000);
 
             if (input) {
@@ -1416,7 +1682,7 @@
             productId: normalizedProductId,
             barcodes: normalizedBarcodes,
             addedCount,
-            details: { drawerClosed }
+            details: { drawerClosed: saveResult.drawerClosed }
         };
     }
 
