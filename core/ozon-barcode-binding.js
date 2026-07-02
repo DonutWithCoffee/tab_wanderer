@@ -201,6 +201,87 @@ function createOzonBindingProductPlan(productGroup, ozonProduct, options = {}) {
     };
 }
 
+
+
+function createOzonBarcodeBindingPreviewProductPlan(productGroup, ozonProductResult = {}) {
+    const productId = normalizeOzonBindingId(productGroup?.productId);
+    const eligibleBarcodeEntries = Array.isArray(productGroup?.eligibleBarcodes) ? productGroup.eligibleBarcodes : [];
+    const skippedWarehouseBarcodes = Array.isArray(productGroup?.skippedBarcodes) ? productGroup.skippedBarcodes : [];
+
+    if (!ozonProductResult || ozonProductResult.ok !== true || !ozonProductResult.product) {
+        return {
+            status: OZON_BARCODE_BINDING_STATUS.ERROR,
+            reason: ozonProductResult?.error || OZON_BARCODE_BINDING_REASONS.OZON_PRODUCT_NOT_RESOLVED,
+            productId,
+            productTitle: productGroup?.productTitle || '',
+            ozonSku: '',
+            existingBarcodes: [],
+            toAdd: [],
+            alreadyExists: [],
+            skippedWarehouseBarcodes
+        };
+    }
+
+    const ozonProduct = ozonProductResult.product;
+    const existingBarcodes = new Set(uniqueOzonBindingBarcodes(ozonProduct.existingBarcodes || []));
+    const toAdd = [];
+    const alreadyExists = [];
+    const seenToAdd = new Set();
+
+    for (const entry of eligibleBarcodeEntries) {
+        const barcode = normalizeOzonBindingBarcode(entry?.barcode);
+
+        if (!barcode) {
+            continue;
+        }
+
+        if (existingBarcodes.has(barcode)) {
+            alreadyExists.push({ ...entry, barcode, reason: OZON_BARCODE_BINDING_REASONS.ALREADY_EXISTS });
+            continue;
+        }
+
+        if (seenToAdd.has(barcode)) {
+            continue;
+        }
+
+        seenToAdd.add(barcode);
+        toAdd.push({ ...entry, barcode });
+    }
+
+    return {
+        status: toAdd.length > 0 ? OZON_BARCODE_BINDING_STATUS.READY : OZON_BARCODE_BINDING_STATUS.SKIPPED,
+        reason: toAdd.length > 0 ? null : OZON_BARCODE_BINDING_REASONS.NO_ELIGIBLE_BARCODES,
+        productId,
+        productTitle: productGroup?.productTitle || ozonProduct.title || '',
+        ozonSku: normalizeOzonBindingId(ozonProduct.ozonSku),
+        existingBarcodes: [...existingBarcodes],
+        toAdd,
+        alreadyExists,
+        skippedWarehouseBarcodes
+    };
+}
+
+function createOzonBarcodeBindingPreviewPlan({ warehouseExtraction = {}, ozonProductsByProductId = {} } = {}) {
+    const productPlans = getOzonBindingProductGroups(warehouseExtraction).map(productGroup => createOzonBarcodeBindingPreviewProductPlan(
+        productGroup,
+        ozonProductsByProductId[normalizeOzonBindingId(productGroup.productId)]
+    ));
+
+    return {
+        orderId: warehouseExtraction.orderId || '',
+        productPlans,
+        summary: {
+            productCount: productPlans.length,
+            readyProductCount: productPlans.filter(plan => plan.status === OZON_BARCODE_BINDING_STATUS.READY).length,
+            errorProductCount: productPlans.filter(plan => plan.status === OZON_BARCODE_BINDING_STATUS.ERROR).length,
+            skippedProductCount: productPlans.filter(plan => plan.status === OZON_BARCODE_BINDING_STATUS.SKIPPED).length,
+            toAddCount: productPlans.reduce((total, plan) => total + plan.toAdd.length, 0),
+            alreadyExistsCount: productPlans.reduce((total, plan) => total + plan.alreadyExists.length, 0),
+            skippedWarehouseCount: productPlans.reduce((total, plan) => total + plan.skippedWarehouseBarcodes.length, 0)
+        }
+    };
+}
+
 function createOzonBarcodeBindingPlan({ warehouseExtraction = {}, ozonProductsByProductId = {}, sellerId = '', chunkSize = OZON_BARCODE_BINDING_DEFAULT_CHUNK_SIZE } = {}) {
     const productPlans = getOzonBindingProductGroups(warehouseExtraction).map(productGroup => createOzonBindingProductPlan(
         productGroup,
@@ -235,4 +316,6 @@ globalThis.createOzonBarcodeAddPayload = createOzonBarcodeAddPayload;
 globalThis.chunkOzonBarcodes = chunkOzonBarcodes;
 globalThis.createOzonBarcodeAddRequests = createOzonBarcodeAddRequests;
 globalThis.createOzonBindingProductPlan = createOzonBindingProductPlan;
+globalThis.createOzonBarcodeBindingPreviewProductPlan = createOzonBarcodeBindingPreviewProductPlan;
+globalThis.createOzonBarcodeBindingPreviewPlan = createOzonBarcodeBindingPreviewPlan;
 globalThis.createOzonBarcodeBindingPlan = createOzonBarcodeBindingPlan;

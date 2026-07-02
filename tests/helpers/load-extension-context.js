@@ -17,6 +17,10 @@ function createChromeStub(testState) {
                 testState.createdTabs.push(createInfo);
                 return { id: testState.nextTabId++, ...createInfo };
             },
+            sendMessage: async (tabId, message) => {
+                testState.tabMessages.push({ tabId, message });
+                return { ok: true };
+            },
             onRemoved: {
                 addListener: (listener) => {
                     testState.tabsOnRemovedListener = listener;
@@ -82,6 +86,7 @@ function createBaseContext(overrides = {}) {
         tabUpdates: [],
         removedTabs: [],
         storageSetCalls: [],
+        tabMessages: [],
         tabsQueryResult: [],
         windowsResult: [{ id: 1 }],
         nextTabId: 1,
@@ -180,6 +185,8 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/notification-message.js', context);
     runScript('core/order-lookup.js', context);
     runScript('core/runtime-api.js', context);
+    runScript('core/ozon-product-search.js', context);
+    runScript('core/ozon-barcode-binding.js', context);
     runScript('background.js', context);
     return context;
 }
@@ -200,6 +207,8 @@ function setBackgroundState(context, state = {}) {
         notificationTargets = __testState.notificationTargets || {};
         workerTabId = __testState.workerTabId ?? null;
         directWorkerTabId = __testState.directWorkerTabId ?? null;
+        ozonWorkerTabId = __testState.ozonWorkerTabId ?? null;
+        ozonResolveSession = __testState.ozonResolveSession ?? null;
         directFollowUpState = __testState.directFollowUpState ?? normalizeDirectFollowUpState();
         directFollowUpOrdersDB = __testState.directFollowUpOrdersDB || {};
         directFollowUpHashDB = __testState.directFollowUpHashDB || {};
@@ -231,6 +240,8 @@ function getBackgroundState(context) {
         notificationTargets,
         workerTabId,
         directWorkerTabId,
+        ozonWorkerTabId,
+        ozonResolveSession,
         directFollowUpState,
         directFollowUpOrdersDB,
         directFollowUpHashDB,

@@ -731,17 +731,24 @@ const WAREHOUSE_SHOP_ORDER_REQUEST_EVENT = 'tab_wanderer:warehouse-shop-order-re
 const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-response';
 const WAREHOUSE_BARCODE_PREVIEW_PANEL_ID = 'tab-wanderer-warehouse-barcode-preview';
 const WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID = 'tab-wanderer-warehouse-barcode-preview-refresh';
+const WAREHOUSE_OZON_RESOLVE_BUTTON_ID = 'tab-wanderer-warehouse-ozon-resolve';
+const OZON_PRODUCT_BRIDGE_SCRIPT_ID = 'tab-wanderer-ozon-product-bridge';
+const OZON_PRODUCT_REQUEST_EVENT = 'tab_wanderer:ozon-product-request';
+const OZON_PRODUCT_RESPONSE_EVENT = 'tab_wanderer:ozon-product-response';
+const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
 const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
 const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
 const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
 
 let lastWarehouseBarcodePreview = null;
+let lastWarehouseOzonResolvePreview = null;
 let warehouseBarcodeBridgeInitialized = false;
 let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
 let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
 let warehouseShopOrderRetryTimer = null;
+let ozonProductBridgeInitialized = false;
 
 function isWarehouseAppPageUrl(href = window.location.href) {
     try {
@@ -903,6 +910,10 @@ function getLastWarehouseBarcodePreview() {
     return lastWarehouseBarcodePreview;
 }
 
+function getLastWarehouseOzonResolvePreview() {
+    return lastWarehouseOzonResolvePreview;
+}
+
 function clearWarehouseShopOrderRetryTimer() {
     if (!warehouseShopOrderRetryTimer || typeof clearTimeout !== 'function') {
         warehouseShopOrderRetryTimer = null;
@@ -959,15 +970,46 @@ function getWarehouseBarcodePreviewOrderId(preview = {}) {
     );
 }
 
-function createWarehouseBarcodePreviewProductRows(productsById = {}) {
+function getWarehouseOzonResolvePlanByProductId(resolvePreview = lastWarehouseOzonResolvePreview) {
+    const plans = resolvePreview?.plan?.productPlans;
+
+    if (!Array.isArray(plans)) {
+        return {};
+    }
+
+    return plans.reduce((map, plan) => {
+        const productId = normalizeWarehouseBridgeId(plan?.productId);
+
+        if (productId) {
+            map[productId] = plan;
+        }
+
+        return map;
+    }, {});
+}
+
+function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePreview = lastWarehouseOzonResolvePreview) {
+    const ozonPlansByProductId = getWarehouseOzonResolvePlanByProductId(resolvePreview);
+
     return Object.values(productsById || {})
         .filter(group => group && group.productId && group.productId !== '__unknown__')
-        .map(group => ({
-            productId: normalizeWarehouseBridgeId(group.productId),
-            productTitle: normalizeWarehouseBridgeText(group.productTitle),
-            eligibleCount: Array.isArray(group.eligibleBarcodes) ? group.eligibleBarcodes.length : 0,
-            skippedCount: Array.isArray(group.skippedBarcodes) ? group.skippedBarcodes.length : 0
-        }))
+        .map(group => {
+            const productId = normalizeWarehouseBridgeId(group.productId);
+            const ozonPlan = ozonPlansByProductId[productId] || null;
+
+            return {
+                productId,
+                productTitle: normalizeWarehouseBridgeText(group.productTitle),
+                eligibleCount: Array.isArray(group.eligibleBarcodes) ? group.eligibleBarcodes.length : 0,
+                skippedCount: Array.isArray(group.skippedBarcodes) ? group.skippedBarcodes.length : 0,
+                ozonStatus: ozonPlan?.status || '',
+                ozonReason: ozonPlan?.reason || '',
+                ozonSku: normalizeWarehouseBridgeId(ozonPlan?.ozonSku),
+                ozonToAddCount: Array.isArray(ozonPlan?.toAdd) ? ozonPlan.toAdd.length : 0,
+                ozonAlreadyExistsCount: Array.isArray(ozonPlan?.alreadyExists) ? ozonPlan.alreadyExists.length : 0,
+                ozonExistingCount: Array.isArray(ozonPlan?.existingBarcodes) ? ozonPlan.existingBarcodes.length : 0
+            };
+        })
         .sort((a, b) => a.productId.localeCompare(b.productId));
 }
 
@@ -975,10 +1017,14 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const base = {
         title: 'tab_wanderer · Ozon barcodes',
         actionLabel: 'Проверить штрихкоды',
+        actions: [
+            { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' }
+        ],
         status: 'loading',
         message: 'Ищем данные сборки на странице склада. Ozon не изменяем.',
         metrics: [],
-        products: []
+        products: [],
+        ozon: lastWarehouseOzonResolvePreview || null
     };
 
     if (!preview) {
@@ -1003,19 +1049,52 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
 
     const summary = preview.summary || preview.extraction?.summary || {};
     const orderId = getWarehouseBarcodePreviewOrderId(preview) || '—';
-    const products = createWarehouseBarcodePreviewProductRows(preview.extraction?.productsById || {});
+    const ozon = lastWarehouseOzonResolvePreview || null;
+    const ozonSummary = ozon?.plan?.summary || {};
+    const products = createWarehouseBarcodePreviewProductRows(preview.extraction?.productsById || {}, ozon);
+    const actions = [
+        { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' }
+    ];
+
+    if (Number(summary.eligibleCount) > 0) {
+        actions.push({
+            id: 'ozon-resolve',
+            label: ozon?.status === 'loading' ? 'Проверяем Ozon...' : 'Сравнить с Ozon',
+            variant: 'secondary',
+            disabled: ozon?.status === 'loading'
+        });
+    }
+
+    const metrics = [
+        { label: 'Заказ', value: orderId },
+        { label: 'Товаров', value: formatWarehouseBarcodePreviewCount(summary.productCount) },
+        { label: 'Кандидатов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
+        { label: 'Пропущено', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
+    ];
+
+    if (ozon?.status === 'ready') {
+        metrics.push(
+            { label: 'Добавить', value: formatWarehouseBarcodePreviewCount(ozonSummary.toAddCount) },
+            { label: 'Уже есть', value: formatWarehouseBarcodePreviewCount(ozonSummary.alreadyExistsCount) }
+        );
+    }
+
+    const ozonMessage = ozon?.status === 'loading'
+        ? 'Проверяем карточки Ozon. Записи нет.'
+        : ozon?.status === 'error'
+            ? `Ozon: ${ozon.error || 'ошибка проверки'}`
+            : ozon?.status === 'ready'
+                ? 'Ozon проверен. Записи пока нет.'
+                : 'Локальный предпросмотр. Записи в Ozon пока нет.';
 
     return {
         ...base,
-        status: 'ready',
-        message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
-        metrics: [
-            { label: 'Заказ', value: orderId },
-            { label: 'Товаров', value: formatWarehouseBarcodePreviewCount(summary.productCount) },
-            { label: 'Кандидатов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
-            { label: 'Пропущено', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
-        ],
-        products
+        status: ozon?.status === 'error' ? 'error' : 'ready',
+        message: ozonMessage,
+        actions,
+        metrics,
+        products,
+        ozon
     };
 }
 
@@ -1148,18 +1227,35 @@ function removeWarehouseBarcodePreviewPanel() {
     }
 }
 
+function getWarehousePreviewActionTarget(target) {
+    return target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, #${WAREHOUSE_OZON_RESOLVE_BUTTON_ID}, [data-tab-wanderer-action]`) || null;
+}
+
 function isWarehousePreviewActionTarget(target) {
-    return !!target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, [data-tab-wanderer-action="warehouse-refresh"]`);
+    return !!getWarehousePreviewActionTarget(target);
 }
 
 function handleWarehousePreviewActionEvent(event) {
-    if (!isWarehousePreviewActionTarget(event?.target)) {
+    const actionTarget = getWarehousePreviewActionTarget(event?.target);
+
+    if (!actionTarget) {
         return;
     }
 
     event?.preventDefault?.();
     event?.stopPropagation?.();
     event?.stopImmediatePropagation?.();
+
+    if (actionTarget.getAttribute?.('aria-disabled') === 'true') {
+        return;
+    }
+
+    const action = actionTarget.getAttribute?.('data-tab-wanderer-action');
+
+    if (action === 'ozon-resolve') {
+        requestWarehouseOzonResolvePreview();
+        return;
+    }
 
     requestWarehouseShopOrderSnapshot();
 }
@@ -1281,6 +1377,15 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
                 { color: '#667685', fontSize: '12px' }
             );
 
+            if (product.ozonStatus) {
+                appendWarehousePreviewText(
+                    item,
+                    'div',
+                    `Ozon: добавить ${product.ozonToAddCount}, уже есть ${product.ozonAlreadyExistsCount}${product.ozonReason ? `, ${product.ozonReason}` : ''}`,
+                    { color: product.ozonStatus === 'error' ? '#db2919' : '#667685', fontSize: '12px' }
+                );
+            }
+
             list?.appendChild?.(item);
         });
 
@@ -1296,35 +1401,161 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
         panel.appendChild?.(list);
     }
 
-    const button = createWarehousePreviewElement('div', {
-        id: WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
-        text: viewModel.actionLabel,
-        attributes: {
-            role: 'button',
-            tabindex: '0',
-            'aria-label': viewModel.actionLabel,
-            'data-tab-wanderer-action': 'warehouse-refresh'
-        },
-        styles: {
-            width: '100%',
-            padding: '8px 10px',
-            border: '0',
-            borderRadius: '8px',
-            background: '#005bff',
-            color: '#ffffff',
-            cursor: 'pointer',
-            fontWeight: '700',
-            pointerEvents: 'auto',
-            opacity: '1',
-            textAlign: 'center',
-            boxSizing: 'border-box',
-            userSelect: 'none'
-        }
-    });
+    const actionList = Array.isArray(viewModel.actions) && viewModel.actions.length
+        ? viewModel.actions
+        : [{ id: 'warehouse-refresh', label: viewModel.actionLabel, variant: 'primary' }];
 
-    panel.appendChild?.(button);
+    actionList.forEach(action => {
+        const isPrimary = action.variant !== 'secondary';
+        const disabled = action.disabled === true;
+        const button = createWarehousePreviewElement('div', {
+            id: action.id === 'ozon-resolve' ? WAREHOUSE_OZON_RESOLVE_BUTTON_ID : WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
+            text: action.label,
+            attributes: {
+                role: 'button',
+                tabindex: disabled ? '-1' : '0',
+                'aria-label': action.label,
+                'aria-disabled': disabled ? 'true' : 'false',
+                'data-tab-wanderer-action': action.id
+            },
+            styles: {
+                width: '100%',
+                padding: '8px 10px',
+                border: isPrimary ? '0' : '1px solid #005bff',
+                borderRadius: '8px',
+                background: isPrimary ? '#005bff' : '#ffffff',
+                color: isPrimary ? '#ffffff' : '#005bff',
+                cursor: disabled ? 'default' : 'pointer',
+                fontWeight: '700',
+                pointerEvents: 'auto',
+                opacity: disabled ? '0.65' : '1',
+                textAlign: 'center',
+                boxSizing: 'border-box',
+                userSelect: 'none',
+                marginTop: action.id === 'warehouse-refresh' ? '0' : '8px'
+            }
+        });
+
+        panel.appendChild?.(button);
+    });
     ensureWarehousePreviewActionListeners();
 
+    return true;
+}
+
+
+function createWarehouseOzonResolveLoading(message = 'Проверяем Ozon. Записи нет.') {
+    return {
+        status: 'loading',
+        message
+    };
+}
+
+function createWarehouseOzonResolveError(errorMessage = 'ozon resolve failed') {
+    return {
+        status: 'error',
+        error: errorMessage
+    };
+}
+
+function createWarehouseOzonResolveReady(plan = {}) {
+    return {
+        status: 'ready',
+        plan
+    };
+}
+
+function getWarehouseOzonResolveRequestPayload() {
+    const preview = lastWarehouseBarcodePreview;
+
+    if (!preview?.ok || !preview.extraction) {
+        return null;
+    }
+
+    return {
+        orderId: getWarehouseBarcodePreviewOrderId(preview),
+        warehouseExtraction: preview.extraction
+    };
+}
+
+function requestWarehouseOzonResolvePreview() {
+    const payload = getWarehouseOzonResolveRequestPayload();
+
+    if (!payload) {
+        lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError('Сначала прочитай штрихкоды склада.');
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+        return false;
+    }
+
+    lastWarehouseOzonResolvePreview = createWarehouseOzonResolveLoading();
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+
+    sendRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        ...payload
+    }, (response) => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError) {
+            if (!handleRuntimeMessagingError('WAREHOUSE_OZON', runtimeError)) {
+                lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(runtimeError.message || 'Ozon worker unavailable');
+                renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+                log('WARN', 'WAREHOUSE_OZON', 'ozon resolve request failed', runtimeError.message);
+            }
+            return;
+        }
+
+        if (!response?.ok) {
+            lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(response?.error || 'Ozon resolve request failed');
+            renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+            return;
+        }
+
+        if (response.plan) {
+            lastWarehouseOzonResolvePreview = createWarehouseOzonResolveReady(response.plan);
+            renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+            return;
+        }
+
+        log('INFO', 'WAREHOUSE_OZON', 'ozon resolve started', response);
+    }, 'WAREHOUSE_OZON');
+
+    return true;
+}
+
+function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
+    if (msg?.type !== 'OZON_RESOLVE_PREVIEW_RESULT') {
+        return false;
+    }
+
+    if (msg.ok && msg.plan) {
+        lastWarehouseOzonResolvePreview = createWarehouseOzonResolveReady(msg.plan);
+        log('INFO', 'WAREHOUSE_OZON', 'ozon resolve preview ready', msg.plan.summary);
+    } else {
+        lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(msg.error || 'Ozon resolve failed');
+        log('WARN', 'WAREHOUSE_OZON', 'ozon resolve preview failed', lastWarehouseOzonResolvePreview.error);
+    }
+
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+
+    if (typeof sendResponse === 'function') {
+        sendResponse({ ok: true });
+    }
+
+    return true;
+}
+
+function ensureWarehouseRuntimeMessageListener() {
+    if (typeof chrome?.runtime?.onMessage?.addListener !== 'function') {
+        return false;
+    }
+
+    if (ensureWarehouseRuntimeMessageListener.initialized) {
+        return true;
+    }
+
+    chrome.runtime.onMessage.addListener(handleWarehouseRuntimeMessage);
+    ensureWarehouseRuntimeMessageListener.initialized = true;
     return true;
 }
 
@@ -1451,6 +1682,7 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     clearWarehouseShopOrderRetryTimer();
     warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
+    lastWarehouseOzonResolvePreview = null;
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
     log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', lastWarehouseBarcodePreview.summary);
@@ -1486,6 +1718,7 @@ function initWarehouseBarcodeBridge() {
 
     if (!warehouseBarcodeBridgeInitialized) {
         window.addEventListener?.(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
+        ensureWarehouseRuntimeMessageListener();
         warehouseBarcodeBridgeInitialized = true;
     }
 
@@ -1510,6 +1743,7 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     clearWarehouseShopOrderRetryTimer();
     warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = null;
+    lastWarehouseOzonResolvePreview = null;
     removeWarehouseBarcodePreviewPanel();
     return false;
 }
@@ -1527,6 +1761,182 @@ function startWarehouseBarcodeRouteWatcher() {
     }
 
     handleWarehouseRouteStateChanged({ force: true });
+    return true;
+}
+
+
+// ---------- OZON PRODUCT RESOLVE WORKER ----------
+function isOzonProductWorkerPageUrl(href = window.location.href) {
+    try {
+        const url = new URL(href);
+
+        return url.hostname === 'seller.ozon.ru'
+            && url.pathname.startsWith('/app/products')
+            && url.hash.includes(OZON_WORKER_MARK.replace('#', ''));
+    } catch {
+        return false;
+    }
+}
+
+function getOzonProductIdFromUrl(href = window.location.href) {
+    try {
+        return normalizeWarehouseBridgeId(new URL(href).searchParams.get('search'));
+    } catch {
+        return '';
+    }
+}
+
+function getOzonProductBridgeScriptUrl() {
+    try {
+        if (chrome?.runtime?.getURL) {
+            return chrome.runtime.getURL('ozon-product-bridge.js');
+        }
+    } catch {}
+
+    return '';
+}
+
+function sanitizeOzonResolvedProduct(product = null) {
+    if (!product || typeof product !== 'object') {
+        return null;
+    }
+
+    return {
+        offerId: normalizeWarehouseBridgeId(product.offerId),
+        ozonSku: normalizeWarehouseBridgeId(product.ozonSku),
+        internalItemId: normalizeWarehouseBridgeId(product.internalItemId),
+        title: normalizeWarehouseBridgeText(product.title),
+        existingBarcodes: Array.isArray(product.existingBarcodes)
+            ? product.existingBarcodes.map(normalizeWarehouseBridgeId).filter(Boolean)
+            : []
+    };
+}
+
+function sendOzonProductResolveResult(productId, result = {}) {
+    const safeProduct = sanitizeOzonResolvedProduct(result.product);
+
+    sendRuntimeMessage({
+        type: 'OZON_PRODUCT_RESOLVE_RESULT',
+        productId,
+        result: {
+            ok: result.ok === true,
+            error: result.error || null,
+            productId,
+            product: safeProduct,
+            itemCount: Array.isArray(result.items) ? result.items.length : 0
+        }
+    }, () => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError && !handleRuntimeMessagingError('OZON_PRODUCT', runtimeError)) {
+            log('WARN', 'OZON_PRODUCT', 'resolve result failed', runtimeError.message);
+        }
+    }, 'OZON_PRODUCT');
+}
+
+function handleOzonProductBridgeResponse(event) {
+    const detail = event?.detail || {};
+    const productId = normalizeWarehouseBridgeId(detail.productId || getOzonProductIdFromUrl());
+
+    if (!productId) {
+        sendOzonProductResolveResult('', { ok: false, error: 'productIdMissing' });
+        return false;
+    }
+
+    if (!detail.ok || !detail.source) {
+        sendOzonProductResolveResult(productId, { ok: false, error: detail.error || 'ozonProductSourceMissing' });
+        return false;
+    }
+
+    if (typeof resolveOzonProductSearchResult !== 'function') {
+        sendOzonProductResolveResult(productId, { ok: false, error: 'ozon product resolver unavailable' });
+        return false;
+    }
+
+    const result = resolveOzonProductSearchResult(detail.source, productId);
+    sendOzonProductResolveResult(productId, result);
+    log(result.ok ? 'INFO' : 'WARN', 'OZON_PRODUCT', 'resolve complete', {
+        productId,
+        error: result.error || null,
+        itemCount: Array.isArray(result.items) ? result.items.length : 0
+    });
+
+    return true;
+}
+
+function dispatchOzonProductRequest() {
+    const productId = getOzonProductIdFromUrl();
+
+    window.dispatchEvent(new CustomEvent(OZON_PRODUCT_REQUEST_EVENT, {
+        detail: { productId }
+    }));
+}
+
+function injectOzonProductBridgeScript() {
+    const existing = document.getElementById?.(OZON_PRODUCT_BRIDGE_SCRIPT_ID);
+
+    if (existing) {
+        return existing.dataset?.installed === 'true' ? 'ready' : 'loading';
+    }
+
+    const scriptUrl = getOzonProductBridgeScriptUrl();
+
+    if (!scriptUrl) {
+        return false;
+    }
+
+    const script = document.createElement?.('script');
+
+    if (!script) {
+        return false;
+    }
+
+    script.id = OZON_PRODUCT_BRIDGE_SCRIPT_ID;
+    script.src = scriptUrl;
+    script.async = false;
+    script.dataset.installed = 'false';
+
+    script.addEventListener?.('load', () => {
+        script.dataset.installed = 'true';
+        dispatchOzonProductRequest();
+    });
+
+    script.addEventListener?.('error', () => {
+        sendOzonProductResolveResult(getOzonProductIdFromUrl(), { ok: false, error: 'ozon bridge external script failed to load' });
+    });
+
+    const target = document.documentElement || document.head || document.body;
+
+    if (!target?.appendChild) {
+        return false;
+    }
+
+    target.appendChild(script);
+
+    return 'loading';
+}
+
+function initOzonProductResolveWorker() {
+    if (!isOzonProductWorkerPageUrl()) {
+        return false;
+    }
+
+    if (!ozonProductBridgeInitialized) {
+        window.addEventListener?.(OZON_PRODUCT_RESPONSE_EVENT, handleOzonProductBridgeResponse);
+        ozonProductBridgeInitialized = true;
+    }
+
+    const injected = injectOzonProductBridgeScript();
+
+    if (!injected) {
+        sendOzonProductResolveResult(getOzonProductIdFromUrl(), { ok: false, error: 'ozon bridge injection failed' });
+        return false;
+    }
+
+    if (injected === 'ready') {
+        dispatchOzonProductRequest();
+    }
+
     return true;
 }
 
@@ -1562,6 +1972,11 @@ function stopWorkerLoop() {
 function init() {
     if (isWarehouseAppPageUrl()) {
         startWarehouseBarcodeRouteWatcher();
+        return;
+    }
+
+    if (isOzonProductWorkerPageUrl()) {
+        initOzonProductResolveWorker();
         return;
     }
 

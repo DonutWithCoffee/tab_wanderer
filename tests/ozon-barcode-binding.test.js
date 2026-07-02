@@ -162,3 +162,43 @@ test('createOzonBarcodeBindingPlan blocks writes when seller id is missing', () 
     assert.equal(plan.productPlans[0].reason, 'sellerIdMissing');
     assert.equal(plan.summary.requestCount, 0);
 });
+
+test('createOzonBarcodeBindingPreviewPlan compares warehouse barcodes with resolved Ozon product without sellerId', () => {
+    const context = loadOzonBarcodeBindingContext();
+
+    const plan = context.createOzonBarcodeBindingPreviewPlan({
+        warehouseExtraction: {
+            orderId: '4171-010726',
+            productsById: {
+                40534835: {
+                    productId: '40534835',
+                    productTitle: 'PETG пластик',
+                    eligibleBarcodes: [
+                        { barcode: '2486857', productId: '40534835' },
+                        { barcode: '2486885', productId: '40534835' }
+                    ],
+                    skippedBarcodes: []
+                }
+            }
+        },
+        ozonProductsByProductId: {
+            40534835: {
+                ok: true,
+                product: {
+                    offerId: '40534835',
+                    ozonSku: '1675596792',
+                    existingBarcodes: ['2486885']
+                }
+            }
+        }
+    });
+
+    assert.equal(plan.orderId, '4171-010726');
+    assert.equal(plan.summary.productCount, 1);
+    assert.equal(plan.summary.toAddCount, 1);
+    assert.equal(plan.summary.alreadyExistsCount, 1);
+    assert.equal(plan.summary.errorProductCount, 0);
+    assert.equal(plan.productPlans[0].status, 'ready');
+    assert.equal(plan.productPlans[0].toAdd[0].barcode, '2486857');
+    assert.equal(plan.productPlans[0].alreadyExists[0].barcode, '2486885');
+});

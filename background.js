@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js');
+importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -7,6 +7,9 @@ let windowOrdersHashDB = {};
 let notificationTargets = {};
 let workerTabId = null;
 let directWorkerTabId = null;
+let ozonWorkerTabId = null;
+let ozonResolveSession = null;
+let ozonResolveTimeoutTimer = null;
 let directFollowUpState = normalizeDirectFollowUpState();
 let directFollowUpOrdersDB = {};
 let directFollowUpHashDB = {};
@@ -37,6 +40,9 @@ let workerRetryTimer = null;
 const TARGET_URL = 'https://amperkot.ru/admin/orders/';
 const WORKER_MARK = '#tab_wanderer_worker=1';
 const DIRECT_WORKER_MARK = '#tab_wanderer_direct_worker=1';
+const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
+const OZON_PRODUCTS_URL = 'https://seller.ozon.ru/app/products';
+const OZON_RESOLVE_TIMEOUT_MS = 30000;
 const DIRECT_FOLLOW_UP_INTERVAL_MS = 2 * 60 * 1000;
 const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
 const FAST_POLL_INTERVAL_MS = 15000;
@@ -1207,6 +1213,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         }
     }
 
+    if (tabId === ozonWorkerTabId) {
+        failOzonResolvePreview('Ozon worker tab closed');
+        return;
+    }
+
     if (tabId === workerTabId) {
         workerTabId = null;
 
@@ -1541,6 +1552,220 @@ setInterval(() => {
     runDirectFollowUpTick();
 }, DIRECT_FOLLOW_UP_INTERVAL_MS);
 
+
+// ---------- OZON BARCODE RESOLVE PREVIEW ----------
+function normalizeOzonResolveId(value) {
+    return String(value || '')
+        .replace(/\s+/g, '')
+        .trim();
+}
+
+function isWarehouseOzonResolveSender(senderTab = {}) {
+    return String(senderTab?.url || '').startsWith('https://amperkot.ru/web-apps/wh3/');
+}
+
+function getOzonResolveProductGroups(warehouseExtraction = {}) {
+    if (typeof getOzonBindingProductGroups === 'function') {
+        return getOzonBindingProductGroups(warehouseExtraction);
+    }
+
+    return Object.values(warehouseExtraction?.productsById || {})
+        .filter(group => group && group.productId && group.productId !== '__unknown__');
+}
+
+function getOzonResolveProductIds(warehouseExtraction = {}) {
+    return getOzonResolveProductGroups(warehouseExtraction)
+        .filter(group => Array.isArray(group.eligibleBarcodes) && group.eligibleBarcodes.length > 0)
+        .map(group => normalizeOzonResolveId(group.productId))
+        .filter(Boolean);
+}
+
+function buildOzonResolveWorkerUrl(productId) {
+    const url = new URL(buildOzonProductSearchUrl(productId, OZON_PRODUCTS_URL));
+    url.hash = OZON_WORKER_MARK.replace('#', '');
+    return url.toString();
+}
+
+function clearOzonResolveTimeout() {
+    if (ozonResolveTimeoutTimer && typeof clearTimeout === 'function') {
+        clearTimeout(ozonResolveTimeoutTimer);
+    }
+
+    ozonResolveTimeoutTimer = null;
+}
+
+async function cleanupOzonResolveWorker({ closeTab = true } = {}) {
+    clearOzonResolveTimeout();
+
+    const tabId = ozonWorkerTabId;
+    ozonWorkerTabId = null;
+    ozonResolveSession = null;
+
+    if (closeTab && tabId) {
+        try {
+            await chrome.tabs.remove(tabId);
+        } catch {}
+    }
+}
+
+async function sendOzonResolvePreviewToWarehouse(payload = {}) {
+    const warehouseTabId = ozonResolveSession?.warehouseTabId;
+
+    if (!warehouseTabId || typeof chrome.tabs.sendMessage !== 'function') {
+        return false;
+    }
+
+    try {
+        await chrome.tabs.sendMessage(warehouseTabId, {
+            type: 'OZON_RESOLVE_PREVIEW_RESULT',
+            ...payload
+        });
+        return true;
+    } catch (error) {
+        log('WARN', 'OZON_RESOLVE', 'failed to send preview to warehouse tab', error?.message || error);
+        return false;
+    }
+}
+
+function createOzonResolvePreviewPlanForSession(session = ozonResolveSession) {
+    return createOzonBarcodeBindingPreviewPlan({
+        warehouseExtraction: session?.warehouseExtraction || {},
+        ozonProductsByProductId: session?.ozonProductsByProductId || {}
+    });
+}
+
+async function finishOzonResolvePreview() {
+    if (!ozonResolveSession) {
+        return false;
+    }
+
+    const plan = createOzonResolvePreviewPlanForSession(ozonResolveSession);
+
+    log('INFO', 'OZON_RESOLVE', 'preview ready', plan.summary);
+    await sendOzonResolvePreviewToWarehouse({ ok: true, plan });
+    await cleanupOzonResolveWorker();
+
+    return true;
+}
+
+async function failOzonResolvePreview(errorMessage = 'Ozon resolve failed') {
+    if (!ozonResolveSession) {
+        return false;
+    }
+
+    log('WARN', 'OZON_RESOLVE', 'preview failed', errorMessage);
+    await sendOzonResolvePreviewToWarehouse({ ok: false, error: errorMessage });
+    await cleanupOzonResolveWorker();
+
+    return true;
+}
+
+function scheduleOzonResolveTimeout() {
+    clearOzonResolveTimeout();
+
+    if (typeof setTimeout !== 'function') {
+        return false;
+    }
+
+    ozonResolveTimeoutTimer = setTimeout(() => {
+        ozonResolveTimeoutTimer = null;
+        failOzonResolvePreview('Ozon resolve timeout');
+    }, OZON_RESOLVE_TIMEOUT_MS);
+
+    return true;
+}
+
+async function openCurrentOzonResolveProduct() {
+    if (!ozonResolveSession) {
+        return false;
+    }
+
+    const productId = ozonResolveSession.productIds[ozonResolveSession.index];
+
+    if (!productId) {
+        return finishOzonResolvePreview();
+    }
+
+    const url = buildOzonResolveWorkerUrl(productId);
+    scheduleOzonResolveTimeout();
+
+    if (ozonWorkerTabId) {
+        await chrome.tabs.update(ozonWorkerTabId, { url, active: false });
+    } else {
+        const tab = await chrome.tabs.create({ url, active: false, pinned: true });
+        ozonWorkerTabId = tab.id;
+    }
+
+    log('INFO', 'OZON_RESOLVE', 'worker opened', {
+        productId,
+        index: ozonResolveSession.index + 1,
+        total: ozonResolveSession.productIds.length,
+        tabId: ozonWorkerTabId
+    });
+
+    return true;
+}
+
+async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}) {
+    const productIds = getOzonResolveProductIds(warehouseExtraction);
+
+    if (!senderTabId) {
+        return createRuntimeFailureResponse({ error: 'warehouse tab missing' });
+    }
+
+    await cleanupOzonResolveWorker();
+
+    ozonResolveSession = {
+        warehouseTabId: senderTabId,
+        warehouseExtraction,
+        productIds,
+        index: 0,
+        ozonProductsByProductId: {},
+        startedAt: Date.now()
+    };
+
+    if (!productIds.length) {
+        const plan = createOzonResolvePreviewPlanForSession(ozonResolveSession);
+        await sendOzonResolvePreviewToWarehouse({ ok: true, plan });
+        await cleanupOzonResolveWorker({ closeTab: false });
+        return createRuntimeOkResponse({ started: false, plan });
+    }
+
+    await openCurrentOzonResolveProduct();
+
+    return createRuntimeOkResponse({
+        started: true,
+        productCount: productIds.length
+    });
+}
+
+async function handleOzonProductResolveResult(senderTabId, msg = {}) {
+    if (!ozonResolveSession || senderTabId !== ozonWorkerTabId) {
+        return createRuntimeIgnoredResponse();
+    }
+
+    const expectedProductId = ozonResolveSession.productIds[ozonResolveSession.index];
+    const productId = normalizeOzonResolveId(msg.productId || msg.result?.productId);
+
+    if (!expectedProductId || productId !== expectedProductId) {
+        return createRuntimeFailureResponse({ error: 'unexpected Ozon product result' });
+    }
+
+    clearOzonResolveTimeout();
+    ozonResolveSession.ozonProductsByProductId[productId] = msg.result && typeof msg.result === 'object'
+        ? msg.result
+        : { ok: false, error: 'ozon product result missing', product: null };
+    ozonResolveSession.index += 1;
+
+    if (ozonResolveSession.index >= ozonResolveSession.productIds.length) {
+        await finishOzonResolvePreview();
+    } else {
+        await openCurrentOzonResolveProduct();
+    }
+
+    return createRuntimeOkResponse({ accepted: true });
+}
+
 // ---------- MESSAGES ----------
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
     (async () => {
@@ -1615,6 +1840,21 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
 
                 await completeDirectFollowUpCheck(expectedNormalizedId, { ok: true, order: parsedOrder });
                 send(createRuntimeOkResponse({ checked: true, orderId: expectedNormalizedId }));
+                return;
+            }
+
+            if (msg.type === 'OZON_RESOLVE_PREVIEW_REQUEST') {
+                if (!isWarehouseOzonResolveSender(senderTab)) {
+                    send(createRuntimeIgnoredResponse());
+                    return;
+                }
+
+                send(await startOzonResolvePreview(senderTabId, msg.warehouseExtraction || {}));
+                return;
+            }
+
+            if (msg.type === 'OZON_PRODUCT_RESOLVE_RESULT') {
+                send(await handleOzonProductResolveResult(senderTabId, msg));
                 return;
             }
 

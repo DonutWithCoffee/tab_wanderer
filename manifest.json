@@ -8,7 +8,8 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://amperkot.ru/*"
+    "https://amperkot.ru/*",
+    "https://seller.ozon.ru/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -27,6 +28,15 @@
         "core/warehouse-barcode-extractor.js",
         "content.js"
       ]
+    },
+    {
+      "matches": [
+        "https://seller.ozon.ru/app/products*"
+      ],
+      "js": [
+        "core/ozon-product-search.js",
+        "content.js"
+      ]
     }
   ],
   "web_accessible_resources": [
@@ -36,6 +46,14 @@
       ],
       "matches": [
         "https://amperkot.ru/*"
+      ]
+    },
+    {
+      "resources": [
+        "ozon-product-bridge.js"
+      ],
+      "matches": [
+        "https://seller.ozon.ru/*"
       ]
     }
   ]

@@ -883,6 +883,10 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
     assert.deepEqual(JSON.parse(JSON.stringify(viewModel)), {
         title: 'tab_wanderer · Ozon barcodes',
         actionLabel: 'Проверить штрихкоды',
+        actions: [
+            { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' },
+            { id: 'ozon-resolve', label: 'Сравнить с Ozon', variant: 'secondary', disabled: false }
+        ],
         status: 'ready',
         message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
         metrics: [
@@ -896,16 +900,86 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 productId: '23870634',
                 productTitle: 'LED RGB',
                 eligibleCount: 0,
-                skippedCount: 1
+                skippedCount: 1,
+                ozonStatus: '',
+                ozonReason: '',
+                ozonSku: '',
+                ozonToAddCount: 0,
+                ozonAlreadyExistsCount: 0,
+                ozonExistingCount: 0
             },
             {
                 productId: '24126456',
                 productTitle: 'DC-DC MT3608',
                 eligibleCount: 2,
-                skippedCount: 0
+                skippedCount: 0,
+                ozonStatus: '',
+                ozonReason: '',
+                ozonSku: '',
+                ozonToAddCount: 0,
+                ozonAlreadyExistsCount: 0,
+                ozonExistingCount: 0
             }
-        ]
+        ],
+        ozon: null
     });
+});
+
+
+test('createWarehouseBarcodePreviewViewModel includes Ozon resolve summary after preview result', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 1,
+                alreadyExistsCount: 2
+            },
+            productPlans: [
+                {
+                    status: 'ready',
+                    productId: '24126456',
+                    ozonSku: '1675596792',
+                    existingBarcodes: ['2317000', '2317613'],
+                    toAdd: [{ barcode: '2317680' }],
+                    alreadyExists: [{ barcode: '2317613' }],
+                    skippedWarehouseBarcodes: []
+                }
+            ]
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 2,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.equal(viewModel.message, 'Ozon проверен. Записи пока нет.');
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.slice(-2))), [
+        { label: 'Добавить', value: '1' },
+        { label: 'Уже есть', value: '2' }
+    ]);
+    assert.equal(viewModel.products[0].ozonStatus, 'ready');
+    assert.equal(viewModel.products[0].ozonToAddCount, 1);
+    assert.equal(viewModel.products[0].ozonAlreadyExistsCount, 1);
 });
 
 test('createWarehouseBarcodePreviewViewModel reports loading and error states', () => {

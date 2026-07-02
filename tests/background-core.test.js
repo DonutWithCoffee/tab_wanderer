@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadBackgroundContext } = require('./helpers/load-extension-context');
+const { loadBackgroundContext, sendRuntimeMessage } = require('./helpers/load-extension-context');
 
 test('buildOrdersUrl builds config-driven worker URL with query params and marker', () => {
     const context = loadBackgroundContext();
@@ -1488,4 +1488,81 @@ test('mergeOrderSnapshots preserves existing values when direct parser returns e
     assert.equal(merged.city, 'Санкт-Петербург');
     assert.deepEqual(JSON.parse(JSON.stringify(merged.tags)), ['Юрик']);
     assert.equal(merged.orderUrl, 'https://amperkot.ru/admin/orders/1000-300326/');
+});
+
+test('Ozon resolve preview opens seller product worker and returns comparison plan to warehouse tab', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+
+    const warehouseExtraction = {
+        orderId: '4171-010726',
+        productsById: {
+            40534835: {
+                productId: '40534835',
+                productTitle: 'PETG пластик',
+                eligibleBarcodes: [
+                    { barcode: '2486857', productId: '40534835' },
+                    { barcode: '2486885', productId: '40534835' }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    };
+
+    const startResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+            warehouseExtraction
+        },
+        {
+            tab: {
+                id: 7,
+                url: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=4171-010726'
+            }
+        }
+    );
+
+    assert.equal(startResponse.ok, true);
+    assert.equal(startResponse.started, true);
+    assert.equal(startResponse.productCount, 1);
+    assert.equal(context.__test.createdTabs.length, 1);
+    assert.equal(
+        context.__test.createdTabs[0].url,
+        'https://seller.ozon.ru/app/products?search=40534835#tab_wanderer_ozon_worker=1'
+    );
+
+    const resultResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_PRODUCT_RESOLVE_RESULT',
+            productId: '40534835',
+            result: {
+                ok: true,
+                productId: '40534835',
+                product: {
+                    offerId: '40534835',
+                    ozonSku: '1675596792',
+                    existingBarcodes: ['2486885']
+                }
+            }
+        },
+        {
+            tab: {
+                id: 1,
+                url: 'https://seller.ozon.ru/app/products?search=40534835#tab_wanderer_ozon_worker=1'
+            }
+        }
+    );
+
+    assert.equal(resultResponse.ok, true);
+    assert.equal(context.__test.tabMessages.length, 1);
+    assert.equal(context.__test.tabMessages[0].tabId, 7);
+    assert.equal(context.__test.tabMessages[0].message.type, 'OZON_RESOLVE_PREVIEW_RESULT');
+    assert.equal(context.__test.tabMessages[0].message.ok, true);
+    assert.equal(context.__test.tabMessages[0].message.plan.summary.toAddCount, 1);
+    assert.equal(context.__test.tabMessages[0].message.plan.summary.alreadyExistsCount, 1);
+    assert.deepEqual(context.__test.removedTabs, [1]);
 });
