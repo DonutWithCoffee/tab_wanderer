@@ -732,12 +732,16 @@ const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-r
 const WAREHOUSE_BARCODE_PREVIEW_PANEL_ID = 'tab-wanderer-warehouse-barcode-preview';
 const WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID = 'tab-wanderer-warehouse-barcode-preview-refresh';
 const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
+const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
+const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
 
 let lastWarehouseBarcodePreview = null;
 let warehouseBarcodeBridgeInitialized = false;
 let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
 let lastWarehouseRouteHref = '';
+let warehouseShopOrderReadAttempt = 0;
+let warehouseShopOrderRetryTimer = null;
 
 function isWarehouseAppPageUrl(href = window.location.href) {
     try {
@@ -899,6 +903,46 @@ function getLastWarehouseBarcodePreview() {
     return lastWarehouseBarcodePreview;
 }
 
+function clearWarehouseShopOrderRetryTimer() {
+    if (!warehouseShopOrderRetryTimer || typeof clearTimeout !== 'function') {
+        warehouseShopOrderRetryTimer = null;
+        return;
+    }
+
+    clearTimeout(warehouseShopOrderRetryTimer);
+    warehouseShopOrderRetryTimer = null;
+}
+
+function createWarehouseBarcodePreviewLoading(message = 'Ищем данные сборки на странице склада. Ozon не изменяем.') {
+    return {
+        ok: null,
+        status: 'loading',
+        message,
+        summary: {
+            productCount: 0,
+            eligibleCount: 0,
+            skippedCount: 0
+        }
+    };
+}
+
+function createWarehouseBarcodePreviewError(errorMessage = 'warehouse shopOrder not found') {
+    return {
+        ok: false,
+        error: errorMessage,
+        summary: {
+            productCount: 0,
+            eligibleCount: 0,
+            skippedCount: 0
+        }
+    };
+}
+
+function setWarehouseBarcodePreviewLoading(message) {
+    lastWarehouseBarcodePreview = createWarehouseBarcodePreviewLoading(message);
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    return lastWarehouseBarcodePreview;
+}
 
 function formatWarehouseBarcodePreviewCount(value) {
     const number = Number(value);
@@ -939,6 +983,14 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
 
     if (!preview) {
         return base;
+    }
+
+    if (preview.status === 'loading' || preview.ok === null) {
+        return {
+            ...base,
+            status: 'loading',
+            message: preview.message || base.message
+        };
     }
 
     if (!preview.ok) {
@@ -1291,15 +1343,8 @@ function dispatchWarehouseShopOrderRequest() {
 }
 
 function markWarehouseBridgeInjectionError(errorMessage = 'warehouse bridge injection failed') {
-    lastWarehouseBarcodePreview = {
-        ok: false,
-        error: errorMessage,
-        summary: {
-            productCount: 0,
-            eligibleCount: 0,
-            skippedCount: 0
-        }
-    };
+    clearWarehouseShopOrderRetryTimer();
+    lastWarehouseBarcodePreview = createWarehouseBarcodePreviewError(errorMessage);
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
     log('WARN', 'WAREHOUSE_OZON', lastWarehouseBarcodePreview.error);
 }
@@ -1348,24 +1393,63 @@ function injectWarehouseBarcodeBridgeScript() {
     return 'loading';
 }
 
+function scheduleWarehouseShopOrderRetry(errorMessage = 'warehouse shopOrder not found') {
+    if (!isWarehouseAssemblyPageUrl()) {
+        return false;
+    }
+
+    if (warehouseShopOrderReadAttempt >= WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS) {
+        clearWarehouseShopOrderRetryTimer();
+        lastWarehouseBarcodePreview = createWarehouseBarcodePreviewError(errorMessage);
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+        log('WARN', 'WAREHOUSE_OZON', 'shopOrder not found after retries', {
+            attempts: warehouseShopOrderReadAttempt,
+            error: lastWarehouseBarcodePreview.error
+        });
+        return false;
+    }
+
+    const nextAttempt = warehouseShopOrderReadAttempt + 1;
+    setWarehouseBarcodePreviewLoading(
+        `Ждём данные сборки на странице склада. Попытка ${nextAttempt}/${WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS}. Ozon не изменяем.`
+    );
+
+    clearWarehouseShopOrderRetryTimer();
+
+    if (typeof setTimeout !== 'function') {
+        return false;
+    }
+
+    warehouseShopOrderRetryTimer = setTimeout(() => {
+        warehouseShopOrderRetryTimer = null;
+        warehouseShopOrderReadAttempt = nextAttempt;
+        requestWarehouseShopOrderSnapshot({ resetAttempts: false });
+    }, WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS);
+
+    return true;
+}
+
 function handleWarehouseShopOrderBridgeResponse(event) {
     const detail = event?.detail || {};
 
     if (!detail.ok || !detail.shopOrder) {
-        lastWarehouseBarcodePreview = {
-            ok: false,
-            error: detail.error || 'warehouse shopOrder not found',
-            summary: {
-                productCount: 0,
-                eligibleCount: 0,
-                skippedCount: 0
-            }
-        };
-        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
-        log('WARN', 'WAREHOUSE_OZON', 'shopOrder not found', lastWarehouseBarcodePreview.error);
+        const errorMessage = detail.error || 'warehouse shopOrder not found';
+
+        if (scheduleWarehouseShopOrderRetry(errorMessage)) {
+            return lastWarehouseBarcodePreview;
+        }
+
+        if (!lastWarehouseBarcodePreview || lastWarehouseBarcodePreview.ok !== false) {
+            lastWarehouseBarcodePreview = createWarehouseBarcodePreviewError(errorMessage);
+            renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+            log('WARN', 'WAREHOUSE_OZON', 'shopOrder not found', lastWarehouseBarcodePreview.error);
+        }
+
         return lastWarehouseBarcodePreview;
     }
 
+    clearWarehouseShopOrderRetryTimer();
+    warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
@@ -1374,8 +1458,13 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     return lastWarehouseBarcodePreview;
 }
 
-function requestWarehouseShopOrderSnapshot() {
-    renderWarehouseBarcodePreviewPanel(null);
+function requestWarehouseShopOrderSnapshot({ resetAttempts = true } = {}) {
+    if (resetAttempts) {
+        clearWarehouseShopOrderRetryTimer();
+        warehouseShopOrderReadAttempt = 1;
+        setWarehouseBarcodePreviewLoading();
+    }
+
     const injected = injectWarehouseBarcodeBridgeScript();
 
     if (!injected) {
@@ -1418,6 +1507,8 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
         return initWarehouseBarcodeBridge();
     }
 
+    clearWarehouseShopOrderRetryTimer();
+    warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = null;
     removeWarehouseBarcodePreviewPanel();
     return false;
