@@ -729,15 +729,32 @@ function initDirectWorker() {
 const WAREHOUSE_BRIDGE_SCRIPT_ID = 'tab-wanderer-warehouse-barcode-bridge';
 const WAREHOUSE_SHOP_ORDER_REQUEST_EVENT = 'tab_wanderer:warehouse-shop-order-request';
 const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-response';
+const WAREHOUSE_BARCODE_PREVIEW_PANEL_ID = 'tab-wanderer-warehouse-barcode-preview';
+const WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID = 'tab-wanderer-warehouse-barcode-preview-refresh';
+const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
 
 let lastWarehouseBarcodePreview = null;
+let warehouseBarcodeBridgeInitialized = false;
+let warehouseRouteWatcherTimer = null;
+let warehousePreviewActionListenersInitialized = false;
+let lastWarehouseRouteHref = '';
+
+function isWarehouseAppPageUrl(href = window.location.href) {
+    try {
+        const url = new URL(href);
+
+        return url.hostname === 'amperkot.ru'
+            && url.pathname.startsWith('/web-apps/wh3/');
+    } catch {
+        return false;
+    }
+}
 
 function isWarehouseAssemblyPageUrl(href = window.location.href) {
     try {
         const url = new URL(href);
 
-        return url.hostname === 'amperkot.ru'
-            && url.pathname.startsWith('/web-apps/wh3/')
+        return isWarehouseAppPageUrl(href)
             && url.hash.includes('/wh/shop-orders/assembly/');
     } catch {
         return false;
@@ -882,127 +899,422 @@ function getLastWarehouseBarcodePreview() {
     return lastWarehouseBarcodePreview;
 }
 
-function createWarehouseBarcodeBridgeScriptText() {
-    return `(() => {
-        const SCRIPT_ID = ${JSON.stringify(WAREHOUSE_BRIDGE_SCRIPT_ID)};
-        const REQUEST_EVENT = ${JSON.stringify(WAREHOUSE_SHOP_ORDER_REQUEST_EVENT)};
-        const RESPONSE_EVENT = ${JSON.stringify(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT)};
 
-        if (window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__) {
-            return;
+function formatWarehouseBarcodePreviewCount(value) {
+    const number = Number(value);
+
+    return Number.isFinite(number) && number >= 0 ? String(number) : '0';
+}
+
+function getWarehouseBarcodePreviewOrderId(preview = {}) {
+    return normalizeWarehouseBridgeText(
+        preview?.shopOrder?.id
+        || preview?.shopOrder?.number
+        || preview?.extraction?.orderId
+        || ''
+    );
+}
+
+function createWarehouseBarcodePreviewProductRows(productsById = {}) {
+    return Object.values(productsById || {})
+        .filter(group => group && group.productId && group.productId !== '__unknown__')
+        .map(group => ({
+            productId: normalizeWarehouseBridgeId(group.productId),
+            productTitle: normalizeWarehouseBridgeText(group.productTitle),
+            eligibleCount: Array.isArray(group.eligibleBarcodes) ? group.eligibleBarcodes.length : 0,
+            skippedCount: Array.isArray(group.skippedBarcodes) ? group.skippedBarcodes.length : 0
+        }))
+        .sort((a, b) => a.productId.localeCompare(b.productId));
+}
+
+function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePreview) {
+    const base = {
+        title: 'tab_wanderer · Ozon barcodes',
+        actionLabel: 'Проверить штрихкоды',
+        status: 'loading',
+        message: 'Ищем данные сборки на странице склада. Ozon не изменяем.',
+        metrics: [],
+        products: []
+    };
+
+    if (!preview) {
+        return base;
+    }
+
+    if (!preview.ok) {
+        return {
+            ...base,
+            status: 'error',
+            message: preview.error || 'Не удалось прочитать данные сборки.'
+        };
+    }
+
+    const summary = preview.summary || preview.extraction?.summary || {};
+    const orderId = getWarehouseBarcodePreviewOrderId(preview) || '—';
+    const products = createWarehouseBarcodePreviewProductRows(preview.extraction?.productsById || {});
+
+    return {
+        ...base,
+        status: 'ready',
+        message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
+        metrics: [
+            { label: 'Заказ', value: orderId },
+            { label: 'Товаров', value: formatWarehouseBarcodePreviewCount(summary.productCount) },
+            { label: 'Кандидатов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
+            { label: 'Пропущено', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
+        ],
+        products
+    };
+}
+
+function applyWarehousePreviewStyles(element, styles = {}) {
+    if (!element?.style) {
+        return element;
+    }
+
+    Object.entries(styles).forEach(([key, value]) => {
+        element.style[key] = value;
+    });
+
+    return element;
+}
+
+function createWarehousePreviewElement(tagName, options = {}) {
+    if (typeof document.createElement !== 'function') {
+        return null;
+    }
+
+    const element = document.createElement(tagName);
+
+    if (options.id) {
+        element.id = options.id;
+    }
+
+    if (options.className) {
+        element.className = options.className;
+    }
+
+    if (options.attributes && typeof options.attributes === 'object') {
+        Object.entries(options.attributes).forEach(([name, value]) => {
+            if (typeof element.setAttribute === 'function') {
+                element.setAttribute(name, String(value));
+            } else {
+                element[name] = String(value);
+            }
+        });
+    }
+
+    if (options.text !== undefined) {
+        element.textContent = String(options.text);
+    }
+
+    applyWarehousePreviewStyles(element, options.styles || {});
+
+    return element;
+}
+
+function appendWarehousePreviewText(parent, tagName, text, styles = {}) {
+    const element = createWarehousePreviewElement(tagName, { text, styles });
+
+    if (element && parent?.appendChild) {
+        parent.appendChild(element);
+    }
+
+    return element;
+}
+
+function ensureWarehouseBarcodePreviewPanel() {
+    if (typeof document.getElementById !== 'function' || typeof document.createElement !== 'function') {
+        return null;
+    }
+
+    let panel = document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID);
+
+    if (panel) {
+        return panel;
+    }
+
+    panel = createWarehousePreviewElement('div', {
+        id: WAREHOUSE_BARCODE_PREVIEW_PANEL_ID,
+        styles: {
+            position: 'fixed',
+            right: '16px',
+            bottom: '16px',
+            width: '340px',
+            maxHeight: '70vh',
+            overflow: 'auto',
+            zIndex: '2147483647',
+            pointerEvents: 'auto',
+            isolation: 'isolate',
+            contain: 'layout style paint',
+            transform: 'translateZ(0)',
+            padding: '14px',
+            border: '1px solid #d4d9e2',
+            borderRadius: '12px',
+            background: '#ffffff',
+            color: '#172133',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.16)',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '13px',
+            lineHeight: '18px'
         }
+    });
 
-        window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__ = true;
+    panel.setAttribute?.('data-tab-wanderer-panel', 'warehouse-barcode-preview');
 
-        function isPlainObject(value) {
-            return !!value && typeof value === 'object';
-        }
+    const target = document.body || document.documentElement;
 
-        function hasShopOrder(value) {
-            return isPlainObject(value)
-                && isPlainObject(value.shopOrder)
-                && Array.isArray(value.shopOrder.assembly);
-        }
+    if (!panel || !target?.appendChild) {
+        return null;
+    }
 
-        function findShopOrderInCandidate(value) {
-            if (hasShopOrder(value)) {
-                return value.shopOrder;
-            }
+    target.appendChild(panel);
+    return panel;
+}
 
-            if (isPlainObject(value?.$ctrl) && hasShopOrder(value.$ctrl)) {
-                return value.$ctrl.shopOrder;
-            }
+function clearWarehousePreviewPanel(panel) {
+    if (!panel) {
+        return;
+    }
 
-            if (isPlainObject(value?.vm) && hasShopOrder(value.vm)) {
-                return value.vm.shopOrder;
-            }
+    while (panel.firstChild && typeof panel.removeChild === 'function') {
+        panel.removeChild(panel.firstChild);
+    }
 
-            if (isPlainObject(value?.assemblyForm) && hasShopOrder(value.assemblyForm)) {
-                return value.assemblyForm.shopOrder;
-            }
+    if (panel.firstChild) {
+        panel.textContent = '';
+    }
+}
 
-            return null;
-        }
+function removeWarehouseBarcodePreviewPanel() {
+    const panel = typeof document.getElementById === 'function'
+        ? document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID)
+        : null;
 
-        function findShopOrderFromAngular() {
-            if (!window.angular || typeof window.angular.element !== 'function') {
-                return null;
-            }
+    if (panel?.parentNode?.removeChild) {
+        panel.parentNode.removeChild(panel);
+    }
+}
 
-            const selectors = ['[data-ui-view]', '[ui-view]', 'section', 'body'];
-            const visited = new Set();
-            const queue = [];
+function isWarehousePreviewActionTarget(target) {
+    return !!target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, [data-tab-wanderer-action="warehouse-refresh"]`);
+}
 
-            for (const selector of selectors) {
-                const nodes = Array.from(document.querySelectorAll(selector) || []);
+function handleWarehousePreviewActionEvent(event) {
+    if (!isWarehousePreviewActionTarget(event?.target)) {
+        return;
+    }
 
-                for (const node of nodes) {
-                    try {
-                        const wrapped = window.angular.element(node);
-                        const scope = wrapped?.scope?.() || wrapped?.isolateScope?.();
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    event?.stopImmediatePropagation?.();
 
-                        if (scope) {
-                            queue.push(scope);
-                        }
-                    } catch {}
-                }
-            }
+    requestWarehouseShopOrderSnapshot();
+}
 
-            while (queue.length) {
-                const current = queue.shift();
+function handleWarehousePreviewKeyboardEvent(event) {
+    if (!isWarehousePreviewActionTarget(event?.target)) {
+        return;
+    }
 
-                if (!current || typeof current !== 'object' || visited.has(current)) {
-                    continue;
-                }
+    if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
 
-                visited.add(current);
+    handleWarehousePreviewActionEvent(event);
+}
 
-                const shopOrder = findShopOrderInCandidate(current);
+function ensureWarehousePreviewActionListeners() {
+    if (warehousePreviewActionListenersInitialized) {
+        return;
+    }
 
-                if (shopOrder) {
-                    return shopOrder;
-                }
+    const target = document;
 
-                for (const key of ['$parent', '$$childHead', '$$childTail', '$$nextSibling', '$$prevSibling', '$ctrl', 'vm', 'assemblyForm']) {
-                    if (current[key] && typeof current[key] === 'object' && !visited.has(current[key])) {
-                        queue.push(current[key]);
-                    }
-                }
-            }
+    target.addEventListener?.('pointerdown', handleWarehousePreviewActionEvent, true);
+    target.addEventListener?.('click', handleWarehousePreviewActionEvent, true);
+    target.addEventListener?.('keydown', handleWarehousePreviewKeyboardEvent, true);
 
-            return null;
-        }
+    warehousePreviewActionListenersInitialized = true;
+}
 
-        window.addEventListener(REQUEST_EVENT, () => {
-            try {
-                const shopOrder = findShopOrderFromAngular();
+function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePreview) {
+    const panel = ensureWarehouseBarcodePreviewPanel();
 
-                window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
-                    detail: shopOrder
-                        ? { ok: true, shopOrder }
-                        : { ok: false, error: 'warehouse shopOrder not found' }
-                }));
-            } catch (error) {
-                window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
-                    detail: {
-                        ok: false,
-                        error: String(error && error.message ? error.message : error)
-                    }
-                }));
+    if (!panel) {
+        return false;
+    }
+
+    const viewModel = createWarehouseBarcodePreviewViewModel(preview);
+
+    clearWarehousePreviewPanel(panel);
+
+    appendWarehousePreviewText(panel, 'div', viewModel.title, {
+        fontWeight: '700',
+        marginBottom: '6px'
+    });
+
+    appendWarehousePreviewText(panel, 'div', viewModel.message, {
+        color: viewModel.status === 'error' ? '#db2919' : '#667685',
+        marginBottom: '10px'
+    });
+
+    if (viewModel.metrics.length) {
+        const metrics = createWarehousePreviewElement('div', {
+            styles: {
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '6px',
+                marginBottom: '10px'
             }
         });
 
-        const node = document.getElementById(SCRIPT_ID);
+        viewModel.metrics.forEach(metric => {
+            const item = createWarehousePreviewElement('div', {
+                styles: {
+                    padding: '6px 8px',
+                    borderRadius: '8px',
+                    background: '#f5f7fa'
+                }
+            });
 
-        if (node) {
-            node.dataset.installed = 'true';
+            appendWarehousePreviewText(item, 'div', metric.label, {
+                color: '#667685',
+                fontSize: '11px'
+            });
+            appendWarehousePreviewText(item, 'div', metric.value, {
+                fontWeight: '700'
+            });
+
+            metrics?.appendChild?.(item);
+        });
+
+        panel.appendChild?.(metrics);
+    }
+
+    if (viewModel.products.length) {
+        appendWarehousePreviewText(panel, 'div', 'Товары', {
+            fontWeight: '700',
+            marginBottom: '6px'
+        });
+
+        const list = createWarehousePreviewElement('div', {
+            styles: {
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                marginBottom: '10px'
+            }
+        });
+
+        viewModel.products.slice(0, 5).forEach(product => {
+            const item = createWarehousePreviewElement('div', {
+                styles: {
+                    padding: '6px 8px',
+                    border: '1px solid #eceff2',
+                    borderRadius: '8px'
+                }
+            });
+
+            appendWarehousePreviewText(
+                item,
+                'div',
+                `${product.productId}${product.productTitle ? ` · ${product.productTitle}` : ''}`,
+                { fontWeight: '600' }
+            );
+            appendWarehousePreviewText(
+                item,
+                'div',
+                `кандидатов: ${product.eligibleCount}, пропущено: ${product.skippedCount}`,
+                { color: '#667685', fontSize: '12px' }
+            );
+
+            list?.appendChild?.(item);
+        });
+
+        if (viewModel.products.length > 5) {
+            appendWarehousePreviewText(
+                list,
+                'div',
+                `Еще товаров: ${viewModel.products.length - 5}`,
+                { color: '#667685', fontSize: '12px' }
+            );
         }
-    })();`;
+
+        panel.appendChild?.(list);
+    }
+
+    const button = createWarehousePreviewElement('div', {
+        id: WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
+        text: viewModel.actionLabel,
+        attributes: {
+            role: 'button',
+            tabindex: '0',
+            'aria-label': viewModel.actionLabel,
+            'data-tab-wanderer-action': 'warehouse-refresh'
+        },
+        styles: {
+            width: '100%',
+            padding: '8px 10px',
+            border: '0',
+            borderRadius: '8px',
+            background: '#005bff',
+            color: '#ffffff',
+            cursor: 'pointer',
+            fontWeight: '700',
+            pointerEvents: 'auto',
+            opacity: '1',
+            textAlign: 'center',
+            boxSizing: 'border-box',
+            userSelect: 'none'
+        }
+    });
+
+    panel.appendChild?.(button);
+    ensureWarehousePreviewActionListeners();
+
+    return true;
+}
+
+function getWarehouseBarcodeBridgeScriptUrl() {
+    try {
+        if (chrome?.runtime?.getURL) {
+            return chrome.runtime.getURL('warehouse-barcode-bridge.js');
+        }
+    } catch {}
+
+    return '';
+}
+
+function dispatchWarehouseShopOrderRequest() {
+    window.dispatchEvent(new CustomEvent(WAREHOUSE_SHOP_ORDER_REQUEST_EVENT));
+}
+
+function markWarehouseBridgeInjectionError(errorMessage = 'warehouse bridge injection failed') {
+    lastWarehouseBarcodePreview = {
+        ok: false,
+        error: errorMessage,
+        summary: {
+            productCount: 0,
+            eligibleCount: 0,
+            skippedCount: 0
+        }
+    };
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    log('WARN', 'WAREHOUSE_OZON', lastWarehouseBarcodePreview.error);
 }
 
 function injectWarehouseBarcodeBridgeScript() {
-    if (document.getElementById?.(WAREHOUSE_BRIDGE_SCRIPT_ID)) {
-        return true;
+    const existing = document.getElementById?.(WAREHOUSE_BRIDGE_SCRIPT_ID);
+
+    if (existing) {
+        return existing.dataset?.installed === 'true' ? 'ready' : 'loading';
+    }
+
+    const scriptUrl = getWarehouseBarcodeBridgeScriptUrl();
+
+    if (!scriptUrl) {
+        return false;
     }
 
     const script = document.createElement?.('script');
@@ -1012,7 +1324,18 @@ function injectWarehouseBarcodeBridgeScript() {
     }
 
     script.id = WAREHOUSE_BRIDGE_SCRIPT_ID;
-    script.textContent = createWarehouseBarcodeBridgeScriptText();
+    script.src = scriptUrl;
+    script.async = false;
+    script.dataset.installed = 'false';
+
+    script.addEventListener?.('load', () => {
+        script.dataset.installed = 'true';
+        dispatchWarehouseShopOrderRequest();
+    });
+
+    script.addEventListener?.('error', () => {
+        markWarehouseBridgeInjectionError('warehouse bridge external script failed to load');
+    });
 
     const target = document.documentElement || document.head || document.body;
 
@@ -1021,9 +1344,8 @@ function injectWarehouseBarcodeBridgeScript() {
     }
 
     target.appendChild(script);
-    script.remove?.();
 
-    return true;
+    return 'loading';
 }
 
 function handleWarehouseShopOrderBridgeResponse(event) {
@@ -1039,11 +1361,13 @@ function handleWarehouseShopOrderBridgeResponse(event) {
                 skippedCount: 0
             }
         };
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
         log('WARN', 'WAREHOUSE_OZON', 'shopOrder not found', lastWarehouseBarcodePreview.error);
         return lastWarehouseBarcodePreview;
     }
 
     lastWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
     log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', lastWarehouseBarcodePreview.summary);
 
@@ -1051,23 +1375,18 @@ function handleWarehouseShopOrderBridgeResponse(event) {
 }
 
 function requestWarehouseShopOrderSnapshot() {
+    renderWarehouseBarcodePreviewPanel(null);
     const injected = injectWarehouseBarcodeBridgeScript();
 
     if (!injected) {
-        lastWarehouseBarcodePreview = {
-            ok: false,
-            error: 'warehouse bridge injection failed',
-            summary: {
-                productCount: 0,
-                eligibleCount: 0,
-                skippedCount: 0
-            }
-        };
-        log('WARN', 'WAREHOUSE_OZON', lastWarehouseBarcodePreview.error);
+        markWarehouseBridgeInjectionError('warehouse bridge injection failed');
         return false;
     }
 
-    window.dispatchEvent(new CustomEvent(WAREHOUSE_SHOP_ORDER_REQUEST_EVENT));
+    if (injected === 'ready') {
+        dispatchWarehouseShopOrderRequest();
+    }
+
     return true;
 }
 
@@ -1076,9 +1395,47 @@ function initWarehouseBarcodeBridge() {
         return false;
     }
 
-    window.addEventListener(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
+    if (!warehouseBarcodeBridgeInitialized) {
+        window.addEventListener?.(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
+        warehouseBarcodeBridgeInitialized = true;
+    }
+
     requestWarehouseShopOrderSnapshot();
 
+    return true;
+}
+
+function handleWarehouseRouteStateChanged({ force = false } = {}) {
+    const href = window.location.href;
+
+    if (!force && href === lastWarehouseRouteHref) {
+        return false;
+    }
+
+    lastWarehouseRouteHref = href;
+
+    if (isWarehouseAssemblyPageUrl(href)) {
+        return initWarehouseBarcodeBridge();
+    }
+
+    lastWarehouseBarcodePreview = null;
+    removeWarehouseBarcodePreviewPanel();
+    return false;
+}
+
+function startWarehouseBarcodeRouteWatcher() {
+    if (!isWarehouseAppPageUrl()) {
+        return false;
+    }
+
+    window.addEventListener?.('hashchange', () => handleWarehouseRouteStateChanged({ force: true }));
+    window.addEventListener?.('popstate', () => handleWarehouseRouteStateChanged({ force: true }));
+
+    if (!warehouseRouteWatcherTimer && typeof setInterval === 'function') {
+        warehouseRouteWatcherTimer = setInterval(() => handleWarehouseRouteStateChanged(), WAREHOUSE_ROUTE_WATCH_INTERVAL_MS);
+    }
+
+    handleWarehouseRouteStateChanged({ force: true });
     return true;
 }
 
@@ -1112,8 +1469,8 @@ function stopWorkerLoop() {
 
 // ---------- INIT ----------
 function init() {
-    if (isWarehouseAssemblyPageUrl()) {
-        initWarehouseBarcodeBridge();
+    if (isWarehouseAppPageUrl()) {
+        startWarehouseBarcodeRouteWatcher();
         return;
     }
 

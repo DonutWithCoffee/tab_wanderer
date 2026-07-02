@@ -845,3 +845,80 @@ test('handleWarehouseShopOrderBridgeResponse stores preview and reports missing 
     assert.equal(ok.ok, true);
     assert.equal(context.getLastWarehouseBarcodePreview().summary.eligibleCount, 1);
 });
+
+test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode preview', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 2,
+            eligibleCount: 3,
+            skippedCount: 1
+        },
+        extraction: {
+            orderId: '9205-010726',
+            summary: {
+                productCount: 2,
+                eligibleCount: 3,
+                skippedCount: 1
+            },
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: []
+                },
+                23870634: {
+                    productId: '23870634',
+                    productTitle: 'LED RGB',
+                    eligibleBarcodes: [],
+                    skippedBarcodes: [{ barcode: '2049684', reason: 'multiBarcodeType' }]
+                }
+            }
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel)), {
+        title: 'tab_wanderer · Ozon barcodes',
+        actionLabel: 'Проверить штрихкоды',
+        status: 'ready',
+        message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
+        metrics: [
+            { label: 'Заказ', value: '9205-010726' },
+            { label: 'Товаров', value: '2' },
+            { label: 'Кандидатов', value: '3' },
+            { label: 'Пропущено', value: '1' }
+        ],
+        products: [
+            {
+                productId: '23870634',
+                productTitle: 'LED RGB',
+                eligibleCount: 0,
+                skippedCount: 1
+            },
+            {
+                productId: '24126456',
+                productTitle: 'DC-DC MT3608',
+                eligibleCount: 2,
+                skippedCount: 0
+            }
+        ]
+    });
+});
+
+test('createWarehouseBarcodePreviewViewModel reports loading and error states', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    const loading = context.createWarehouseBarcodePreviewViewModel(null);
+    const failed = context.createWarehouseBarcodePreviewViewModel({
+        ok: false,
+        error: 'warehouse shopOrder not found'
+    });
+
+    assert.equal(loading.status, 'loading');
+    assert.equal(loading.message, 'Ищем данные сборки на странице склада. Ozon не изменяем.');
+    assert.equal(failed.status, 'error');
+    assert.equal(failed.message, 'warehouse shopOrder not found');
+});

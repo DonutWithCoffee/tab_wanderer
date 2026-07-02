@@ -28,5 +28,15 @@
         "content.js"
       ]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "warehouse-barcode-bridge.js"
+      ],
+      "matches": [
+        "https://amperkot.ru/*"
+      ]
+    }
   ]
 }
