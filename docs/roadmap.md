@@ -1,6 +1,6 @@
 # tab_wanderer — Roadmap
 
-Документ фиксирует путь разработки от текущего состояния `Pre-1.0 diagnostics/log polish checkpoint` до `1.0` и post-1.0.
+Документ фиксирует путь разработки от текущего состояния `Pre-1.0 Ozon barcode flow checkpoint + Codex handoff` до `1.0` и post-1.0.
 
 ---
 
@@ -12,7 +12,7 @@
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — UI/UX polish with user ⏳ current
+Pre-1.0 — UI/UX polish + Ozon/warehouse action layer ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 ```
@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Build checkpoint: 0.9.9.8
-Tests: 171 pass / 0 fail
+Build checkpoint: 0.9.9.9-docs
+Tests: 201 pass / 0 fail
 ```
 
 Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest поднимается до `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
@@ -249,7 +249,7 @@ test count recorded: 168 pass / 0 fail
 
 ---
 
-## Pre-1.0 — UI/UX polish with user ⏳ current
+## Pre-1.0 — UI/UX polish + Ozon/warehouse action layer ⏳ current
 
 Цель:
 
@@ -270,13 +270,34 @@ wording pass
 manual browser smoke QA
 ```
 
-### Pre-1.0 diagnostics/log polish checkpoint ✅ current
+### Pre-1.0 diagnostics/log polish checkpoint ✅
 
 ```text
 log export wording clarified
 smoke checklist clarified
 manual QA checklist aligned with current diagnostics behavior
 test count recorded: 171 pass / 0 fail
+```
+
+### Pre-1.0 Ozon barcode binding core checkpoint ✅ current
+
+```text
+warehouse assembly barcode preview added
+warehouse API response capture added
+API-first refresh after “Собрать заказ” added
+empty API barcode snapshot falls back to visible DOM without page reload
+manual “Проверить штрихкоды” kept as the last button for old assembled orders
+manual “Обновить склад” removed
+label “Пропущено мультишк” added for skipped multi-barcode rows
+Ozon worker tab opens in background/inactive
+Ozon product search by Amperkot productId / Ozon offerId added
+full barcode drawer read added
+API write via /api/barcode-add-v2 added
+post-write drawer verify added
+UI fallback retained when API write/verify does not confirm
+multi-product apply queue runs sequentially
+local diff artifacts ignored
+test count recorded: 201 pass / 0 fail
 ```
 
 Границы этапа:
@@ -342,6 +363,7 @@ diagnostic log export works
 diagnostic log export returns full retained log
 diagnostic/event log retention prevents unbounded storage growth
 notifications open order page
+warehouse/Ozon barcode flow passes manual smoke or remains explicitly marked experimental
 manual browser smoke test passed
 README/project-context/roadmap updated
 manifest/version/release notes prepared
@@ -376,19 +398,19 @@ possible central/shared watchlist
 shared history across workplaces
 ```
 
-### Ozon barcode binding
+### Ozon barcode binding evolution
+
+Core local action flow is implemented before 1.0, but the following hardening remains post-checkpoint/post-1.0 work:
 
 ```text
-detect Ozon orders
-read barcodes from warehouse assembly page
-search Ozon product by product ID
-show product/barcode preview
-require manual verification / optional confirmation
-bind barcode in Ozon LK
-respect configurable minimum/base product price threshold
+configurable minimum/base product price threshold before automatic binding
+better diagnostics/export for warehouse/Ozon action failures
+more UI wording polish for warehouse panel
+optional central policies if centralized collector/dashboard is introduced
+regression checks if Ozon Seller UI layout changes
 ```
 
-This must be a separate automation/action layer, not mixed into monitor worker logic.
+This remains a separate automation/action layer and must not be mixed into monitor worker collection semantics.
 
 ### Firefox fork
 

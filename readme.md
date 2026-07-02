@@ -9,16 +9,18 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: Pre-1.0 diagnostics/log polish checkpoint
+Стадия разработки: Pre-1.0 Ozon barcode flow checkpoint + Codex handoff
 Manifest version: 0.9.9
-Build checkpoint: 0.9.9.8
-Текущий фокус: UI/UX polish + manual smoke QA перед 1.0 RC
-Tests: 171 pass / 0 fail
+Build checkpoint: 0.9.9.9-docs
+Текущий фокус: Ozon/warehouse smoke QA, документация для работы через Codex, затем 1.0 RC polish
+Tests: 201 pass / 0 fail
 ```
 
 Документы проекта:
 
 ```text
+AGENTS.md
+docs/codex-handoff.md
 docs/project-context.md
 docs/roadmap.md
 docs/smoke-checklist.md
@@ -35,7 +37,8 @@ docs/smoke-checklist.md
 - изменения в рабочем окне глубже первой страницы;
 - события по заказам, которые сотрудник добавил в отслеживаемые;
 - локальные обнаруженные изменения по конкретному заказу;
-- диагностическое состояние и локальный диагностический лог для поддержки.
+- диагностическое состояние и локальный диагностический лог для поддержки;
+- Ozon barcode binding со страницы сборки склада в Ozon Seller UI.
 
 Плагин **не является серверной историей заказов**. Он показывает только то, что было обнаружено локальным экземпляром расширения во время работы.
 
@@ -396,6 +399,56 @@ cookie/token/auth данные
 
 ---
 
+## Ozon barcode binding / warehouse action layer
+
+Ozon-сценарий является action layer поверх warehouse/admin страниц и не смешивается с основным monitor worker.
+
+Текущий рабочий поток:
+
+```text
+warehouse assembly page
+→ после “Собрать заказ” ловим warehouse API response
+→ если API snapshot не содержит barcode-кандидатов, читаем visible DOM fallback без reload
+→ показываем preview в панели склада
+→ “Добавить в Ozon” открывает Ozon worker tab в фоне
+→ поиск товара Ozon по productId / offerId
+→ API write через /api/barcode-add-v2
+→ verify через полный список штрихкодов в drawer
+→ если API/verify не сработали, UI fallback через drawer
+→ post-write verify
+```
+
+Зафиксированные live-факты:
+
+```text
+Amperkot product ID = Ozon product offer/article for search
+Ozon search URL = https://seller.ozon.ru/app/products?search=<productId>
+Ozon write endpoint = POST /api/barcode-add-v2
+seller_id берётся из активной Ozon Seller UI-сессии/headers/state
+item_id = Ozon SKU / ozonSku
+cookies/tokens/auth данные не сохраняются
+```
+
+Warehouse source priority:
+
+```text
+1. API response shop_order after “Собрать заказ”, если в нём есть barcode snapshot
+2. visible DOM product cards, если API snapshot пустой по barcode
+3. manual “Проверить штрихкоды” для уже собранных/старых заказов
+4. reload не используется как основной сценарий
+```
+
+UI policy:
+
+```text
+“Обновить склад” убрана
+“Проверить штрихкоды” остаётся последней кнопкой
+“Пропущено мультишк” показывает multi-barcode rows, которые не пишутся автоматически
+Ozon worker tab открывается inactive/background и не должен уводить сотрудника из текущей вкладки
+```
+
+---
+
 ## Core modules
 
 Pure/domain logic постепенно вынесена из `background.js`:
@@ -412,6 +465,9 @@ core/runtime-api.js
 core/watched-orders.js
 core/direct-follow-up.js
 core/order-lookup.js
+core/warehouse-barcode-extractor.js
+core/ozon-product-search.js
+core/ozon-barcode-binding.js
 ```
 
 Chrome APIs остаются на runtime edge.
@@ -429,7 +485,7 @@ npm test
 Текущий checkpoint:
 
 ```text
-171 pass 0 fail
+201 pass 0 fail
 ```
 
 ---
@@ -439,7 +495,9 @@ npm test
 Текущий этап после diagnostics/log polish checkpoint:
 
 ```text
-Pre-1.0 UI/UX polish
+Pre-1.0 Ozon/warehouse smoke QA
+Codex handoff docs
+UI/UX polish
 manual browser smoke QA
 1.0 RC
 1.0 Stable local-first Chrome extension release

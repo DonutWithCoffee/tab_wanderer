@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: `Pre-1.0 diagnostics/log polish checkpoint`.
+Актуально на момент: `Pre-1.0 Ozon barcode flow checkpoint + Codex handoff`.
 
 Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,10 +11,12 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot
-Текущая стадия: Pre-1.0 diagnostics/log polish checkpoint
+Текущая стадия: Pre-1.0 Ozon barcode flow checkpoint + Codex handoff
 Manifest version: 0.9.9
-Build checkpoint: 0.9.9.8
-Tests: 171 pass / 0 fail
+Build checkpoint: 0.9.9.9-docs
+Tests: 201 pass / 0 fail
+Last known clean HEAD: d270841 chore: ignore local diff artifacts
+Previous feature HEAD: 03d567a feat(ozon): refresh warehouse barcodes without page reload
 ```
 
 Roadmap:
@@ -25,10 +27,10 @@ Roadmap:
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — UI/UX polish with user ⏳ current
+Pre-1.0 — UI/UX polish + Ozon/warehouse action layer ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
-Post-1.0 — centralized collector / Ozon automation / Firefox fork
+Post-1.0 — centralized collector / Ozon hardening / Firefox fork
 ```
 
 Recent important slices:
@@ -42,6 +44,11 @@ fix(core): suppress startup catch-up notifications
 refactor(config): remove legacy monitor scope predicates
 docs(project): sync 0.9.9 checkpoint
 polish(diagnostics): clarify log export and smoke checklist
+feat(ozon): resolve warehouse/Ozon barcode preview
+feat(ozon): apply multiple products sequentially
+feat(ozon): write barcodes through API with UI fallback
+feat(ozon): refresh warehouse barcodes without page reload
+chore: ignore local diff artifacts
 ```
 
 ---
@@ -106,7 +113,8 @@ After user confirms tests are green, proceed with commit/push instructions.
 7. Показывать локально обнаруженные изменения по конкретному заказу.
 8. Давать диагностический лог для удалённой поддержки.
 9. Сохранять стабильность при reload/restart браузера.
-10. В будущем — централизовать сбор событий и добавить automation/action features.
+10. В будущем — централизовать сбор событий.
+11. На текущем Pre-1.0 этапе — автоматизировать безопасную привязку warehouse barcodes в Ozon как отдельный action layer.
 ```
 
 Важное ограничение:
@@ -135,6 +143,7 @@ notification message model
 runtime API response model
 popup/options/orders UI
 Chrome runtime edge
+warehouse/Ozon action layer
 ```
 
 Жёсткие правила:
@@ -153,6 +162,8 @@ partial diff запрещён
 baseline/rebaseline/startup catch-up не должны создавать notification flood
 Chrome APIs держать на краях
 новую domain logic постепенно выносить из background.js
+warehouse/Ozon action layer не должен ломать monitor worker semantics
+не сохранять Ozon cookies/tokens/auth данные
 ```
 
 Всегда выбирать:
@@ -677,7 +688,89 @@ Do not return broad full event timeline as default user UI.
 
 ---
 
-## 16. Temporary / Removed Production Rules
+## 16. Ozon Barcode Binding / Warehouse Action Layer
+
+Назначение:
+
+```text
+считать штрихкоды со страницы сборки склада
+сопоставить товар склада с товаром Ozon по productId / offerId
+записать отсутствующие штрихкоды в Ozon Seller UI
+проверить результат после записи
+сохранить ручной контроль и понятный preview для сотрудника
+```
+
+Архитектурная граница:
+
+```text
+Ozon barcode binding = action layer
+не является частью основного list-monitor collection loop
+не влияет на order notification rules
+не влияет на eventJournal/order lookup semantics
+не должен захватывать рабочую admin-вкладку менеджера
+```
+
+Warehouse source priority после “Собрать заказ”:
+
+```text
+1. captured warehouse API response api.response.shop_order
+2. если API shop_order найден, но barcode snapshot пустой → visible DOM fallback
+3. если action response не было → manual “Проверить штрихкоды” для старого заказа
+4. page reload не используется как нормальный сценарий
+```
+
+Подтверждённые live-факты:
+
+```text
+Amperkot product ID = Ozon offer/article для поиска
+Ozon search URL = https://seller.ozon.ru/app/products?search=<productId>
+Ozon write endpoint = POST /api/barcode-add-v2
+payload = { seller_id, barcodes: [{ barcode, item_id }] }
+success response может быть { "errors": [] }
+item_id = Ozon SKU / ozonSku
+seller_id берётся из активной Ozon Seller UI-сессии/headers/state
+cookies/tokens/auth данные не сохраняются
+```
+
+Ozon worker policy:
+
+```text
+worker marker: #tab_wanderer_ozon_worker=1
+worker tab opens inactive/background
+URL reuse rules apply: не брать произвольную пользовательскую вкладку
+search exact product row by DOM is primary resolve source
+list-by-filter/API resolve may be diagnostic/fallback only, because live UI row can exist when pure API resolve returns empty
+```
+
+Write/verify policy:
+
+```text
+primary write: /api/barcode-add-v2 через текущую Seller UI-сессию
+verify: открыть/прочитать full barcode drawer, а не только строку списка
+UI fallback: drawer flow, если API write или verify не подтвердились
+post-write verify обязателен
+multi-product queue sequential
+multi-barcode warehouse rows skipped automatically and shown as “Пропущено мультишк”
+```
+
+Текущая warehouse panel UI:
+
+```text
+“Добавить в Ozon” — основной action
+“Проверить штрихкоды” — последняя кнопка, нужна для старых уже собранных заказов
+“Обновить склад” убрана
+после “Собрать заказ” preview обновляется без reload
+```
+
+Known pending product requirement:
+
+```text
+configurable minimum/base product price threshold for automatic barcode binding
+```
+
+---
+
+## 17. Temporary / Removed Production Rules
 
 Old behavior:
 
@@ -696,7 +789,7 @@ old storage predicates are ignored safely
 
 ---
 
-## 17. Tests
+## 18. Tests
 
 Command:
 
@@ -707,7 +800,7 @@ npm test
 Current checkpoint:
 
 ```text
-171 pass 0 fail
+201 pass 0 fail
 ```
 
 Test suites cover:
@@ -731,11 +824,16 @@ orders/history UI
 startup catch-up suppression
 direct follow-up consistency
 legacy monitorScope.predicates cleanup
+warehouse barcode extractor
+warehouse bridge API-first/DOM fallback
+Ozon product resolve bridge
+Ozon barcode binding payload/planning
+Ozon API write + drawer verify + UI fallback
 ```
 
 ---
 
-## 18. Manual Smoke Checklist
+## 19. Manual Smoke Checklist
 
 Smoke checklist lives in:
 
@@ -755,11 +853,12 @@ Orders page lookup/watchlist
 direct follow-up
 diagnostic export
 STOP/START/reload
+warehouse/Ozon barcode smoke
 ```
 
 ---
 
-## 19. Current Known Boundaries
+## 20. Current Known Boundaries
 
 Local-first boundaries:
 
@@ -786,11 +885,12 @@ should be validated if admin order page layout changes
 
 ---
 
-## 20. Next Work
+## 21. Next Work
 
 Immediate next phase:
 
 ```text
+Ozon/warehouse smoke QA and small polish
 Pre-1.0 UI/UX polish with user
 ```
 
@@ -809,6 +909,6 @@ Post-1.0:
 ```text
 centralized collector/dashboard
 multi-branch event aggregation
-Ozon barcode binding automation
+Ozon hardening: price threshold, diagnostics, central policies
 Firefox fork
 ```

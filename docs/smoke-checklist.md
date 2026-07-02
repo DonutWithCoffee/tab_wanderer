@@ -1,6 +1,6 @@
 # tab_wanderer — ручной smoke checklist
 
-Актуально для `0.9.9` / Pre-1.0 UI polish checkpoint.
+Актуально для `0.9.9` / Pre-1.0 Ozon barcode flow checkpoint + Codex handoff.
 
 Цель: перед `1.0 RC` быстро проверить, что расширение не создаёт ложные уведомления, не мешает рабочей вкладке менеджера и остаётся понятным для обычного сотрудника.
 
@@ -9,7 +9,7 @@
 ## 0. Перед проверкой
 
 ```text
-npm test → 171 pass / 0 fail
+npm test → 201 pass / 0 fail
 расширение загружено в chrome://extensions
 расширение перезагружено после установки новой сборки
 есть доступ к https://amperkot.ru/admin/orders/
@@ -277,3 +277,53 @@ START восстанавливает worker и state
 recovery не создаёт notification flood
 диагностический лог показывает recovery/catch-up причину
 ```
+
+---
+
+## 12. Warehouse / Ozon barcode binding
+
+Шаги:
+
+```text
+1. Открыть warehouse assembly page для заказа со складскими штрихкодами.
+2. Просканировать/собрать заказ штатным складским действием.
+3. Нажать “Собрать заказ”.
+4. Убедиться, что страница не reload-ится.
+5. Проверить, что panel показывает товары, кандидатов и “Пропущено мультишк”.
+6. Для старого уже собранного заказа нажать “Проверить штрихкоды”.
+7. Нажать “Добавить в Ozon”.
+8. Проверить, что Ozon worker открывается в фоне и не уводит фокус с рабочей вкладки.
+9. Дождаться результата записи и verify.
+```
+
+Ожидаемо:
+
+```text
+после “Собрать заказ” preview обновляется без reload
+если API response содержит пригодный barcode snapshot, используется API
+если API shop_order пойман, но barcode snapshot пустой, используется visible DOM fallback
+manual “Проверить штрихкоды” остаётся последней кнопкой
+“Обновить склад” отсутствует
+multi-barcode rows не пишутся автоматически и считаются как “Пропущено мультишк”
+Ozon search идёт по productId/offerId
+API write выполняется через /api/barcode-add-v2
+post-write verify читает полный drawer barcode list
+при неподтверждённом API/verify остаётся UI fallback
+cookies/tokens/auth данные не попадают в storage/log/export
+```
+
+Debug при проблемах:
+
+```js
+JSON.stringify(window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__, null, 2)
+```
+
+Ключевые признаки успешного API capture:
+
+```text
+lastMatchedPath: "api.response.shop_order"
+lastResult: "using stored API shopOrder snapshot"
+```
+
+Но если такой API snapshot не содержит barcode-кандидатов, это не ошибка: bridge должен перейти на visible DOM fallback.
+
