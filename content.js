@@ -966,6 +966,46 @@ function formatWarehouseBarcodePreviewCount(value) {
     return Number.isFinite(number) && number >= 0 ? String(number) : '0';
 }
 
+function normalizeWarehouseOzonWriteMethod(value) {
+    const method = normalizeWarehouseBridgeText(value).toLowerCase();
+
+    if (method === 'api') {
+        return 'API';
+    }
+
+    if (method === 'ui-fallback') {
+        return 'UI fallback';
+    }
+
+    if (method === 'api-ui-fallback') {
+        return 'API + UI fallback';
+    }
+
+    if (method === 'ui') {
+        return 'UI';
+    }
+
+    return '';
+}
+
+function getWarehouseOzonWriteMethodFromDetails(details = null) {
+    return normalizeWarehouseOzonWriteMethod(
+        details?.writeMethod
+        || details?.api?.details?.writeMethod
+        || details?.api?.writeMethod
+        || ''
+    );
+}
+
+function getWarehouseOzonFallbackReasonFromDetails(details = null) {
+    return normalizeWarehouseBridgeText(
+        details?.fallbackReason
+        || details?.api?.fallbackReason
+        || details?.api?.error
+        || ''
+    );
+}
+
 function getWarehouseBarcodePreviewOrderId(preview = {}) {
     return normalizeWarehouseBridgeText(
         preview?.shopOrder?.id
@@ -1038,7 +1078,9 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
                 ozonApplyAddedCount: applyResult ? Number(applyResult.addedCount) || 0 : 0,
                 ...(applyResult ? {
                     ozonApplyVerifiedCount: Number(applyResult.verifiedCount) || 0,
-                    ozonApplyMissingCount: Number(applyResult.missingCount) || 0
+                    ozonApplyMissingCount: Number(applyResult.missingCount) || 0,
+                    ozonApplyWriteMethod: applyResult.writeMethod || '',
+                    ozonApplyFallbackReason: applyResult.fallbackReason || ''
                 } : {})
             };
         })
@@ -1141,10 +1183,14 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
         if (Number(ozonApply.errorCount) > 0) {
             metrics.push({ label: 'Ошибки Ozon', value: formatWarehouseBarcodePreviewCount(ozonApply.errorCount) });
         }
+
+        if (ozonApply.writeMethod) {
+            metrics.push({ label: 'Метод', value: ozonApply.writeMethod });
+        }
     }
 
     const ozonMessage = ozonApply?.status === 'loading'
-        ? 'Добавляем штрихкоды через интерфейс Ozon. Не закрывай Ozon worker tab.'
+        ? 'Добавляем штрихкоды в Ozon. Не закрывай Ozon worker tab.'
         : ozonApply?.status === 'error'
             ? `Ozon: ${ozonApply.error || 'ошибка записи'}`
             : ozonApply?.status === 'ready'
@@ -1467,15 +1513,17 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
             }
 
             if (product.ozonApplyStatus) {
+                const applyPrefix = product.ozonApplyWriteMethod ? `Ozon ${product.ozonApplyWriteMethod}` : 'Ozon';
+                const fallbackSuffix = product.ozonApplyFallbackReason ? `, fallback: ${product.ozonApplyFallbackReason}` : '';
                 const applyText = product.ozonApplyStatus === 'ready'
                     ? product.ozonApplyMissingCount > 0
-                        ? `Ozon UI: проверено ${product.ozonApplyVerifiedCount}/${product.eligibleCount}, не найдено ${product.ozonApplyMissingCount}`
+                        ? `${applyPrefix}: проверено ${product.ozonApplyVerifiedCount}/${product.eligibleCount}, не найдено ${product.ozonApplyMissingCount}${fallbackSuffix}`
                         : product.ozonApplyVerifiedCount > 0
-                            ? `Ozon UI: проверено ${product.ozonApplyVerifiedCount}/${product.eligibleCount}`
-                            : `Ozon UI: добавлено ${product.ozonApplyAddedCount}`
+                            ? `${applyPrefix}: проверено ${product.ozonApplyVerifiedCount}/${product.eligibleCount}${fallbackSuffix}`
+                            : `${applyPrefix}: добавлено ${product.ozonApplyAddedCount}${fallbackSuffix}`
                     : product.ozonApplyStatus === 'loading'
-                        ? 'Ozon UI: добавляем...'
-                        : `Ozon UI: ${product.ozonApplyError || 'ошибка записи'}`;
+                        ? 'Ozon: добавляем...'
+                        : `Ozon: ${product.ozonApplyError || 'ошибка записи'}`;
 
                 appendWarehousePreviewText(
                     item,
@@ -1578,7 +1626,7 @@ function getWarehouseOzonResolveRequestPayload() {
 }
 
 
-function createWarehouseOzonUiApplyLoading(message = 'Добавляем штрихкоды через интерфейс Ozon.') {
+function createWarehouseOzonUiApplyLoading(message = 'Добавляем штрихкоды в Ozon.') {
     return {
         status: 'loading',
         message
@@ -1617,6 +1665,8 @@ function normalizeWarehouseOzonUiApplyProductResult(result = {}) {
         missingBarcodes,
         missingCount: missingBarcodes.length,
         error: result.error || '',
+        writeMethod: getWarehouseOzonWriteMethodFromDetails(details),
+        fallbackReason: getWarehouseOzonFallbackReasonFromDetails(details),
         details
     };
 }
@@ -1646,6 +1696,12 @@ function createWarehouseOzonUiApplyReady(result = {}) {
     const errorCount = Object.prototype.hasOwnProperty.call(result, 'errorCount')
         ? Number(result.errorCount) || 0
         : productResults.filter(item => item.ok === false || Number(item.missingCount) > 0).length;
+    const writeMethods = Array.from(new Set(productResults.map(item => item.writeMethod).filter(Boolean)));
+    const writeMethod = writeMethods.length === 1
+        ? writeMethods[0]
+        : writeMethods.length > 1
+            ? writeMethods.join(', ')
+            : getWarehouseOzonWriteMethodFromDetails(details);
 
     return {
         status: 'ready',
@@ -1660,6 +1716,7 @@ function createWarehouseOzonUiApplyReady(result = {}) {
         verifiedCount,
         missingCount: missingBarcodes.length,
         missingBarcodes,
+        writeMethod,
         productResults,
         details
     };
