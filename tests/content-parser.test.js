@@ -67,6 +67,104 @@ function loadContentContext(documentStub, overrides = {}) {
     return context;
 }
 
+
+function createWarehousePreviewPanelDocumentStub() {
+    const elementsById = {};
+
+    function createElement(tagName) {
+        const element = {
+            tagName: String(tagName || '').toUpperCase(),
+            children: [],
+            style: {},
+            attributes: {},
+            parentNode: null,
+            textContent: '',
+            setAttribute(name, value) {
+                this.attributes[name] = String(value);
+                if (name === 'id') {
+                    this.id = String(value);
+                    elementsById[this.id] = this;
+                }
+            },
+            getAttribute(name) {
+                return this.attributes[name] || null;
+            },
+            appendChild(child) {
+                if (child) {
+                    child.parentNode = this;
+                    this.children.push(child);
+                }
+                return child;
+            },
+            removeChild(child) {
+                const index = this.children.indexOf(child);
+                if (index >= 0) {
+                    this.children.splice(index, 1);
+                    child.parentNode = null;
+                }
+                return child;
+            },
+            get firstChild() {
+                return this.children[0] || null;
+            },
+            closest() {
+                return null;
+            }
+        };
+
+        Object.defineProperty(element, 'id', {
+            get() {
+                return this.attributes.id || '';
+            },
+            set(value) {
+                this.attributes.id = String(value);
+                elementsById[String(value)] = this;
+            }
+        });
+
+        Object.defineProperty(element, 'className', {
+            get() {
+                return this.attributes.class || '';
+            },
+            set(value) {
+                this.attributes.class = String(value);
+            }
+        });
+
+        return element;
+    }
+
+    const body = createElement('body');
+    body.innerText = '';
+
+    return {
+        body,
+        documentElement: body,
+        createElement,
+        getElementById(id) {
+            return elementsById[id] || null;
+        },
+        addEventListener() {},
+        querySelector() {
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        }
+    };
+}
+
+function collectElementText(element) {
+    if (!element) {
+        return '';
+    }
+
+    return [
+        element.textContent || '',
+        ...(Array.isArray(element.children) ? element.children.map(collectElementText) : [])
+    ].filter(Boolean).join(' ');
+}
+
 test('getColumnMap finds required order columns', () => {
     const context = loadContentContext(
         createDocumentStub({
@@ -958,23 +1056,26 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
 
     assert.deepEqual(JSON.parse(JSON.stringify(viewModel)), {
         title: 'tab_wanderer · Ozon barcodes',
-        actionLabel: 'Добавить в Ozon',
+        actionLabel: 'Записать в Ozon',
         actions: [
-            { id: 'ozon-ui-apply', label: 'Добавить в Ozon', variant: 'primary', disabled: false },
-            { id: 'ozon-resolve', label: 'Проверить штрихкоды', variant: 'secondary', disabled: false }
+            { id: 'ozon-ui-apply', label: 'Записать в Ozon', variant: 'primary', disabled: false },
+            { id: 'ozon-resolve', label: 'Проверить штрихкоды', variant: 'secondary', disabled: false },
+            { id: 'barcode-list', label: 'Список ШК', variant: 'secondary', disabled: false }
         ],
         status: 'ready',
         message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
         metrics: [
             { label: 'Заказ', value: '9205-010726' },
             { label: 'Товаров', value: '2' },
-            { label: 'Кандидатов', value: '3' },
-            { label: 'Пропущено мультишк', value: '1' }
+            { label: 'Штрихкодов', value: '3' },
+            { label: 'Пропущено мультиштрихов', value: '1' }
         ],
         products: [
             {
                 productId: '23870634',
                 productTitle: 'LED RGB',
+                barcodes: [],
+                skippedBarcodes: ['2049684'],
                 eligibleCount: 0,
                 skippedCount: 1,
                 ozonStatus: '',
@@ -990,6 +1091,8 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
             {
                 productId: '24126456',
                 productTitle: 'DC-DC MT3608',
+                barcodes: ['2317613', '2317680'],
+                skippedBarcodes: [],
                 eligibleCount: 2,
                 skippedCount: 0,
                 ozonStatus: '',
@@ -1004,7 +1107,8 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
             }
         ],
         ozon: null,
-        ozonApply: null
+        ozonApply: null,
+        barcodeListExpanded: false
     });
 });
 
@@ -1057,7 +1161,7 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon resolve summary after
 
     assert.equal(viewModel.message, 'Ozon проверен. Записи пока нет.');
     assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.slice(-2))), [
-        { label: 'Добавить', value: '1' },
+        { label: 'К записи', value: '1' },
         { label: 'Уже есть', value: '2' }
     ]);
     assert.equal(viewModel.products[0].ozonStatus, 'ready');
@@ -1150,7 +1254,7 @@ test('Ozon apply product text hides fallback reason when final verification succ
     const product = viewModel.products[0];
     const text = context.createWarehouseOzonApplyProductText(product);
 
-    assert.equal(text, 'Ozon API + UI fallback: проверено 2/2');
+    assert.equal(text, 'Ozon: проверено 2/2');
     assert.equal(text.includes('api-verify-after-reload-failed'), false);
     assert.equal(viewModel.ozonApply.productResults[0].fallbackReason, 'api-verify-after-reload-failed');
 });
@@ -1167,7 +1271,7 @@ test('Ozon apply product text keeps fallback reason when verification is incompl
         ozonApplyFallbackReason: 'api-verify-after-reload-failed'
     });
 
-    assert.equal(text, 'Ozon API + UI fallback: проверено 1/2, не найдено 1, fallback: api-verify-after-reload-failed');
+    assert.equal(text, 'Ozon: проверено 1/2, не найдено 1, fallback: api-verify-after-reload-failed');
 });
 
 test('Ozon apply view model reports API write with unconfirmed verify without false added zero error', () => {
@@ -1216,9 +1320,96 @@ test('Ozon apply view model reports API write with unconfirmed verify without fa
     const productText = context.createWarehouseOzonApplyProductText(product);
 
     assert.equal(viewModel.message, 'Ozon: запись отправлена, проверка не подтвердила 0/3.');
-    assert.equal(productText, 'Ozon API: запись отправлена, проверка не подтвердила 0/3');
+    assert.equal(productText, 'Ozon: запись отправлена, проверка не подтвердила 0/3');
     assert.equal(viewModel.ozonApply.errorCount, 0);
     assert.equal(viewModel.metrics.some(item => item.label === 'Ошибки Ozon'), false);
+});
+
+
+test('warehouse barcode preview panel is collapsed by default and expands on toggle', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub);
+    const preview = {
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 2,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    };
+
+    assert.equal(context.renderWarehouseBarcodePreviewPanel(preview), true);
+
+    const panel = documentStub.getElementById('tab-wanderer-warehouse-barcode-preview');
+    assert.equal(panel.style.width, '260px');
+    assert.equal(panel.style.overflow, 'hidden');
+    assert.equal(collectElementText(panel).includes('Товары'), false);
+    assert.equal(collectElementText(panel).includes('Записать в Ozon'), false);
+
+    context.setWarehouseBarcodePreviewPanelCollapsed(false);
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    assert.equal(panel.style.width, '340px');
+    assert.equal(panel.style.overflow, 'auto');
+    assert.equal(collectElementText(panel).includes('Товары'), true);
+    assert.equal(collectElementText(panel).includes('Записать в Ozon'), true);
+});
+
+
+test('warehouse barcode preview panel toggles selectable barcode list', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub);
+    const preview = {
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 2,
+            skippedCount: 1
+        },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: [{ barcode: '2049684', reason: 'multiBarcodeType' }]
+                }
+            }
+        }
+    };
+
+    context.setWarehouseBarcodePreviewPanelCollapsed(false);
+    context.setWarehouseBarcodeListExpanded(false);
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    const panel = documentStub.getElementById('tab-wanderer-warehouse-barcode-preview');
+    assert.equal(collectElementText(panel).includes('Список ШК'), true);
+    assert.equal(collectElementText(panel).includes('2317613'), false);
+
+    context.setWarehouseBarcodeListExpanded(true);
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    const text = collectElementText(panel);
+    assert.equal(text.includes('Скрыть ШК'), true);
+    assert.equal(text.includes('Список штрихкодов'), true);
+    assert.equal(text.includes('2317613'), true);
+    assert.equal(text.includes('2317680'), true);
+    assert.equal(text.includes('Мультиштрихи'), true);
+    assert.equal(text.includes('2049684'), true);
 });
 
 test('createWarehouseBarcodePreviewViewModel reports loading and error states', () => {

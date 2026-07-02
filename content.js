@@ -732,6 +732,9 @@ const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-r
 const WAREHOUSE_API_CAPTURE_ARM_EVENT = 'tab_wanderer:warehouse-api-capture-arm';
 const WAREHOUSE_BARCODE_PREVIEW_PANEL_ID = 'tab-wanderer-warehouse-barcode-preview';
 const WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID = 'tab-wanderer-warehouse-barcode-preview-refresh';
+const WAREHOUSE_BARCODE_PREVIEW_TOGGLE_ACTION = 'toggle-preview';
+const WAREHOUSE_BARCODE_LIST_TOGGLE_ACTION = 'toggle-barcode-list';
+const WAREHOUSE_BARCODE_LIST_BUTTON_ID = 'tab-wanderer-warehouse-barcode-list-toggle';
 const WAREHOUSE_OZON_RESOLVE_BUTTON_ID = 'tab-wanderer-warehouse-ozon-resolve';
 const WAREHOUSE_OZON_APPLY_BUTTON_ID = 'tab-wanderer-warehouse-ozon-apply';
 const OZON_PRODUCT_BRIDGE_SCRIPT_ID = 'tab-wanderer-ozon-product-bridge';
@@ -752,6 +755,8 @@ let lastWarehouseOzonUiApply = null;
 let warehouseBarcodeBridgeInitialized = false;
 let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
+let warehouseBarcodePreviewCollapsed = true;
+let warehouseBarcodeListExpanded = false;
 let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
 let warehouseShopOrderReadReason = 'initial';
@@ -1016,7 +1021,7 @@ function createWarehouseAssemblyActionDebugLine() {
         debug.reloadTimerState === 'fired' ? `чтение завершено: ${debug.reloadFallbackReason || 'snapshot refresh'}` : '',
         debug.reloadTimerState === 'cleared' ? `ожидание завершено: ${debug.reloadTimerClearReason || 'unknown'}` : '',
         debug.lastResponseSource ? `source: ${debug.lastResponseSource}` : '',
-        debug.lastSummary ? `кандидаты ${debug.lastSummary.eligibleCount || 0}, мультишк ${debug.lastSummary.skippedCount || 0}` : '',
+        debug.lastSummary ? `кандидаты ${debug.lastSummary.eligibleCount || 0}, мультиштрихов ${debug.lastSummary.skippedCount || 0}` : '',
         debug.lastBridgeApiResult ? `api: ${debug.lastBridgeApiResult}` : '',
         Number(debug.lastBridgeApiResponseCount) > 0 ? `api responses: ${debug.lastBridgeApiResponseCount}` : ''
     ].filter(Boolean);
@@ -1243,7 +1248,7 @@ function shouldShowWarehouseOzonApplyFallbackReason(product = {}) {
 }
 
 function createWarehouseOzonApplyProductText(product = {}) {
-    const applyPrefix = product.ozonApplyWriteMethod ? `Ozon ${product.ozonApplyWriteMethod}` : 'Ozon';
+    const applyPrefix = 'Ozon';
     const fallbackSuffix = product.ozonApplyFallbackReason && shouldShowWarehouseOzonApplyFallbackReason(product)
         ? `, fallback: ${product.ozonApplyFallbackReason}`
         : '';
@@ -1316,6 +1321,19 @@ function getWarehouseOzonApplyResultsByProductId(applyResult = lastWarehouseOzon
     }, {});
 }
 
+
+function getWarehouseBarcodePreviewEntryBarcode(entry = {}) {
+    return normalizeWarehouseBridgeId(entry?.barcode || entry?.bar_code || entry?.code || entry);
+}
+
+function createWarehouseBarcodePreviewBarcodeList(barcodes = []) {
+    return Array.from(new Set(
+        (Array.isArray(barcodes) ? barcodes : [])
+            .map(getWarehouseBarcodePreviewEntryBarcode)
+            .filter(Boolean)
+    ));
+}
+
 function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePreview = lastWarehouseOzonResolvePreview) {
     const ozonPlansByProductId = getWarehouseOzonResolvePlanByProductId(resolvePreview);
     const applyResultsByProductId = getWarehouseOzonApplyResultsByProductId(lastWarehouseOzonUiApply);
@@ -1330,6 +1348,8 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
             return {
                 productId,
                 productTitle: normalizeWarehouseBridgeText(group.productTitle),
+                barcodes: createWarehouseBarcodePreviewBarcodeList(group.eligibleBarcodes),
+                skippedBarcodes: createWarehouseBarcodePreviewBarcodeList(group.skippedBarcodes),
                 eligibleCount: Array.isArray(group.eligibleBarcodes) ? group.eligibleBarcodes.length : 0,
                 skippedCount: Array.isArray(group.skippedBarcodes) ? group.skippedBarcodes.length : 0,
                 ozonStatus: ozonPlan?.status || '',
@@ -1356,7 +1376,7 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
 function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePreview) {
     const base = {
         title: 'tab_wanderer · Ozon barcodes',
-        actionLabel: 'Добавить в Ozon',
+        actionLabel: 'Записать в Ozon',
         actions: [],
         status: 'loading',
         message: 'Ищем данные сборки на странице склада. Ozon не изменяем.',
@@ -1393,12 +1413,13 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const ozonSummary = ozon?.plan?.summary || {};
     const products = createWarehouseBarcodePreviewProductRows(preview.extraction?.productsById || {}, ozon);
     const hasEligibleBarcodes = Number(summary.eligibleCount) > 0;
+    const hasBarcodeList = products.some(product => product.barcodes.length > 0 || product.skippedBarcodes.length > 0);
     const isOzonBusy = ozon?.status === 'loading' || ozonApply?.status === 'loading';
-    const actions = hasEligibleBarcodes
-        ? [
+    const actions = [
+        ...(hasEligibleBarcodes ? [
             {
                 id: 'ozon-ui-apply',
-                label: ozonApply?.status === 'loading' ? 'Добавляем в Ozon...' : 'Добавить в Ozon',
+                label: ozonApply?.status === 'loading' ? 'Записываем в Ozon...' : 'Записать в Ozon',
                 variant: 'primary',
                 disabled: isOzonBusy
             },
@@ -1408,19 +1429,25 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
                 variant: 'secondary',
                 disabled: isOzonBusy
             }
-        ]
-        : [];
+        ] : []),
+        ...(hasBarcodeList ? [{
+            id: 'barcode-list',
+            label: warehouseBarcodeListExpanded ? 'Скрыть ШК' : 'Список ШК',
+            variant: 'secondary',
+            disabled: false
+        }] : [])
+    ];
 
     const metrics = [
         { label: 'Заказ', value: orderId },
         { label: 'Товаров', value: formatWarehouseBarcodePreviewCount(summary.productCount) },
-        { label: 'Кандидатов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
-        { label: 'Пропущено мультишк', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
+        { label: 'Штрихкодов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
+        { label: 'Пропущено мультиштрихов', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
     ];
 
     if (ozon?.status === 'ready') {
         metrics.push(
-            { label: 'Добавить', value: formatWarehouseBarcodePreviewCount(ozonSummary.toAddCount) },
+            { label: 'К записи', value: formatWarehouseBarcodePreviewCount(ozonSummary.toAddCount) },
             { label: 'Уже есть', value: formatWarehouseBarcodePreviewCount(ozonSummary.alreadyExistsCount) }
         );
     }
@@ -1472,7 +1499,8 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
         metrics,
         products,
         ozon,
-        ozonApply
+        ozonApply,
+        barcodeListExpanded: warehouseBarcodeListExpanded
     };
 }
 
@@ -1549,9 +1577,9 @@ function ensureWarehouseBarcodePreviewPanel() {
             position: 'fixed',
             right: '16px',
             bottom: '16px',
-            width: '340px',
-            maxHeight: '70vh',
-            overflow: 'auto',
+            width: '260px',
+            maxHeight: 'none',
+            overflow: 'hidden',
             zIndex: '2147483647',
             pointerEvents: 'auto',
             isolation: 'isolate',
@@ -1595,6 +1623,70 @@ function clearWarehousePreviewPanel(panel) {
     }
 }
 
+function setWarehouseBarcodePreviewPanelCollapsed(collapsed) {
+    warehouseBarcodePreviewCollapsed = collapsed === true;
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    return warehouseBarcodePreviewCollapsed;
+}
+
+function toggleWarehouseBarcodePreviewPanel() {
+    return setWarehouseBarcodePreviewPanelCollapsed(!warehouseBarcodePreviewCollapsed);
+}
+
+function setWarehouseBarcodeListExpanded(expanded) {
+    warehouseBarcodeListExpanded = expanded === true;
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    return warehouseBarcodeListExpanded;
+}
+
+function toggleWarehouseBarcodeList() {
+    return setWarehouseBarcodeListExpanded(!warehouseBarcodeListExpanded);
+}
+
+function applyWarehouseBarcodePreviewPanelLayout(panel) {
+    if (!panel?.style) {
+        return;
+    }
+
+    panel.style.width = warehouseBarcodePreviewCollapsed ? '260px' : '340px';
+    panel.style.maxHeight = warehouseBarcodePreviewCollapsed ? 'none' : '70vh';
+    panel.style.overflow = warehouseBarcodePreviewCollapsed ? 'hidden' : 'auto';
+    panel.style.padding = warehouseBarcodePreviewCollapsed ? '10px 12px' : '14px';
+}
+
+function renderWarehouseBarcodePreviewHeader(panel, viewModel = {}) {
+    const header = createWarehousePreviewElement('div', {
+        attributes: {
+            role: 'button',
+            tabindex: '0',
+            'aria-label': warehouseBarcodePreviewCollapsed ? 'Развернуть tab_wanderer Ozon barcodes' : 'Свернуть tab_wanderer Ozon barcodes',
+            'aria-expanded': warehouseBarcodePreviewCollapsed ? 'false' : 'true',
+            'data-tab-wanderer-action': WAREHOUSE_BARCODE_PREVIEW_TOGGLE_ACTION
+        },
+        styles: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            cursor: 'pointer',
+            userSelect: 'none'
+        }
+    });
+
+    appendWarehousePreviewText(header, 'div', viewModel.title || 'tab_wanderer · Ozon barcodes', {
+        fontWeight: '700'
+    });
+    appendWarehousePreviewText(header, 'div', warehouseBarcodePreviewCollapsed ? 'Развернуть' : 'Свернуть', {
+        color: '#005bff',
+        fontSize: '12px',
+        fontWeight: '700',
+        whiteSpace: 'nowrap'
+    });
+
+    panel?.appendChild?.(header);
+    return header;
+}
+
 function removeWarehouseBarcodePreviewPanel() {
     const panel = typeof document.getElementById === 'function'
         ? document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID)
@@ -1629,6 +1721,17 @@ function handleWarehousePreviewActionEvent(event) {
     }
 
     const action = actionTarget.getAttribute?.('data-tab-wanderer-action');
+
+    if (action === WAREHOUSE_BARCODE_PREVIEW_TOGGLE_ACTION) {
+        toggleWarehouseBarcodePreviewPanel();
+        return;
+    }
+
+    if (action === WAREHOUSE_BARCODE_LIST_TOGGLE_ACTION || action === 'barcode-list') {
+        setWarehouseBarcodePreviewPanelCollapsed(false);
+        toggleWarehouseBarcodeList();
+        return;
+    }
 
     if (action === 'ozon-resolve') {
         requestWarehouseOzonResolvePreview();
@@ -1669,6 +1772,89 @@ function ensureWarehousePreviewActionListeners() {
     warehousePreviewActionListenersInitialized = true;
 }
 
+
+function renderWarehouseBarcodeListDropdown(panel, products = []) {
+    const listProducts = products.filter(product => product.barcodes.length > 0 || product.skippedBarcodes.length > 0);
+
+    if (!warehouseBarcodeListExpanded || !listProducts.length) {
+        return null;
+    }
+
+    const wrapper = createWarehousePreviewElement('div', {
+        styles: {
+            marginTop: '10px',
+            marginBottom: '10px',
+            padding: '8px',
+            border: '1px solid #d4d9e2',
+            borderRadius: '8px',
+            background: '#f8fafc',
+            userSelect: 'text',
+            cursor: 'text'
+        }
+    });
+
+    appendWarehousePreviewText(wrapper, 'div', 'Список штрихкодов', {
+        fontWeight: '700',
+        marginBottom: '6px',
+        userSelect: 'text'
+    });
+
+    listProducts.forEach(product => {
+        const item = createWarehousePreviewElement('div', {
+            styles: {
+                paddingTop: '6px',
+                marginTop: '6px',
+                borderTop: '1px solid #e6e9ef',
+                userSelect: 'text'
+            }
+        });
+
+        appendWarehousePreviewText(
+            item,
+            'div',
+            `${product.productId}${product.productTitle ? ` · ${product.productTitle}` : ''}`,
+            { fontWeight: '600', userSelect: 'text' }
+        );
+
+        if (product.barcodes.length) {
+            appendWarehousePreviewText(item, 'div', 'Штрихкоды:', {
+                color: '#667685',
+                fontSize: '12px',
+                marginTop: '4px',
+                userSelect: 'text'
+            });
+            appendWarehousePreviewText(item, 'div', product.barcodes.join('\n'), {
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'Consolas, "Courier New", monospace',
+                fontSize: '12px',
+                lineHeight: '18px',
+                userSelect: 'text'
+            });
+        }
+
+        if (product.skippedBarcodes.length) {
+            appendWarehousePreviewText(item, 'div', 'Мультиштрихи:', {
+                color: '#667685',
+                fontSize: '12px',
+                marginTop: '4px',
+                userSelect: 'text'
+            });
+            appendWarehousePreviewText(item, 'div', product.skippedBarcodes.join('\n'), {
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'Consolas, "Courier New", monospace',
+                fontSize: '12px',
+                lineHeight: '18px',
+                userSelect: 'text'
+            });
+        }
+
+        wrapper?.appendChild?.(item);
+    });
+
+    panel?.appendChild?.(wrapper);
+    return wrapper;
+}
+
 function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePreview) {
     const panel = ensureWarehouseBarcodePreviewPanel();
 
@@ -1679,14 +1865,25 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
     const viewModel = createWarehouseBarcodePreviewViewModel(preview);
 
     clearWarehousePreviewPanel(panel);
+    applyWarehouseBarcodePreviewPanelLayout(panel);
+    renderWarehouseBarcodePreviewHeader(panel, viewModel);
 
-    appendWarehousePreviewText(panel, 'div', viewModel.title, {
-        fontWeight: '700',
-        marginBottom: '6px'
-    });
+    if (warehouseBarcodePreviewCollapsed) {
+        appendWarehousePreviewText(panel, 'div', viewModel.message, {
+            color: viewModel.status === 'error' ? '#db2919' : '#667685',
+            marginTop: '6px',
+            fontSize: '12px',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+        });
+        ensureWarehousePreviewActionListeners();
+        return true;
+    }
 
     appendWarehousePreviewText(panel, 'div', viewModel.message, {
         color: viewModel.status === 'error' ? '#db2919' : '#667685',
+        marginTop: '6px',
         marginBottom: '10px'
     });
 
@@ -1756,7 +1953,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
             appendWarehousePreviewText(
                 item,
                 'div',
-                `кандидатов: ${product.eligibleCount}, пропущено мультишк: ${product.skippedCount}`,
+                `штрихкодов: ${product.eligibleCount}, пропущено мультиштрихов: ${product.skippedCount}`,
                 { color: '#667685', fontSize: '12px' }
             );
 
@@ -1764,7 +1961,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
                 appendWarehousePreviewText(
                     item,
                     'div',
-                    `Ozon: добавить ${product.ozonToAddCount}, уже есть ${product.ozonAlreadyExistsCount}${product.ozonReason ? `, ${product.ozonReason}` : ''}`,
+                    `Ozon: к записи ${product.ozonToAddCount}, уже есть ${product.ozonAlreadyExistsCount}${product.ozonReason ? `, ${product.ozonReason}` : ''}`,
                     { color: product.ozonStatus === 'error' ? '#db2919' : '#667685', fontSize: '12px' }
                 );
             }
@@ -1801,7 +1998,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
         const isPrimary = action.variant !== 'secondary';
         const disabled = action.disabled === true;
         const button = createWarehousePreviewElement('div', {
-            id: action.id === 'ozon-resolve' ? WAREHOUSE_OZON_RESOLVE_BUTTON_ID : action.id === 'ozon-ui-apply' ? WAREHOUSE_OZON_APPLY_BUTTON_ID : WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
+            id: action.id === 'ozon-resolve' ? WAREHOUSE_OZON_RESOLVE_BUTTON_ID : action.id === 'ozon-ui-apply' ? WAREHOUSE_OZON_APPLY_BUTTON_ID : action.id === 'barcode-list' ? WAREHOUSE_BARCODE_LIST_BUTTON_ID : WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
             text: action.label,
             attributes: {
                 role: 'button',
@@ -1830,6 +2027,8 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
 
         panel.appendChild?.(button);
     });
+
+    renderWarehouseBarcodeListDropdown(panel, viewModel.products);
     ensureWarehousePreviewActionListeners();
 
     return true;
