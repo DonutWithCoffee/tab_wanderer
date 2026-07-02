@@ -2,3 +2,5 @@
 /docs/private/
 *.patch
 tab_wanderer_*.zip
+
+*.diff
