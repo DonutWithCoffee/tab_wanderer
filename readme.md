@@ -12,7 +12,7 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: Pre-1.0 Ozon barcode flow checkpoint + Codex handoff
 Manifest version: 0.9.9
 Build checkpoint: 0.9.9.9-docs
-Текущий фокус: Ozon/warehouse smoke QA, документация для работы через Codex, затем 1.0 RC polish
+Текущий фокус: Ozon/warehouse smoke QA, small polish, затем UI/UX polish и 1.0 RC
 Tests: 201 pass / 0 fail
 ```
 
@@ -496,7 +496,7 @@ npm test
 
 ```text
 Pre-1.0 Ozon/warehouse smoke QA
-Codex handoff docs
+small Ozon panel/diagnostic polish
 UI/UX polish
 manual browser smoke QA
 1.0 RC

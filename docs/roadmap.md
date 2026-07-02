@@ -279,7 +279,7 @@ manual QA checklist aligned with current diagnostics behavior
 test count recorded: 171 pass / 0 fail
 ```
 
-### Pre-1.0 Ozon barcode binding core checkpoint ✅ current
+### Pre-1.0 Ozon barcode binding core checkpoint ✅ latest checkpoint
 
 ```text
 warehouse assembly barcode preview added

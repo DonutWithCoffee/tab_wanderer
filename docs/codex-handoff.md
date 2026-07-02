@@ -192,12 +192,11 @@ Warehouse source priority:
 Safe next slices:
 
 ```text
-1. Commit this documentation sync.
-2. Manual smoke checklist for warehouse/Ozon flow from docs/smoke-checklist.md.
-3. Small cleanup: suppress expected runtime.lastError noise around tab messaging if still visible.
-4. Ozon panel wording/diagnostic polish.
-5. Product requirement: configurable minimum/base product price threshold before automatic barcode binding.
-6. Final Pre-1.0 UI/UX polish and 1.0 RC checklist.
+1. Manual smoke checklist for warehouse/Ozon flow from docs/smoke-checklist.md.
+2. Small cleanup: suppress expected runtime.lastError noise around tab messaging if still visible.
+3. Ozon panel wording/diagnostic polish.
+4. Final Pre-1.0 UI/UX polish and 1.0 RC checklist.
+5. Post-checkpoint/product decision: configurable minimum/base product price threshold before automatic barcode binding.
 ```
 
 Avoid next:

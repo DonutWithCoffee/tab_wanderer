@@ -82,8 +82,8 @@ small coherent slices
 avoid unrelated refactor
 prefer 1–3 files per small implementation step when practical
 but commit coherent vertical behavior slices, not tiny partial commits
-patches should be provided as full replacement files for fast copy-paste
-if unsure about current code, ask user for fresh archive/files
+patches should be provided as scoped diffs/edits; full replacement files only when explicitly requested
+if current files are unavailable or stale, ask user for fresh archive/files
 ```
 
 Git workflow:
