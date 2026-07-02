@@ -1656,15 +1656,179 @@ test('Ozon UI apply opens seller product worker and relays UI command/result', a
     assert.equal(resultResponse.ok, true);
     assert.equal(context.__test.tabMessages.length, 2);
     assert.equal(context.__test.tabMessages[1].tabId, 7);
-    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[1].message)), {
-        type: 'OZON_UI_APPLY_RESULT',
-        ok: true,
-        productId: '24260137',
-        barcodes: ['987654321'],
-        addedCount: 1,
-        error: null,
-        details: null
-    });
+    assert.equal(context.__test.tabMessages[1].message.type, 'OZON_UI_APPLY_RESULT');
+    assert.equal(context.__test.tabMessages[1].message.ok, true);
+    assert.equal(context.__test.tabMessages[1].message.productId, '24260137');
+    assert.equal(context.__test.tabMessages[1].message.productCount, 1);
+    assert.equal(context.__test.tabMessages[1].message.successCount, 1);
+    assert.equal(context.__test.tabMessages[1].message.errorCount, 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[1].message.barcodes)), ['987654321']);
+    assert.equal(context.__test.tabMessages[1].message.addedCount, 1);
+    assert.equal(context.__test.tabMessages[1].message.productResults.length, 1);
+    assert.equal(context.__test.tabMessages[1].message.productResults[0].productId, '24260137');
     assert.deepEqual(context.__test.removedTabs, []);
 });
 
+
+test('Ozon UI apply processes multiple products sequentially', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+
+    const warehouseExtraction = {
+        orderId: '3234-020726',
+        productsById: {
+            24260137: {
+                productId: '24260137',
+                productTitle: 'Модуль реле',
+                eligibleBarcodes: [
+                    { barcode: '987654321', productId: '24260137' }
+                ],
+                skippedBarcodes: []
+            },
+            42608563: {
+                productId: '42608563',
+                productTitle: 'Промышленный модуль',
+                eligibleBarcodes: [
+                    { barcode: '123456789', productId: '42608563' },
+                    { barcode: '123456780', productId: '42608563' }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    };
+
+    const startResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_UI_APPLY_REQUEST',
+            warehouseExtraction
+        },
+        {
+            tab: {
+                id: 7,
+                url: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=3234-020726'
+            }
+        }
+    );
+
+    assert.equal(startResponse.ok, true);
+    assert.equal(startResponse.started, true);
+    assert.equal(startResponse.productId, '24260137');
+    assert.equal(startResponse.productCount, 2);
+    assert.equal(startResponse.barcodeCount, 3);
+    assert.equal(context.__test.createdTabs.length, 1);
+    assert.equal(context.__test.createdTabs[0].url, 'https://seller.ozon.ru/app/products?search=24260137');
+
+    const firstReadyResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_PRODUCT_WORKER_READY',
+            productId: '24260137'
+        },
+        {
+            tab: {
+                id: 1,
+                url: 'https://seller.ozon.ru/app/products?search=24260137'
+            }
+        }
+    );
+
+    assert.equal(firstReadyResponse.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[0])), {
+        tabId: 1,
+        message: {
+            type: 'OZON_UI_APPLY_IN_WORKER',
+            productId: '24260137',
+            barcodes: ['987654321']
+        }
+    });
+
+    const firstResultResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_UI_APPLY_RESULT',
+            productId: '24260137',
+            ok: true,
+            barcodes: ['987654321'],
+            addedCount: 1,
+            verifiedCount: 1,
+            missingBarcodes: []
+        },
+        {
+            tab: {
+                id: 1,
+                url: 'https://seller.ozon.ru/app/products?search=24260137'
+            }
+        }
+    );
+
+    assert.equal(firstResultResponse.ok, true);
+    assert.equal(context.__test.tabUpdates.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabUpdates[0])), {
+        tabId: 1,
+        updateInfo: {
+            url: 'https://seller.ozon.ru/app/products?search=42608563',
+            active: true
+        }
+    });
+    assert.equal(context.__test.tabMessages.length, 1);
+
+    const secondReadyResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_PRODUCT_WORKER_READY',
+            productId: '42608563'
+        },
+        {
+            tab: {
+                id: 1,
+                url: 'https://seller.ozon.ru/app/products?search=42608563'
+            }
+        }
+    );
+
+    assert.equal(secondReadyResponse.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[1])), {
+        tabId: 1,
+        message: {
+            type: 'OZON_UI_APPLY_IN_WORKER',
+            productId: '42608563',
+            barcodes: ['123456789', '123456780']
+        }
+    });
+
+    const secondResultResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'OZON_UI_APPLY_RESULT',
+            productId: '42608563',
+            ok: true,
+            barcodes: ['123456789', '123456780'],
+            addedCount: 2,
+            verifiedCount: 2,
+            missingBarcodes: []
+        },
+        {
+            tab: {
+                id: 1,
+                url: 'https://seller.ozon.ru/app/products?search=42608563'
+            }
+        }
+    );
+
+    assert.equal(secondResultResponse.ok, true);
+    assert.equal(context.__test.tabMessages.length, 3);
+    assert.equal(context.__test.tabMessages[2].tabId, 7);
+    assert.equal(context.__test.tabMessages[2].message.type, 'OZON_UI_APPLY_RESULT');
+    assert.equal(context.__test.tabMessages[2].message.ok, true);
+    assert.equal(context.__test.tabMessages[2].message.productId, '');
+    assert.equal(context.__test.tabMessages[2].message.productCount, 2);
+    assert.equal(context.__test.tabMessages[2].message.successCount, 2);
+    assert.equal(context.__test.tabMessages[2].message.errorCount, 0);
+    assert.equal(context.__test.tabMessages[2].message.addedCount, 3);
+    assert.equal(context.__test.tabMessages[2].message.verifiedCount, 3);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[2].message.barcodes)), ['987654321', '123456789', '123456780']);
+    assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[2].message.productResults.map(item => item.productId))), ['24260137', '42608563']);
+});
