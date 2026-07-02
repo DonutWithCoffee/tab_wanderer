@@ -732,9 +732,12 @@ const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-r
 const WAREHOUSE_BARCODE_PREVIEW_PANEL_ID = 'tab-wanderer-warehouse-barcode-preview';
 const WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID = 'tab-wanderer-warehouse-barcode-preview-refresh';
 const WAREHOUSE_OZON_RESOLVE_BUTTON_ID = 'tab-wanderer-warehouse-ozon-resolve';
+const WAREHOUSE_OZON_APPLY_BUTTON_ID = 'tab-wanderer-warehouse-ozon-apply';
 const OZON_PRODUCT_BRIDGE_SCRIPT_ID = 'tab-wanderer-ozon-product-bridge';
 const OZON_PRODUCT_REQUEST_EVENT = 'tab_wanderer:ozon-product-request';
 const OZON_PRODUCT_RESPONSE_EVENT = 'tab_wanderer:ozon-product-response';
+const OZON_UI_APPLY_REQUEST_EVENT = 'tab_wanderer:ozon-ui-apply-request';
+const OZON_UI_APPLY_RESPONSE_EVENT = 'tab_wanderer:ozon-ui-apply-response';
 const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
 const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
 const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
@@ -742,6 +745,7 @@ const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
 
 let lastWarehouseBarcodePreview = null;
 let lastWarehouseOzonResolvePreview = null;
+let lastWarehouseOzonUiApply = null;
 let warehouseBarcodeBridgeInitialized = false;
 let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
@@ -749,6 +753,7 @@ let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
 let warehouseShopOrderRetryTimer = null;
 let ozonProductBridgeInitialized = false;
+let ozonRuntimeMessageListenerInitialized = false;
 
 function isWarehouseAppPageUrl(href = window.location.href) {
     try {
@@ -990,6 +995,7 @@ function getWarehouseOzonResolvePlanByProductId(resolvePreview = lastWarehouseOz
 
 function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePreview = lastWarehouseOzonResolvePreview) {
     const ozonPlansByProductId = getWarehouseOzonResolvePlanByProductId(resolvePreview);
+    const applyResult = lastWarehouseOzonUiApply || null;
 
     return Object.values(productsById || {})
         .filter(group => group && group.productId && group.productId !== '__unknown__')
@@ -1007,7 +1013,10 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
                 ozonSku: normalizeWarehouseBridgeId(ozonPlan?.ozonSku),
                 ozonToAddCount: Array.isArray(ozonPlan?.toAdd) ? ozonPlan.toAdd.length : 0,
                 ozonAlreadyExistsCount: Array.isArray(ozonPlan?.alreadyExists) ? ozonPlan.alreadyExists.length : 0,
-                ozonExistingCount: Array.isArray(ozonPlan?.existingBarcodes) ? ozonPlan.existingBarcodes.length : 0
+                ozonExistingCount: Array.isArray(ozonPlan?.existingBarcodes) ? ozonPlan.existingBarcodes.length : 0,
+                ozonApplyStatus: applyResult?.productId === productId ? applyResult.status : '',
+                ozonApplyError: applyResult?.productId === productId ? applyResult.error || '' : '',
+                ozonApplyAddedCount: applyResult?.productId === productId ? Number(applyResult.addedCount) || 0 : 0
             };
         })
         .sort((a, b) => a.productId.localeCompare(b.productId));
@@ -1024,7 +1033,8 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
         message: 'Ищем данные сборки на странице склада. Ozon не изменяем.',
         metrics: [],
         products: [],
-        ozon: lastWarehouseOzonResolvePreview || null
+        ozon: lastWarehouseOzonResolvePreview || null,
+        ozonApply: lastWarehouseOzonUiApply || null
     };
 
     if (!preview) {
@@ -1050,6 +1060,7 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const summary = preview.summary || preview.extraction?.summary || {};
     const orderId = getWarehouseBarcodePreviewOrderId(preview) || '—';
     const ozon = lastWarehouseOzonResolvePreview || null;
+    const ozonApply = lastWarehouseOzonUiApply || null;
     const ozonSummary = ozon?.plan?.summary || {};
     const products = createWarehouseBarcodePreviewProductRows(preview.extraction?.productsById || {}, ozon);
     const actions = [
@@ -1058,10 +1069,10 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
 
     if (Number(summary.eligibleCount) > 0) {
         actions.push({
-            id: 'ozon-resolve',
-            label: ozon?.status === 'loading' ? 'Проверяем Ozon...' : 'Сравнить с Ozon',
+            id: 'ozon-ui-apply',
+            label: ozonApply?.status === 'loading' ? 'Добавляем в Ozon...' : 'Добавить в Ozon',
             variant: 'secondary',
-            disabled: ozon?.status === 'loading'
+            disabled: ozonApply?.status === 'loading'
         });
     }
 
@@ -1079,22 +1090,33 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
         );
     }
 
-    const ozonMessage = ozon?.status === 'loading'
-        ? 'Проверяем карточки Ozon. Записи нет.'
-        : ozon?.status === 'error'
-            ? `Ozon: ${ozon.error || 'ошибка проверки'}`
-            : ozon?.status === 'ready'
-                ? 'Ozon проверен. Записи пока нет.'
-                : 'Локальный предпросмотр. Записи в Ozon пока нет.';
+    if (ozonApply?.status === 'ready') {
+        metrics.push({ label: 'Записано', value: formatWarehouseBarcodePreviewCount(ozonApply.addedCount) });
+    }
+
+    const ozonMessage = ozonApply?.status === 'loading'
+        ? 'Добавляем штрихкоды через интерфейс Ozon. Не закрывай Ozon worker tab.'
+        : ozonApply?.status === 'error'
+            ? `Ozon: ${ozonApply.error || 'ошибка записи'}`
+            : ozonApply?.status === 'ready'
+                ? `Ozon: добавлено ${formatWarehouseBarcodePreviewCount(ozonApply.addedCount)}.`
+                : ozon?.status === 'loading'
+                    ? 'Проверяем карточки Ozon. Записи нет.'
+                    : ozon?.status === 'error'
+                        ? `Ozon: ${ozon.error || 'ошибка проверки'}`
+                        : ozon?.status === 'ready'
+                            ? 'Ozon проверен. Записи пока нет.'
+                            : 'Локальный предпросмотр. Записи в Ozon пока нет.';
 
     return {
         ...base,
-        status: ozon?.status === 'error' ? 'error' : 'ready',
+        status: ozonApply?.status === 'error' || ozon?.status === 'error' ? 'error' : 'ready',
         message: ozonMessage,
         actions,
         metrics,
         products,
-        ozon
+        ozon,
+        ozonApply
     };
 }
 
@@ -1228,7 +1250,7 @@ function removeWarehouseBarcodePreviewPanel() {
 }
 
 function getWarehousePreviewActionTarget(target) {
-    return target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, #${WAREHOUSE_OZON_RESOLVE_BUTTON_ID}, [data-tab-wanderer-action]`) || null;
+    return target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, #${WAREHOUSE_OZON_RESOLVE_BUTTON_ID}, #${WAREHOUSE_OZON_APPLY_BUTTON_ID}, [data-tab-wanderer-action]`) || null;
 }
 
 function isWarehousePreviewActionTarget(target) {
@@ -1254,6 +1276,11 @@ function handleWarehousePreviewActionEvent(event) {
 
     if (action === 'ozon-resolve') {
         requestWarehouseOzonResolvePreview();
+        return;
+    }
+
+    if (action === 'ozon-ui-apply') {
+        requestWarehouseOzonUiApply();
         return;
     }
 
@@ -1386,6 +1413,21 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
                 );
             }
 
+            if (product.ozonApplyStatus) {
+                const applyText = product.ozonApplyStatus === 'ready'
+                    ? `Ozon UI: добавлено ${product.ozonApplyAddedCount}`
+                    : product.ozonApplyStatus === 'loading'
+                        ? 'Ozon UI: добавляем...'
+                        : `Ozon UI: ${product.ozonApplyError || 'ошибка записи'}`;
+
+                appendWarehousePreviewText(
+                    item,
+                    'div',
+                    applyText,
+                    { color: product.ozonApplyStatus === 'error' ? '#db2919' : '#667685', fontSize: '12px' }
+                );
+            }
+
             list?.appendChild?.(item);
         });
 
@@ -1409,7 +1451,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
         const isPrimary = action.variant !== 'secondary';
         const disabled = action.disabled === true;
         const button = createWarehousePreviewElement('div', {
-            id: action.id === 'ozon-resolve' ? WAREHOUSE_OZON_RESOLVE_BUTTON_ID : WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
+            id: action.id === 'ozon-resolve' ? WAREHOUSE_OZON_RESOLVE_BUTTON_ID : action.id === 'ozon-ui-apply' ? WAREHOUSE_OZON_APPLY_BUTTON_ID : WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
             text: action.label,
             attributes: {
                 role: 'button',
@@ -1478,6 +1520,72 @@ function getWarehouseOzonResolveRequestPayload() {
     };
 }
 
+
+function createWarehouseOzonUiApplyLoading(message = 'Добавляем штрихкоды через интерфейс Ozon.') {
+    return {
+        status: 'loading',
+        message
+    };
+}
+
+function createWarehouseOzonUiApplyError(errorMessage = 'ozon UI apply failed', productId = '') {
+    return {
+        status: 'error',
+        error: errorMessage,
+        productId: normalizeWarehouseBridgeId(productId),
+        addedCount: 0
+    };
+}
+
+function createWarehouseOzonUiApplyReady(result = {}) {
+    return {
+        status: 'ready',
+        productId: normalizeWarehouseBridgeId(result.productId),
+        barcodes: Array.isArray(result.barcodes) ? result.barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [],
+        addedCount: Number(result.addedCount) || 0,
+        details: result.details || null
+    };
+}
+
+function requestWarehouseOzonUiApply() {
+    const payload = getWarehouseOzonResolveRequestPayload();
+
+    if (!payload) {
+        lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError('Сначала прочитай штрихкоды склада.');
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+        return false;
+    }
+
+    lastWarehouseOzonUiApply = createWarehouseOzonUiApplyLoading();
+    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+
+    sendRuntimeMessage({
+        type: 'OZON_UI_APPLY_REQUEST',
+        ...payload
+    }, (response) => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError) {
+            if (!handleRuntimeMessagingError('WAREHOUSE_OZON', runtimeError)) {
+                lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError(runtimeError.message || 'Ozon worker unavailable');
+                renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+                log('WARN', 'WAREHOUSE_OZON', 'ozon UI apply request failed', runtimeError.message);
+            }
+            return;
+        }
+
+        if (!response?.ok) {
+            lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError(response?.error || 'Ozon UI apply request failed');
+            renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+            return;
+        }
+
+        log('INFO', 'WAREHOUSE_OZON', 'ozon UI apply started', response);
+    }, 'WAREHOUSE_OZON');
+
+    return true;
+}
+
 function requestWarehouseOzonResolvePreview() {
     const payload = getWarehouseOzonResolveRequestPayload();
 
@@ -1524,25 +1632,46 @@ function requestWarehouseOzonResolvePreview() {
 }
 
 function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
-    if (msg?.type !== 'OZON_RESOLVE_PREVIEW_RESULT') {
-        return false;
+    if (msg?.type === 'OZON_RESOLVE_PREVIEW_RESULT') {
+        if (msg.ok && msg.plan) {
+            lastWarehouseOzonResolvePreview = createWarehouseOzonResolveReady(msg.plan);
+            log('INFO', 'WAREHOUSE_OZON', 'ozon resolve preview ready', msg.plan.summary);
+        } else {
+            lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(msg.error || 'Ozon resolve failed');
+            log('WARN', 'WAREHOUSE_OZON', 'ozon resolve preview failed', lastWarehouseOzonResolvePreview.error);
+        }
+
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+
+        if (typeof sendResponse === 'function') {
+            sendResponse({ ok: true });
+        }
+
+        return true;
     }
 
-    if (msg.ok && msg.plan) {
-        lastWarehouseOzonResolvePreview = createWarehouseOzonResolveReady(msg.plan);
-        log('INFO', 'WAREHOUSE_OZON', 'ozon resolve preview ready', msg.plan.summary);
-    } else {
-        lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(msg.error || 'Ozon resolve failed');
-        log('WARN', 'WAREHOUSE_OZON', 'ozon resolve preview failed', lastWarehouseOzonResolvePreview.error);
+    if (msg?.type === 'OZON_UI_APPLY_RESULT') {
+        if (msg.ok) {
+            lastWarehouseOzonUiApply = createWarehouseOzonUiApplyReady(msg);
+            log('INFO', 'WAREHOUSE_OZON', 'ozon UI apply ready', {
+                productId: lastWarehouseOzonUiApply.productId,
+                addedCount: lastWarehouseOzonUiApply.addedCount
+            });
+        } else {
+            lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError(msg.error || 'Ozon UI apply failed', msg.productId);
+            log('WARN', 'WAREHOUSE_OZON', 'ozon UI apply failed', lastWarehouseOzonUiApply.error);
+        }
+
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+
+        if (typeof sendResponse === 'function') {
+            sendResponse({ ok: true });
+        }
+
+        return true;
     }
 
-    renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
-
-    if (typeof sendResponse === 'function') {
-        sendResponse({ ok: true });
-    }
-
-    return true;
+    return false;
 }
 
 function ensureWarehouseRuntimeMessageListener() {
@@ -1683,6 +1812,7 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
     lastWarehouseOzonResolvePreview = null;
+    lastWarehouseOzonUiApply = null;
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
     log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', lastWarehouseBarcodePreview.summary);
@@ -1744,6 +1874,7 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = null;
     lastWarehouseOzonResolvePreview = null;
+    lastWarehouseOzonUiApply = null;
     removeWarehouseBarcodePreviewPanel();
     return false;
 }
@@ -1772,7 +1903,7 @@ function isOzonProductWorkerPageUrl(href = window.location.href) {
 
         return url.hostname === 'seller.ozon.ru'
             && url.pathname.startsWith('/app/products')
-            && url.hash.includes(OZON_WORKER_MARK.replace('#', ''));
+            && !!normalizeWarehouseBridgeId(url.searchParams.get('search'));
     } catch {
         return false;
     }
@@ -1832,6 +1963,100 @@ function sendOzonProductResolveResult(productId, result = {}) {
             log('WARN', 'OZON_PRODUCT', 'resolve result failed', runtimeError.message);
         }
     }, 'OZON_PRODUCT');
+}
+
+
+function sendOzonProductWorkerReady(productId) {
+    sendRuntimeMessage({
+        type: 'OZON_PRODUCT_WORKER_READY',
+        productId
+    }, () => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError && !handleRuntimeMessagingError('OZON_PRODUCT', runtimeError)) {
+            log('WARN', 'OZON_PRODUCT', 'worker ready message failed', runtimeError.message);
+        }
+    }, 'OZON_PRODUCT');
+}
+
+function dispatchOzonUiApplyRequest(productId, barcodes = []) {
+    window.dispatchEvent(new CustomEvent(OZON_UI_APPLY_REQUEST_EVENT, {
+        detail: {
+            productId: normalizeWarehouseBridgeId(productId),
+            barcodes: Array.isArray(barcodes) ? barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : []
+        }
+    }));
+}
+
+function sendOzonUiApplyResult(productId, result = {}) {
+    sendRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        productId: normalizeWarehouseBridgeId(productId),
+        ok: result.ok === true,
+        error: result.error || null,
+        barcodes: Array.isArray(result.barcodes) ? result.barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [],
+        addedCount: Number(result.addedCount) || 0,
+        details: result.details || null
+    }, () => {
+        const runtimeError = getRuntimeLastError();
+
+        if (runtimeError && !handleRuntimeMessagingError('OZON_PRODUCT', runtimeError)) {
+            log('WARN', 'OZON_PRODUCT', 'UI apply result failed', runtimeError.message);
+        }
+    }, 'OZON_PRODUCT');
+}
+
+function handleOzonUiApplyBridgeResponse(event) {
+    const detail = event?.detail || {};
+    const productId = normalizeWarehouseBridgeId(detail.productId || getOzonProductIdFromUrl());
+
+    sendOzonUiApplyResult(productId, detail);
+    log(detail.ok ? 'INFO' : 'WARN', 'OZON_PRODUCT', 'UI apply complete', {
+        productId,
+        addedCount: Number(detail.addedCount) || 0,
+        error: detail.error || null
+    });
+
+    return true;
+}
+
+function handleOzonRuntimeMessage(msg, _sender, sendResponse) {
+    if (msg?.type !== 'OZON_UI_APPLY_IN_WORKER') {
+        return false;
+    }
+
+    const productId = normalizeWarehouseBridgeId(msg.productId || getOzonProductIdFromUrl());
+    const barcodes = Array.isArray(msg.barcodes) ? msg.barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [];
+
+    if (!productId || !barcodes.length) {
+        sendOzonUiApplyResult(productId, { ok: false, error: 'productId or barcodes missing' });
+        if (typeof sendResponse === 'function') {
+            sendResponse({ ok: false, error: 'productId or barcodes missing' });
+        }
+        return true;
+    }
+
+    dispatchOzonUiApplyRequest(productId, barcodes);
+
+    if (typeof sendResponse === 'function') {
+        sendResponse({ ok: true });
+    }
+
+    return true;
+}
+
+function ensureOzonRuntimeMessageListener() {
+    if (ozonRuntimeMessageListenerInitialized) {
+        return true;
+    }
+
+    if (typeof chrome?.runtime?.onMessage?.addListener !== 'function') {
+        return false;
+    }
+
+    chrome.runtime.onMessage.addListener(handleOzonRuntimeMessage);
+    ozonRuntimeMessageListenerInitialized = true;
+    return true;
 }
 
 function handleOzonProductBridgeResponse(event) {
@@ -1899,6 +2124,7 @@ function injectOzonProductBridgeScript() {
     script.addEventListener?.('load', () => {
         script.dataset.installed = 'true';
         dispatchOzonProductRequest();
+        sendOzonProductWorkerReady(getOzonProductIdFromUrl());
     });
 
     script.addEventListener?.('error', () => {
@@ -1923,8 +2149,11 @@ function initOzonProductResolveWorker() {
 
     if (!ozonProductBridgeInitialized) {
         window.addEventListener?.(OZON_PRODUCT_RESPONSE_EVENT, handleOzonProductBridgeResponse);
+        window.addEventListener?.(OZON_UI_APPLY_RESPONSE_EVENT, handleOzonUiApplyBridgeResponse);
         ozonProductBridgeInitialized = true;
     }
+
+    ensureOzonRuntimeMessageListener();
 
     const injected = injectOzonProductBridgeScript();
 
@@ -1935,6 +2164,7 @@ function initOzonProductResolveWorker() {
 
     if (injected === 'ready') {
         dispatchOzonProductRequest();
+        sendOzonProductWorkerReady(getOzonProductIdFromUrl());
     }
 
     return true;

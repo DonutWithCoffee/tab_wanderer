@@ -885,7 +885,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
         actionLabel: 'Проверить штрихкоды',
         actions: [
             { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' },
-            { id: 'ozon-resolve', label: 'Сравнить с Ozon', variant: 'secondary', disabled: false }
+            { id: 'ozon-ui-apply', label: 'Добавить в Ozon', variant: 'secondary', disabled: false }
         ],
         status: 'ready',
         message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
@@ -906,7 +906,10 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 ozonSku: '',
                 ozonToAddCount: 0,
                 ozonAlreadyExistsCount: 0,
-                ozonExistingCount: 0
+                ozonExistingCount: 0,
+                ozonApplyStatus: '',
+                ozonApplyError: '',
+                ozonApplyAddedCount: 0
             },
             {
                 productId: '24126456',
@@ -918,10 +921,14 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 ozonSku: '',
                 ozonToAddCount: 0,
                 ozonAlreadyExistsCount: 0,
-                ozonExistingCount: 0
+                ozonExistingCount: 0,
+                ozonApplyStatus: '',
+                ozonApplyError: '',
+                ozonApplyAddedCount: 0
             }
         ],
-        ozon: null
+        ozon: null,
+        ozonApply: null
     });
 });
 
@@ -980,6 +987,47 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon resolve summary after
     assert.equal(viewModel.products[0].ozonStatus, 'ready');
     assert.equal(viewModel.products[0].ozonToAddCount, 1);
     assert.equal(viewModel.products[0].ozonAlreadyExistsCount, 1);
+});
+
+
+test('createWarehouseBarcodePreviewViewModel includes Ozon UI apply result', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '24126456',
+        addedCount: 2,
+        barcodes: ['2317613', '2317680']
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 2,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.equal(viewModel.message, 'Ozon: добавлено 2.');
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.slice(-1))), [
+        { label: 'Записано', value: '2' }
+    ]);
+    assert.equal(viewModel.products[0].ozonApplyStatus, 'ready');
+    assert.equal(viewModel.products[0].ozonApplyAddedCount, 2);
 });
 
 test('createWarehouseBarcodePreviewViewModel reports loading and error states', () => {
