@@ -192,13 +192,15 @@
         };
     }
 
-    function findProductSource(productId) {
+    function findProductSource(productId, options = {}) {
+        const includeDom = options.includeDom !== false;
+        const includeCapturedSources = options.includeCapturedSources !== false;
         const sources = [
-            createSourceFromDomRow(productId),
-            createSourceFromApiResponse(debug.lastProductsListResponse),
-            createSourceFromModuleState(window.__MODULE_STATE__),
-            createSourceFromModuleState(window.__INITIAL_STATE__),
-            createSourceFromWindowList(window.__TAB_WANDERER_OZON_PRODUCTS__, 'window-products')
+            includeDom ? createSourceFromDomRow(productId) : null,
+            includeCapturedSources ? createSourceFromApiResponse(debug.lastProductsListResponse) : null,
+            includeCapturedSources ? createSourceFromModuleState(window.__MODULE_STATE__) : null,
+            includeCapturedSources ? createSourceFromModuleState(window.__INITIAL_STATE__) : null,
+            includeCapturedSources ? createSourceFromWindowList(window.__TAB_WANDERER_OZON_PRODUCTS__, 'window-products') : null
         ].filter(Boolean);
 
         for (const source of sources) {
@@ -214,31 +216,121 @@
         window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, { detail }));
     }
 
-    function resolveProduct(productId, attempt = 1) {
+    function getOzonProductFromSource(productSource, productId) {
+        const expectedProductId = normalizeId(productId);
+        const products = safeArray(productSource?.source?.products || productSource?.items);
+
+        return products.find(product => normalizeId(product?.offerId || product?.offer_id || product?.part_item?.offer_id) === expectedProductId) || null;
+    }
+
+    function cloneProductSourceWithProduct(productSource, product) {
+        const products = safeArray(productSource?.source?.products).map(item => {
+            const offerId = normalizeId(item?.offerId || item?.offer_id || item?.part_item?.offer_id);
+            const productOfferId = normalizeId(product?.offerId || product?.offer_id || product?.part_item?.offer_id);
+
+            return offerId && offerId === productOfferId ? product : item;
+        });
+
+        return {
+            ...productSource,
+            source: {
+                ...(productSource?.source || {}),
+                products
+            },
+            items: products.map(sanitizeOzonProductItem).filter(Boolean)
+        };
+    }
+
+    async function enrichDomProductSourceWithDrawerBarcodes(productSource, productId) {
+        if (productSource?.sourceType !== 'dom-row') {
+            return productSource;
+        }
+
+        const product = getOzonProductFromSource(productSource, productId);
+        const visibleBarcodes = mergeUniqueBarcodes(product?.existingBarcodes || product?.barcodes || product?.part_barcodes?.barcodes || []);
+
+        if (!product || visibleBarcodes.length === 0) {
+            return productSource;
+        }
+
+        const fullBarcodeResult = await readFullExistingBarcodesFromDrawer(productId, product.ozonSku || product.sku, visibleBarcodes);
+
+        debug.lastFullBarcodeRead = {
+            ok: fullBarcodeResult.ok,
+            error: fullBarcodeResult.error || '',
+            visibleCount: visibleBarcodes.length,
+            drawerCount: fullBarcodeResult.drawerBarcodes?.length || 0,
+            existingCount: fullBarcodeResult.existingBarcodes.length,
+            rowCount: fullBarcodeResult.rowCount || 0,
+            trigger: getElementSummary(fullBarcodeResult.trigger)
+        };
+
+        if (!fullBarcodeResult.ok || fullBarcodeResult.existingBarcodes.length <= visibleBarcodes.length) {
+            return productSource;
+        }
+
+        const existingBarcodes = fullBarcodeResult.existingBarcodes;
+        const enrichedProduct = {
+            ...product,
+            existingBarcodes,
+            barcodes: existingBarcodes,
+            part_barcodes: {
+                ...(product.part_barcodes || {}),
+                barcodes: existingBarcodes
+            },
+            fullBarcodeSource: 'drawer'
+        };
+
+        return cloneProductSourceWithProduct(productSource, enrichedProduct);
+    }
+
+    async function resolveProduct(productId, attempt = 1) {
         const normalizedProductId = normalizeId(productId);
         debug.lastProductId = normalizedProductId;
         debug.lastAttempt = attempt;
         debug.lastError = '';
 
-        const productSource = findProductSource(normalizedProductId);
+        const domProductSource = findProductSource(normalizedProductId, { includeCapturedSources: false });
 
-        if (productSource && hasMatchingProduct(productSource.items, normalizedProductId)) {
+        if (domProductSource && hasMatchingProduct(domProductSource.items, normalizedProductId)) {
+            const enrichedProductSource = await enrichDomProductSourceWithDrawerBarcodes(domProductSource, normalizedProductId);
+
             debug.lastResult = 'product source found';
-            debug.lastSourceType = productSource.sourceType;
-            debug.lastItemCount = productSource.items.length;
+            debug.lastSourceType = enrichedProductSource.sourceType;
+            debug.lastItemCount = enrichedProductSource.items.length;
             dispatchResponse({
                 ok: true,
                 productId: normalizedProductId,
-                sourceType: productSource.sourceType,
-                source: productSource.source
+                sourceType: enrichedProductSource.sourceType,
+                source: enrichedProductSource.source
+            });
+            return true;
+        }
+
+        const fallbackProductSource = findProductSource(normalizedProductId, { includeDom: false });
+
+        if (fallbackProductSource && hasMatchingProduct(fallbackProductSource.items, normalizedProductId)) {
+            debug.lastFallbackSourceType = fallbackProductSource.sourceType;
+            debug.lastFallbackItemCount = fallbackProductSource.items.length;
+        }
+
+        if (attempt >= MAX_ATTEMPTS && fallbackProductSource && hasMatchingProduct(fallbackProductSource.items, normalizedProductId)) {
+            debug.lastResult = 'fallback product source found';
+            debug.lastSourceType = fallbackProductSource.sourceType;
+            debug.lastItemCount = fallbackProductSource.items.length;
+            dispatchResponse({
+                ok: true,
+                productId: normalizedProductId,
+                sourceType: fallbackProductSource.sourceType,
+                source: fallbackProductSource.source
             });
             return true;
         }
 
         if (attempt >= MAX_ATTEMPTS) {
             debug.lastResult = 'product source not found';
-            debug.lastSourceType = productSource?.sourceType || '';
-            debug.lastItemCount = productSource?.items?.length || 0;
+            debug.lastSourceType = fallbackProductSource?.sourceType || '';
+            debug.lastItemCount = fallbackProductSource?.items?.length || 0;
             dispatchResponse({
                 ok: false,
                 productId: normalizedProductId,
@@ -247,6 +339,9 @@
             return false;
         }
 
+        debug.lastResult = 'waiting for dom product source';
+        debug.lastSourceType = domProductSource?.sourceType || '';
+        debug.lastItemCount = domProductSource?.items?.length || 0;
         window.setTimeout(() => resolveProduct(normalizedProductId, attempt + 1), RETRY_DELAY_MS);
         return null;
     }
@@ -652,6 +747,40 @@
         return true;
     }
 
+    function mergeUniqueBarcodes(...lists) {
+        const result = [];
+
+        for (const list of lists) {
+            for (const item of safeArray(list)) {
+                const value = item && typeof item === 'object' ? item.barcode || item.value || item.code : item;
+                pushUniqueBarcode(result, value);
+            }
+        }
+
+        return result;
+    }
+
+    function extractVisibleTextBarcodes(root, excludedValues = []) {
+        const barcodes = [];
+        const nodes = Array.from(root?.querySelectorAll?.('span, div, td, li, p') || []);
+
+        for (const node of nodes) {
+            const text = normalizeText(node?.innerText || node?.textContent);
+            const normalized = normalizeId(text);
+
+            if (/^\d{5,}$/.test(normalized)) {
+                pushUniqueBarcode(barcodes, normalized, excludedValues);
+                continue;
+            }
+
+            for (const match of text.matchAll(/\b\d{5,}\b/g)) {
+                pushUniqueBarcode(barcodes, match[0], excludedValues);
+            }
+        }
+
+        return barcodes;
+    }
+
     function extractVisibleOzonBarcodesFromDomRow(row, productId, ozonSku) {
         const existingBarcodes = [];
         const excludedValues = [normalizeId(productId), normalizeId(ozonSku)].filter(Boolean);
@@ -846,13 +975,189 @@
         };
     }
 
+    function findExistingBarcodeDrawerTriggerForProduct(productId) {
+        const rows = findProductRows(productId);
+
+        if (rows.length !== 1) {
+            return {
+                ok: false,
+                error: rows.length > 1 ? 'Ozon product row is ambiguous' : 'Ozon product row not found',
+                rowCount: rows.length,
+                trigger: null
+            };
+        }
+
+        const trigger = findExistingBarcodeCellTrigger(rows[0]);
+
+        if (!trigger) {
+            return {
+                ok: false,
+                error: 'existing Ozon barcode drawer trigger not found',
+                rowCount: rows.length,
+                trigger: null
+            };
+        }
+
+        return { ok: true, error: '', rowCount: rows.length, trigger };
+    }
+
     function findBarcodeDrawerByTitle() {
         const drawerRoots = Array.from(document.querySelectorAll('#ods-window-target-container, .vue-portal-target, [tabindex="-1"], [role="dialog"], aside'))
             .filter(isVisibleElement)
-            .filter(node => /добавить штрихкод|выберите один из способов|уникальный штрихкод ozon/i.test(normalizeText(node.innerText || node.textContent)));
+            .filter(node => {
+                const text = normalizeText(node.innerText || node.textContent).toLowerCase();
+
+                return text.includes('добавить штрихкод')
+                    || text.includes('выберите один из способов')
+                    || text.includes('уникальный штрихкод ozon')
+                    || (text.includes('штрихкод') && text.includes('сохранить'))
+                    || (text.includes('штрихкод') && text.includes('удалить'))
+                    || (text.includes('штрихкодов') && text.includes('добавить'));
+            });
 
         return drawerRoots
             .sort((a, b) => normalizeText(a.innerText || a.textContent).length - normalizeText(b.innerText || b.textContent).length)[0] || null;
+    }
+
+    async function waitForBarcodeDrawerByTitle(timeoutMs = 5000) {
+        const startedAt = Date.now();
+
+        while (Date.now() - startedAt <= timeoutMs) {
+            const drawer = findBarcodeDrawerByTitle();
+
+            if (drawer) {
+                return drawer;
+            }
+
+            await delay(250);
+        }
+
+        return null;
+    }
+
+    function extractOzonBarcodesFromDrawer(drawer, productId, ozonSku) {
+        const excludedValues = [normalizeId(productId), normalizeId(ozonSku)].filter(Boolean);
+        const barcodes = [];
+
+        for (const node of Array.from(drawer?.querySelectorAll?.('[data-style="text"]') || [])) {
+            const text = normalizeText(node.innerText || node.textContent);
+            pushUniqueBarcode(barcodes, text, excludedValues);
+        }
+
+        for (const barcode of extractVisibleTextBarcodes(drawer, excludedValues)) {
+            pushUniqueBarcode(barcodes, barcode, excludedValues);
+        }
+
+        return barcodes;
+    }
+
+    function getExistingBarcodeDrawerClickTargets(trigger) {
+        const targets = [];
+
+        function addTarget(element) {
+            if (element && isVisibleElement(element) && !targets.includes(element)) {
+                targets.push(element);
+            }
+        }
+
+        addTarget(trigger?.querySelector?.('[data-style="count"]'));
+        addTarget(trigger?.querySelector?.('[data-style="text"]'));
+        addTarget(trigger);
+        addTarget(trigger?.closest?.('td, [role="cell"]'));
+
+        return targets;
+    }
+
+    async function openExistingBarcodeDrawerForRead(productId, timeoutMs = 8000) {
+        const startedAt = Date.now();
+        let lastTriggerResult = null;
+        const attempts = [];
+
+        while (Date.now() - startedAt <= timeoutMs) {
+            const existingDrawer = findBarcodeDrawerByTitle();
+
+            if (existingDrawer) {
+                return { ok: true, drawer: existingDrawer, trigger: lastTriggerResult?.trigger || null, rowCount: lastTriggerResult?.rowCount || 0, attempts };
+            }
+
+            const triggerResult = findExistingBarcodeDrawerTriggerForProduct(productId);
+            lastTriggerResult = triggerResult;
+
+            if (!triggerResult.ok) {
+                attempts.push({ ok: false, error: triggerResult.error, rowCount: triggerResult.rowCount || 0 });
+                await delay(250);
+                continue;
+            }
+
+            const targets = getExistingBarcodeDrawerClickTargets(triggerResult.trigger);
+
+            for (const target of targets) {
+                attempts.push({
+                    ok: true,
+                    target: getElementSummary(target),
+                    trigger: getElementSummary(triggerResult.trigger)
+                });
+
+                dispatchMouseClickDirect(target);
+                dispatchMouseClick(target);
+
+                const drawer = await waitForBarcodeDrawerByTitle(1200);
+
+                if (drawer) {
+                    return { ok: true, drawer, trigger: triggerResult.trigger, rowCount: triggerResult.rowCount, attempts };
+                }
+            }
+
+            await delay(350);
+        }
+
+        return {
+            ok: false,
+            drawer: null,
+            trigger: lastTriggerResult?.trigger || null,
+            rowCount: lastTriggerResult?.rowCount || 0,
+            error: lastTriggerResult?.error || 'Ozon barcode drawer not found',
+            attempts
+        };
+    }
+
+    async function readFullExistingBarcodesFromDrawer(productId, ozonSku, visibleBarcodes = []) {
+        const normalizedProductId = normalizeId(productId);
+        const normalizedOzonSku = normalizeId(ozonSku);
+        const openResult = await openExistingBarcodeDrawerForRead(normalizedProductId, 8000);
+
+        debug.lastFullBarcodeDrawerOpen = {
+            ok: openResult.ok,
+            error: openResult.error || '',
+            rowCount: openResult.rowCount || 0,
+            trigger: getElementSummary(openResult.trigger),
+            attempts: safeArray(openResult.attempts).slice(-8)
+        };
+
+        if (!openResult.ok || !openResult.drawer) {
+            return {
+                ok: false,
+                error: openResult.error || 'Ozon barcode drawer not found',
+                existingBarcodes: mergeUniqueBarcodes(visibleBarcodes),
+                drawerBarcodes: [],
+                trigger: openResult.trigger || null,
+                rowCount: openResult.rowCount || 0
+            };
+        }
+
+        await delay(500);
+
+        const drawerBarcodes = extractOzonBarcodesFromDrawer(openResult.drawer, normalizedProductId, normalizedOzonSku);
+        const existingBarcodes = mergeUniqueBarcodes(visibleBarcodes, drawerBarcodes);
+
+        return {
+            ok: true,
+            error: '',
+            existingBarcodes,
+            drawerBarcodes,
+            trigger: openResult.trigger,
+            rowCount: openResult.rowCount
+        };
     }
 
     function isBarcodeSearchInput(input) {

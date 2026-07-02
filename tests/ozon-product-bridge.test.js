@@ -75,12 +75,33 @@ class ElementStub {
 
         return null;
     }
+
+    focus() {}
+
+    scrollIntoView() {}
+
+    dispatchEvent() {
+        return true;
+    }
+
+    click() {}
+}
+
+async function flushAsyncWork(iterations = 8) {
+    for (let index = 0; index < iterations; index += 1) {
+        await Promise.resolve();
+    }
 }
 
 function createDocumentStub(elements = []) {
     return {
+        body: new ElementStub({ tagName: 'BODY' }),
+        activeElement: null,
         querySelectorAll() {
             return elements;
+        },
+        elementFromPoint() {
+            return null;
         }
     };
 }
@@ -106,7 +127,12 @@ function loadBridgeContext(documentStub) {
             screenX: 0,
             screenY: 0,
             getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
-            setTimeout: () => 0,
+            setTimeout: (callback) => {
+                if (typeof callback === 'function') {
+                    Promise.resolve().then(callback);
+                }
+                return 0;
+            },
             addEventListener: (type, listener) => {
                 listeners[type] = listeners[type] || [];
                 listeners[type].push(listener);
@@ -136,7 +162,7 @@ function loadBridgeContext(documentStub) {
     return context;
 }
 
-test('Ozon product bridge resolves exact product context from visible DOM row', () => {
+test('Ozon product bridge resolves exact product context from visible DOM row', async () => {
     const addButton = new ElementStub({ tagName: 'BUTTON', text: 'Добавить' });
     const productRow = new ElementStub({
         tagName: 'TR',
@@ -153,6 +179,7 @@ test('Ozon product bridge resolves exact product context from visible DOM row', 
     context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request', {
         detail: { productId: '24260137' }
     }));
+    await flushAsyncWork();
 
     assert.equal(responses.length, 1);
     assert.equal(responses[0].ok, true);
@@ -162,7 +189,7 @@ test('Ozon product bridge resolves exact product context from visible DOM row', 
 });
 
 
-test('Ozon product bridge includes visible barcode from DOM row context', () => {
+test('Ozon product bridge includes visible barcode from DOM row context', async () => {
     const barcodeText = new ElementStub({ tagName: 'SPAN', text: '2433878', attrs: { 'data-style': 'text' } });
     const barcodeCount = new ElementStub({ tagName: 'SPAN', text: '+ 1 штрихкод', attrs: { 'data-style': 'count' } });
     const barcodeContainer = new ElementStub({ children: [barcodeText, barcodeCount] });
@@ -171,7 +198,12 @@ test('Ozon product bridge includes visible barcode from DOM row context', () => 
         text: 'Промышленный 1-канальный модуль реле Артикул 42608563 SKU 1237406094 2433878 + 1 штрихкод',
         children: [barcodeContainer]
     });
-    const context = loadBridgeContext(createDocumentStub([productRow]));
+    const drawer = new ElementStub({
+        tagName: 'ASIDE',
+        text: 'Добавить штрихкод 2433878',
+        children: [new ElementStub({ tagName: 'SPAN', text: '2433878' })]
+    });
+    const context = loadBridgeContext(createDocumentStub([productRow, drawer]));
     const responses = [];
 
     context.window.addEventListener('tab_wanderer:ozon-product-response', event => {
@@ -181,9 +213,53 @@ test('Ozon product bridge includes visible barcode from DOM row context', () => 
     context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request', {
         detail: { productId: '42608563' }
     }));
+    await flushAsyncWork();
 
     assert.equal(responses.length, 1);
     assert.equal(responses[0].ok, true);
     assert.deepEqual(Array.from(responses[0].source.products[0].existingBarcodes), ['2433878']);
     assert.deepEqual(Array.from(responses[0].source.products[0].part_barcodes.barcodes), ['2433878']);
+});
+
+
+test('Ozon product bridge reads full barcode list from existing barcode drawer', async () => {
+    const barcodeText = new ElementStub({ tagName: 'SPAN', text: '2465970', attrs: { 'data-style': 'text' } });
+    const barcodeCount = new ElementStub({ tagName: 'SPAN', text: '+ 8 штрихкодов', attrs: { 'data-style': 'count' } });
+    const barcodeContainer = new ElementStub({ children: [barcodeText, barcodeCount] });
+    const productRow = new ElementStub({
+        tagName: 'TR',
+        text: 'Артикул 42608563 SKU 3410615250 2465970 + 8 штрихкодов',
+        children: [barcodeContainer]
+    });
+    const drawer = new ElementStub({
+        tagName: 'ASIDE',
+        text: 'Добавить штрихкод 2465970 2465971 2465972 2465973',
+        children: [
+            new ElementStub({ tagName: 'SPAN', text: '2465970' }),
+            new ElementStub({ tagName: 'SPAN', text: '2465971' }),
+            new ElementStub({ tagName: 'SPAN', text: '2465972' }),
+            new ElementStub({ tagName: 'SPAN', text: '2465973' })
+        ]
+    });
+    const context = loadBridgeContext(createDocumentStub([productRow, drawer]));
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:ozon-product-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request', {
+        detail: { productId: '42608563' }
+    }));
+    await flushAsyncWork();
+
+    assert.equal(responses.length, 1);
+    assert.equal(responses[0].ok, true);
+    assert.deepEqual(Array.from(responses[0].source.products[0].existingBarcodes), [
+        '2465970',
+        '2465971',
+        '2465972',
+        '2465973'
+    ]);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastFullBarcodeRead.ok, true);
 });
