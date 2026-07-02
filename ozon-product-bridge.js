@@ -1160,6 +1160,48 @@
         };
     }
 
+    async function verifyOzonBarcodesAfterUiApply(productId, expectedBarcodes = []) {
+        const normalizedProductId = normalizeId(productId);
+        const targetBarcodes = mergeUniqueBarcodes(safeArray(expectedBarcodes).map(normalizeBarcode).filter(Boolean));
+
+        if (!normalizedProductId || !targetBarcodes.length) {
+            return {
+                ok: false,
+                error: 'verify productId or barcodes missing',
+                existingBarcodes: [],
+                verifiedBarcodes: [],
+                missingBarcodes: targetBarcodes,
+                verifiedCount: 0,
+                expectedCount: targetBarcodes.length,
+                readOk: false
+            };
+        }
+
+        await delay(1200);
+
+        const domProduct = resolveProductFromDomRow(normalizedProductId);
+        const visibleBarcodes = mergeUniqueBarcodes(domProduct.product?.existingBarcodes || []);
+        const ozonSku = normalizeId(domProduct.product?.ozonSku || domProduct.product?.sku);
+        const readResult = await readFullExistingBarcodesFromDrawer(normalizedProductId, ozonSku, visibleBarcodes);
+        const existingBarcodes = mergeUniqueBarcodes(readResult.existingBarcodes || visibleBarcodes);
+        const verifiedBarcodes = targetBarcodes.filter(barcode => existingBarcodes.includes(barcode));
+        const missingBarcodes = targetBarcodes.filter(barcode => !existingBarcodes.includes(barcode));
+
+        return {
+            ok: missingBarcodes.length === 0,
+            error: missingBarcodes.length === 0 ? '' : 'barcode verify failed after save',
+            existingBarcodes,
+            verifiedBarcodes,
+            missingBarcodes,
+            verifiedCount: verifiedBarcodes.length,
+            expectedCount: targetBarcodes.length,
+            readOk: readResult.ok === true,
+            readError: readResult.error || '',
+            rowCount: readResult.rowCount || domProduct.rowCount || 0,
+            source: readResult.ok ? 'drawer' : 'visible-row'
+        };
+    }
+
     function isBarcodeSearchInput(input) {
         const placeholder = normalizeText(input?.getAttribute?.('placeholder')).toLowerCase();
         const value = normalizeText(input?.value).toLowerCase();
@@ -1973,21 +2015,32 @@
             throw new Error(saveResult.error || 'save button not enabled');
         }
 
+        const verifyResult = await verifyOzonBarcodesAfterUiApply(normalizedProductId, normalizedBarcodes);
+
         debug.lastUiApply = {
             ...debug.lastUiApply,
-            result: 'saved',
+            result: verifyResult.ok ? 'verified' : 'saved-unverified',
             addedCount,
+            verifiedCount: verifyResult.verifiedCount,
+            missingBarcodes: verifyResult.missingBarcodes,
             saveButton: getElementSummary(saveResult.button),
             drawerClosed: saveResult.drawerClosed,
+            verify: verifyResult,
             finishedAt: new Date().toISOString()
         };
 
         return {
-            ok: true,
+            ok: verifyResult.ok,
             productId: normalizedProductId,
             barcodes: normalizedBarcodes,
             addedCount,
-            details: { drawerClosed: saveResult.drawerClosed }
+            verifiedCount: verifyResult.verifiedCount,
+            missingBarcodes: verifyResult.missingBarcodes,
+            error: verifyResult.ok ? '' : verifyResult.error,
+            details: {
+                drawerClosed: saveResult.drawerClosed,
+                verify: verifyResult
+            }
         };
     }
 

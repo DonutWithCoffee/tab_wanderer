@@ -2010,6 +2010,14 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
         details: msg.details || null
     };
 
+    if (Object.prototype.hasOwnProperty.call(msg, 'verifiedCount')) {
+        payload.verifiedCount = Number(msg.verifiedCount) || 0;
+    }
+
+    if (Array.isArray(msg.missingBarcodes)) {
+        payload.missingBarcodes = msg.missingBarcodes;
+    }
+
     log(payload.ok ? 'INFO' : 'WARN', 'OZON_UI_APPLY', 'apply result received', payload);
     await sendOzonUiApplyResultToWarehouse(payload);
     await cleanupOzonUiApply({ closeTab: false });

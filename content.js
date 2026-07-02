@@ -1016,7 +1016,11 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
                 ozonExistingCount: Array.isArray(ozonPlan?.existingBarcodes) ? ozonPlan.existingBarcodes.length : 0,
                 ozonApplyStatus: applyResult?.productId === productId ? applyResult.status : '',
                 ozonApplyError: applyResult?.productId === productId ? applyResult.error || '' : '',
-                ozonApplyAddedCount: applyResult?.productId === productId ? Number(applyResult.addedCount) || 0 : 0
+                ozonApplyAddedCount: applyResult?.productId === productId ? Number(applyResult.addedCount) || 0 : 0,
+                ...(applyResult?.productId === productId ? {
+                    ozonApplyVerifiedCount: Number(applyResult.verifiedCount) || 0,
+                    ozonApplyMissingCount: Number(applyResult.missingCount) || 0
+                } : {})
             };
         })
         .sort((a, b) => a.productId.localeCompare(b.productId));
@@ -1105,7 +1109,11 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     }
 
     if (ozonApply?.status === 'ready') {
-        metrics.push({ label: 'Записано', value: formatWarehouseBarcodePreviewCount(ozonApply.addedCount) });
+        if (ozonApply.details?.verify) {
+            metrics.push({ label: 'Проверено', value: `${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.barcodes?.length)}` });
+        } else {
+            metrics.push({ label: 'Записано', value: formatWarehouseBarcodePreviewCount(ozonApply.addedCount) });
+        }
     }
 
     const ozonMessage = ozonApply?.status === 'loading'
@@ -1113,7 +1121,9 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
         : ozonApply?.status === 'error'
             ? `Ozon: ${ozonApply.error || 'ошибка записи'}`
             : ozonApply?.status === 'ready'
-                ? `Ozon: добавлено ${formatWarehouseBarcodePreviewCount(ozonApply.addedCount)}.`
+                ? ozonApply.details?.verify
+                    ? `Ozon: проверено ${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.barcodes?.length)} после записи.`
+                    : `Ozon: добавлено ${formatWarehouseBarcodePreviewCount(ozonApply.addedCount)}.`
                 : ozon?.status === 'loading'
                     ? 'Проверяем карточки Ozon. Записи нет.'
                     : ozon?.status === 'error'
@@ -1552,12 +1562,26 @@ function createWarehouseOzonUiApplyError(errorMessage = 'ozon UI apply failed', 
 }
 
 function createWarehouseOzonUiApplyReady(result = {}) {
+    const barcodes = Array.isArray(result.barcodes) ? result.barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [];
+    const details = result.details || null;
+    const verify = details?.verify && typeof details.verify === 'object' ? details.verify : null;
+    const verifiedCount = Object.prototype.hasOwnProperty.call(result, 'verifiedCount')
+        ? Number(result.verifiedCount) || 0
+        : Number(verify?.verifiedCount) || 0;
+    const missingBarcodes = Array.isArray(result.missingBarcodes)
+        ? result.missingBarcodes.map(normalizeWarehouseBridgeId).filter(Boolean)
+        : Array.isArray(verify?.missingBarcodes)
+            ? verify.missingBarcodes.map(normalizeWarehouseBridgeId).filter(Boolean)
+            : [];
+
     return {
         status: 'ready',
         productId: normalizeWarehouseBridgeId(result.productId),
-        barcodes: Array.isArray(result.barcodes) ? result.barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [],
+        barcodes,
         addedCount: Number(result.addedCount) || 0,
-        details: result.details || null
+        verifiedCount,
+        missingCount: missingBarcodes.length,
+        details
     };
 }
 
