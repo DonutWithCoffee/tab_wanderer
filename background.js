@@ -1946,7 +1946,7 @@ async function failOzonUiApply(errorMessage = 'Ozon UI apply failed') {
 
     log('WARN', 'OZON_UI_APPLY', 'apply failed', errorMessage);
     await sendOzonUiApplyResultToWarehouse({ ok: false, error: errorMessage });
-    await cleanupOzonUiApply({ closeTab: false });
+    await cleanupOzonUiApply({ closeTab: true });
     return true;
 }
 
@@ -2009,7 +2009,7 @@ async function openCurrentOzonUiApplyProduct() {
         const payload = createOzonUiApplyFinalPayload(ozonUiApplySession);
         log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', payload);
         await sendOzonUiApplyResultToWarehouse(payload);
-        await cleanupOzonUiApply({ closeTab: false });
+        await cleanupOzonUiApply({ closeTab: true });
         return true;
     }
 
@@ -2018,9 +2018,9 @@ async function openCurrentOzonUiApplyProduct() {
     ozonUiApplySession.status = 'opening';
 
     if (ozonWorkerTabId) {
-        await chrome.tabs.update(ozonWorkerTabId, { url, active: true });
+        await chrome.tabs.update(ozonWorkerTabId, { url, active: false });
     } else {
-        const tab = await chrome.tabs.create({ url, active: true, pinned: true });
+        const tab = await chrome.tabs.create({ url, active: false, pinned: true });
         ozonWorkerTabId = tab.id;
     }
 
@@ -2047,7 +2047,7 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}) {
     }
 
     await cleanupOzonResolveWorker({ closeTab: false });
-    await cleanupOzonUiApply({ closeTab: false });
+    await cleanupOzonUiApply({ closeTab: true });
 
     ozonUiApplySession = {
         warehouseTabId: senderTabId,
@@ -2112,7 +2112,7 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
         const payload = createOzonUiApplyFinalPayload(ozonUiApplySession);
         log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', payload);
         await sendOzonUiApplyResultToWarehouse(payload);
-        await cleanupOzonUiApply({ closeTab: false });
+        await cleanupOzonUiApply({ closeTab: true });
     } else {
         await openCurrentOzonUiApplyProduct();
     }

@@ -10,6 +10,7 @@ const testFiles = [
     'tests/options-ui.test.js',
     'tests/history-ui.test.js',
     'tests/warehouse-barcode-extractor.test.js',
+    'tests/warehouse-barcode-bridge.test.js',
     'tests/ozon-product-search.test.js',
     'tests/ozon-barcode-binding.test.js',
     'tests/ozon-product-bridge.test.js'

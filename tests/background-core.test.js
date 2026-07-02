@@ -1607,7 +1607,7 @@ test('Ozon UI apply opens seller product worker and relays UI command/result', a
     assert.equal(context.__test.createdTabs.length, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.createdTabs[0])), {
         url: 'https://seller.ozon.ru/app/products?search=24260137',
-        active: true,
+        active: false,
         pinned: true
     });
 
@@ -1666,7 +1666,7 @@ test('Ozon UI apply opens seller product worker and relays UI command/result', a
     assert.equal(context.__test.tabMessages[1].message.addedCount, 1);
     assert.equal(context.__test.tabMessages[1].message.productResults.length, 1);
     assert.equal(context.__test.tabMessages[1].message.productResults[0].productId, '24260137');
-    assert.deepEqual(context.__test.removedTabs, []);
+    assert.deepEqual(context.__test.removedTabs, [1]);
 });
 
 
@@ -1770,7 +1770,7 @@ test('Ozon UI apply processes multiple products sequentially', async () => {
         tabId: 1,
         updateInfo: {
             url: 'https://seller.ozon.ru/app/products?search=42608563',
-            active: true
+            active: false
         }
     });
     assert.equal(context.__test.tabMessages.length, 1);
@@ -1831,4 +1831,5 @@ test('Ozon UI apply processes multiple products sequentially', async () => {
     assert.equal(context.__test.tabMessages[2].message.verifiedCount, 3);
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[2].message.barcodes)), ['987654321', '123456789', '123456780']);
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[2].message.productResults.map(item => item.productId))), ['24260137', '42608563']);
+    assert.deepEqual(context.__test.removedTabs, [1]);
 });

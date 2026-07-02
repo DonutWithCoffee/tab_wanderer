@@ -729,6 +729,7 @@ function initDirectWorker() {
 const WAREHOUSE_BRIDGE_SCRIPT_ID = 'tab-wanderer-warehouse-barcode-bridge';
 const WAREHOUSE_SHOP_ORDER_REQUEST_EVENT = 'tab_wanderer:warehouse-shop-order-request';
 const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-response';
+const WAREHOUSE_API_CAPTURE_ARM_EVENT = 'tab_wanderer:warehouse-api-capture-arm';
 const WAREHOUSE_BARCODE_PREVIEW_PANEL_ID = 'tab-wanderer-warehouse-barcode-preview';
 const WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID = 'tab-wanderer-warehouse-barcode-preview-refresh';
 const WAREHOUSE_OZON_RESOLVE_BUTTON_ID = 'tab-wanderer-warehouse-ozon-resolve';
@@ -742,6 +743,8 @@ const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
 const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
 const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
 const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
+const WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS = [350, 1200, 2500];
+const WAREHOUSE_ASSEMBLY_ACTION_DEBUG_STORAGE_KEY = 'tab_wanderer_warehouse_action_debug_v1';
 
 let lastWarehouseBarcodePreview = null;
 let lastWarehouseOzonResolvePreview = null;
@@ -752,6 +755,9 @@ let warehousePreviewActionListenersInitialized = false;
 let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
 let warehouseShopOrderRetryTimer = null;
+let warehouseAssemblyActionRefreshTimers = [];
+let warehouseAssemblyActionDebug = readWarehouseAssemblyActionDebugFromSession();
+let warehouseAssemblyActionListenersInitialized = false;
 let ozonProductBridgeInitialized = false;
 let ozonRuntimeMessageListenerInitialized = false;
 
@@ -919,6 +925,23 @@ function getLastWarehouseOzonResolvePreview() {
     return lastWarehouseOzonResolvePreview;
 }
 
+function readWarehouseAssemblyActionDebugFromSession() {
+    try {
+        const value = window.sessionStorage?.getItem?.(WAREHOUSE_ASSEMBLY_ACTION_DEBUG_STORAGE_KEY);
+        return value ? JSON.parse(value) : null;
+    } catch {
+        return null;
+    }
+}
+
+function persistWarehouseAssemblyActionDebugToSession(debug = warehouseAssemblyActionDebug) {
+    try {
+        if (debug) {
+            window.sessionStorage?.setItem?.(WAREHOUSE_ASSEMBLY_ACTION_DEBUG_STORAGE_KEY, JSON.stringify(debug));
+        }
+    } catch {}
+}
+
 function clearWarehouseShopOrderRetryTimer() {
     if (!warehouseShopOrderRetryTimer || typeof clearTimeout !== 'function') {
         warehouseShopOrderRetryTimer = null;
@@ -927,6 +950,204 @@ function clearWarehouseShopOrderRetryTimer() {
 
     clearTimeout(warehouseShopOrderRetryTimer);
     warehouseShopOrderRetryTimer = null;
+}
+
+function clearWarehouseAssemblyActionRefreshTimers(reason = 'cleared') {
+    if (Array.isArray(warehouseAssemblyActionRefreshTimers)) {
+        warehouseAssemblyActionRefreshTimers.forEach(timerId => {
+            try {
+                clearTimeout(timerId);
+            } catch {}
+        });
+    }
+
+    warehouseAssemblyActionRefreshTimers = [];
+
+    if (warehouseAssemblyActionDebug) {
+        warehouseAssemblyActionDebug.reloadTimerState = 'cleared';
+        warehouseAssemblyActionDebug.reloadTimerClearReason = reason;
+        warehouseAssemblyActionDebug.reloadTimerClearedAt = new Date().toISOString();
+        persistWarehouseAssemblyActionDebugToSession();
+    }
+}
+
+function getWarehouseAssemblyActionDebugPublicSnapshot() {
+    if (!warehouseAssemblyActionDebug) {
+        return null;
+    }
+
+    return { ...warehouseAssemblyActionDebug };
+}
+
+function updateWarehouseAssemblyActionDebug(patch = {}) {
+    warehouseAssemblyActionDebug = {
+        ...(warehouseAssemblyActionDebug || {}),
+        ...patch,
+        updatedAt: new Date().toISOString()
+    };
+
+    persistWarehouseAssemblyActionDebugToSession();
+
+    try {
+        document.documentElement?.setAttribute?.('data-tab-wanderer-warehouse-debug', JSON.stringify({
+            action: warehouseAssemblyActionDebug.actionText || '',
+            source: warehouseAssemblyActionDebug.lastResponseSource || '',
+            reload: warehouseAssemblyActionDebug.reloadTimerState || '',
+            reason: warehouseAssemblyActionDebug.reloadTimerClearReason || warehouseAssemblyActionDebug.reloadFallbackReason || '',
+            summary: warehouseAssemblyActionDebug.lastSummary || null
+        }));
+    } catch {}
+
+    return warehouseAssemblyActionDebug;
+}
+
+function createWarehouseAssemblyActionDebugLine() {
+    const debug = getWarehouseAssemblyActionDebugPublicSnapshot();
+
+    if (!debug) {
+        return '';
+    }
+
+    const parts = [
+        debug.actionDetected ? 'клик сборки пойман' : '',
+        debug.apiCaptureArmed ? 'api capture включён' : '',
+        debug.reloadTimerState === 'scheduled' ? 'ожидаем DOM штрихкоды' : '',
+        debug.reloadTimerState === 'fired' ? `чтение завершено: ${debug.reloadFallbackReason || 'snapshot refresh'}` : '',
+        debug.reloadTimerState === 'cleared' ? `ожидание завершено: ${debug.reloadTimerClearReason || 'unknown'}` : '',
+        debug.lastResponseSource ? `source: ${debug.lastResponseSource}` : '',
+        debug.lastSummary ? `кандидаты ${debug.lastSummary.eligibleCount || 0}, мультишк ${debug.lastSummary.skippedCount || 0}` : '',
+        debug.lastBridgeApiResult ? `api: ${debug.lastBridgeApiResult}` : '',
+        Number(debug.lastBridgeApiResponseCount) > 0 ? `api responses: ${debug.lastBridgeApiResponseCount}` : ''
+    ].filter(Boolean);
+
+    return parts.length ? `Диагностика склада: ${parts.join('; ')}.` : '';
+}
+
+function isWarehouseBarcodePreviewPanelTarget(target) {
+    return !!target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_PANEL_ID}`);
+}
+
+function getWarehouseAssemblyActionControl(target) {
+    if (!target?.closest || isWarehouseBarcodePreviewPanelTarget(target)) {
+        return null;
+    }
+
+    return target.closest('button, [role="button"], a, [ng-click], [data-ng-click], .btn, [class*="button"], [class*="Button"]');
+}
+
+function getWarehouseAssemblyActionControlText(control) {
+    return normalizeWarehouseBridgeText([
+        control?.innerText,
+        control?.textContent,
+        control?.value,
+        control?.getAttribute?.('aria-label'),
+        control?.getAttribute?.('title')
+    ].filter(Boolean).join(' ')).toLowerCase();
+}
+
+function isWarehouseAssemblyActionControl(control) {
+    if (!control || control.disabled || control.getAttribute?.('aria-disabled') === 'true') {
+        return false;
+    }
+
+    const text = getWarehouseAssemblyActionControlText(control);
+
+    return !!text && /(?:собрать(?:\s+заказ)?|завершить\s+сборку|подтвердить\s+сборку)/i.test(text);
+}
+
+function dispatchWarehouseApiCaptureArm(reason = 'warehouse-assembly-action') {
+    try {
+        window.dispatchEvent(new CustomEvent(WAREHOUSE_API_CAPTURE_ARM_EVENT, {
+            detail: {
+                reason,
+                durationMs: Math.max(...WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS)
+            }
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
+    if (!isWarehouseAssemblyPageUrl()) {
+        return false;
+    }
+
+    const actionText = getWarehouseAssemblyActionControlText(control);
+    clearWarehouseAssemblyActionRefreshTimers('new assembly action');
+    const apiCaptureArmed = dispatchWarehouseApiCaptureArm();
+
+    updateWarehouseAssemblyActionDebug({
+        actionDetected: true,
+        actionText,
+        actionTag: control?.tagName || '',
+        actionClass: String(control?.className || '').slice(0, 120),
+        apiCaptureArmed,
+        scheduledAt: new Date().toISOString(),
+        reloadTimerState: 'scheduled',
+        reloadTimerDelayMs: Math.max(...WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS),
+        reloadTimerClearReason: '',
+        reloadFallbackReason: '',
+        lastResponseSource: '',
+        lastSummary: null
+    });
+
+    setWarehouseBarcodePreviewLoading('Ждём ответ склада после сборки. Ozon не изменяем.');
+
+    if (typeof setTimeout !== 'function') {
+        updateWarehouseAssemblyActionDebug({ reloadTimerState: 'fired', reloadFallbackReason: 'setTimeout unavailable' });
+        requestWarehouseShopOrderSnapshot({ resetAttempts: false });
+        return true;
+    }
+
+    warehouseAssemblyActionRefreshTimers = [];
+    WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS.forEach((delayMs, index) => {
+        const timerId = setTimeout(() => {
+            warehouseAssemblyActionRefreshTimers = warehouseAssemblyActionRefreshTimers.filter(currentTimerId => currentTimerId !== timerId);
+            requestWarehouseShopOrderSnapshot({ resetAttempts: false });
+
+            if (index === WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS.length - 1) {
+                updateWarehouseAssemblyActionDebug({
+                    reloadTimerState: 'fired',
+                    reloadFallbackReason: 'visible DOM snapshot attempts completed'
+                });
+            }
+        }, delayMs);
+
+        warehouseAssemblyActionRefreshTimers.push(timerId);
+    });
+
+    return true;
+}
+
+function handleWarehouseAssemblyActionEvent(event) {
+    const control = getWarehouseAssemblyActionControl(event?.target);
+
+    if (!isWarehouseAssemblyActionControl(control)) {
+        return;
+    }
+
+    scheduleWarehouseSnapshotAfterAssemblyAction(control);
+}
+
+function handleWarehouseAssemblyActionKeyboardEvent(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
+
+    handleWarehouseAssemblyActionEvent(event);
+}
+
+function ensureWarehouseAssemblyActionListeners() {
+    if (warehouseAssemblyActionListenersInitialized || typeof document?.addEventListener !== 'function') {
+        return false;
+    }
+
+    document.addEventListener('click', handleWarehouseAssemblyActionEvent, true);
+    document.addEventListener('keydown', handleWarehouseAssemblyActionKeyboardEvent, true);
+    warehouseAssemblyActionListenersInitialized = true;
+    return true;
 }
 
 function createWarehouseBarcodePreviewLoading(message = 'Ищем данные сборки на странице склада. Ozon не изменяем.') {
@@ -1090,10 +1311,8 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
 function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePreview) {
     const base = {
         title: 'tab_wanderer · Ozon barcodes',
-        actionLabel: 'Проверить штрихкоды',
-        actions: [
-            { id: 'warehouse-refresh', label: 'Проверить штрихкоды', variant: 'primary' }
-        ],
+        actionLabel: 'Добавить в Ozon',
+        actions: [],
         status: 'loading',
         message: 'Ищем данные сборки на странице склада. Ozon не изменяем.',
         metrics: [],
@@ -1133,33 +1352,25 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const actions = hasEligibleBarcodes
         ? [
             {
-                id: 'ozon-resolve',
-                label: ozon?.status === 'loading' ? 'Проверяем штрихкоды...' : 'Проверить штрихкоды',
+                id: 'ozon-ui-apply',
+                label: ozonApply?.status === 'loading' ? 'Добавляем в Ozon...' : 'Добавить в Ozon',
                 variant: 'primary',
                 disabled: isOzonBusy
             },
             {
-                id: 'ozon-ui-apply',
-                label: ozonApply?.status === 'loading' ? 'Добавляем в Ozon...' : 'Добавить в Ozon',
-                variant: 'secondary',
-                disabled: isOzonBusy
-            },
-            {
-                id: 'warehouse-refresh',
-                label: 'Обновить склад',
+                id: 'ozon-resolve',
+                label: ozon?.status === 'loading' ? 'Проверяем штрихкоды...' : 'Проверить штрихкоды',
                 variant: 'secondary',
                 disabled: isOzonBusy
             }
         ]
-        : [
-            { id: 'warehouse-refresh', label: 'Обновить склад', variant: 'primary' }
-        ];
+        : [];
 
     const metrics = [
         { label: 'Заказ', value: orderId },
         { label: 'Товаров', value: formatWarehouseBarcodePreviewCount(summary.productCount) },
         { label: 'Кандидатов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
-        { label: 'Пропущено', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
+        { label: 'Пропущено мультишк', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
     ];
 
     if (ozon?.status === 'ready') {
@@ -1206,7 +1417,6 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
                         : ozon?.status === 'ready'
                             ? 'Ozon проверен. Записи пока нет.'
                             : 'Локальный предпросмотр. Записи в Ozon пока нет.';
-
     return {
         ...base,
         status: ozonApply?.status === 'error' || ozon?.status === 'error' ? 'error' : 'ready',
@@ -1499,7 +1709,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
             appendWarehousePreviewText(
                 item,
                 'div',
-                `кандидатов: ${product.eligibleCount}, пропущено: ${product.skippedCount}`,
+                `кандидатов: ${product.eligibleCount}, пропущено мультишк: ${product.skippedCount}`,
                 { color: '#667685', fontSize: '12px' }
             );
 
@@ -1550,7 +1760,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
 
     const actionList = Array.isArray(viewModel.actions) && viewModel.actions.length
         ? viewModel.actions
-        : [{ id: 'warehouse-refresh', label: viewModel.actionLabel, variant: 'primary' }];
+        : [];
 
     actionList.forEach(action => {
         const isPrimary = action.variant !== 'secondary';
@@ -1579,7 +1789,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
                 textAlign: 'center',
                 boxSizing: 'border-box',
                 userSelect: 'none',
-                marginTop: action.id === 'warehouse-refresh' ? '0' : '8px'
+                marginTop: actionList.indexOf(action) === 0 ? '0' : '8px'
             }
         });
 
@@ -1964,6 +2174,32 @@ function scheduleWarehouseShopOrderRetry(errorMessage = 'warehouse shopOrder not
     return true;
 }
 
+function getWarehouseSnapshotSourcePriority(source = '') {
+    switch (source) {
+        case 'warehouse-api-response':
+            return 3;
+        case 'warehouse-dom-visible':
+            return 2;
+        case 'angular-snapshot':
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+function shouldIgnoreLowerPriorityWarehouseSnapshot(responseSource, summary = {}) {
+    const currentPriority = getWarehouseSnapshotSourcePriority(responseSource);
+    const lastSource = warehouseAssemblyActionDebug?.lastResponseSource || '';
+    const lastSummary = warehouseAssemblyActionDebug?.lastSummary || {};
+    const lastPriority = getWarehouseSnapshotSourcePriority(lastSource);
+    const lastHadBarcodes = Number(lastSummary.eligibleCount) > 0 || Number(lastSummary.skippedCount) > 0;
+    const currentHasBarcodes = Number(summary.eligibleCount) > 0 || Number(summary.skippedCount) > 0;
+
+    return lastHadBarcodes
+        && currentHasBarcodes
+        && lastPriority > currentPriority;
+}
+
 function handleWarehouseShopOrderBridgeResponse(event) {
     const detail = event?.detail || {};
 
@@ -1985,12 +2221,56 @@ function handleWarehouseShopOrderBridgeResponse(event) {
 
     clearWarehouseShopOrderRetryTimer();
     warehouseShopOrderReadAttempt = 0;
-    lastWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
+    const nextWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
+
+    const summary = nextWarehouseBarcodePreview.summary || nextWarehouseBarcodePreview.extraction?.summary || {};
+    const responseSource = detail.source || 'angular-snapshot';
+    const hasFreshBarcodeSnapshot = Number(summary.eligibleCount) > 0 || Number(summary.skippedCount) > 0;
+
+    if (shouldIgnoreLowerPriorityWarehouseSnapshot(responseSource, summary)) {
+        log('INFO', 'WAREHOUSE_OZON', 'ignored lower priority barcode snapshot', {
+            responseSource,
+            previousSource: warehouseAssemblyActionDebug?.lastResponseSource || '',
+            summary
+        });
+        return lastWarehouseBarcodePreview;
+    }
+
+    lastWarehouseBarcodePreview = nextWarehouseBarcodePreview;
+
+    updateWarehouseAssemblyActionDebug({
+        lastResponseSource: responseSource,
+        lastSummary: {
+            productCount: Number(summary.productCount) || 0,
+            eligibleCount: Number(summary.eligibleCount) || 0,
+            skippedCount: Number(summary.skippedCount) || 0
+        },
+        lastBridgeResult: detail.debug?.lastResult || '',
+        lastBridgeApiResult: detail.debug?.lastApiResult || '',
+        lastBridgeApiResponseCount: Number(detail.debug?.lastApiResponseCount) || 0,
+        lastBridgeApiCandidateUrl: detail.debug?.lastApiCandidateUrl || '',
+        lastBridgeApiMatchedUrl: detail.debug?.lastApiMatchedUrl || ''
+    });
+
+    if (!warehouseAssemblyActionRefreshTimers.length
+        || hasFreshBarcodeSnapshot) {
+        clearWarehouseAssemblyActionRefreshTimers(hasFreshBarcodeSnapshot ? `${responseSource} barcode snapshot` : 'normal snapshot');
+    } else {
+        updateWarehouseAssemblyActionDebug({
+            reloadTimerState: 'scheduled',
+            reloadTimerClearReason: '',
+            reloadFallbackReason: `${responseSource} had no barcode candidates yet`
+        });
+    }
+
     lastWarehouseOzonResolvePreview = null;
     lastWarehouseOzonUiApply = null;
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
-    log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', lastWarehouseBarcodePreview.summary);
+    log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', {
+        summary: lastWarehouseBarcodePreview.summary,
+        warehouseRefresh: getWarehouseAssemblyActionDebugPublicSnapshot()
+    });
 
     return lastWarehouseBarcodePreview;
 }
@@ -2024,6 +2304,7 @@ function initWarehouseBarcodeBridge() {
     if (!warehouseBarcodeBridgeInitialized) {
         window.addEventListener?.(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
         ensureWarehouseRuntimeMessageListener();
+        ensureWarehouseAssemblyActionListeners();
         warehouseBarcodeBridgeInitialized = true;
     }
 
@@ -2046,6 +2327,7 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     }
 
     clearWarehouseShopOrderRetryTimer();
+    clearWarehouseAssemblyActionRefreshTimers();
     warehouseShopOrderReadAttempt = 0;
     lastWarehouseBarcodePreview = null;
     lastWarehouseOzonResolvePreview = null;

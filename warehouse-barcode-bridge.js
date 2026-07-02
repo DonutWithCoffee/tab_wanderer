@@ -5,6 +5,32 @@
     const MAX_SCOPES_TO_SCAN = 5000;
     const MAX_OBJECTS_TO_SCAN = 60000;
     const MAX_DEBUG_SAMPLES = 12;
+    const API_CAPTURE_ARM_EVENT = 'tab_wanderer:warehouse-api-capture-arm';
+    const API_CAPTURE_WINDOW_MS = 12000;
+    const API_RESPONSE_MAX_TEXT_LENGTH = 2000000;
+    const API_SHOP_ORDER_SNAPSHOT_TTL_MS = 15000;
+    const WAREHOUSE_API_URL_PATTERN = /shop|order|assembly|barcode|product[_-]?item|warehouse|wh/i;
+    const DEBUG_STORAGE_KEY = 'tab_wanderer_warehouse_bridge_debug_v1';
+
+    function readStoredDebug() {
+        try {
+            const value = window.sessionStorage?.getItem?.(DEBUG_STORAGE_KEY);
+            return value ? JSON.parse(value) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function persistDebug() {
+        try {
+            const debug = window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__;
+            if (debug) {
+                window.sessionStorage?.setItem?.(DEBUG_STORAGE_KEY, JSON.stringify(debug));
+            }
+        } catch {}
+    }
+
+    const previousDebugRun = readStoredDebug();
 
     window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__ = {
         installedAt: new Date().toISOString(),
@@ -16,8 +42,36 @@
         lastExpectedOrder: '',
         lastMatchedPath: '',
         lastError: '',
-        lastResult: ''
+        lastResult: '',
+        lastApiCaptureArmedUntil: 0,
+        lastApiResponseCount: 0,
+        lastApiCandidateUrl: '',
+        lastApiMatchedUrl: '',
+        lastApiMatchedPath: '',
+        lastApiResult: '',
+        lastApiError: '',
+        fetchPatched: false,
+        xhrPatched: false,
+        lastApiEvents: [],
+        previousRun: previousDebugRun ? {
+            installedAt: previousDebugRun.installedAt || '',
+            lastExpectedOrder: previousDebugRun.lastExpectedOrder || '',
+            lastMatchedPath: previousDebugRun.lastMatchedPath || '',
+            lastResult: previousDebugRun.lastResult || '',
+            lastCandidateCount: Number(previousDebugRun.lastCandidateCount) || 0,
+            lastApiCaptureArmedUntil: Number(previousDebugRun.lastApiCaptureArmedUntil) || 0,
+            lastApiResponseCount: Number(previousDebugRun.lastApiResponseCount) || 0,
+            lastApiCandidateUrl: previousDebugRun.lastApiCandidateUrl || '',
+            lastApiMatchedUrl: previousDebugRun.lastApiMatchedUrl || '',
+            lastApiMatchedPath: previousDebugRun.lastApiMatchedPath || '',
+            lastApiResult: previousDebugRun.lastApiResult || '',
+            lastApiError: previousDebugRun.lastApiError || '',
+            fetchPatched: !!previousDebugRun.fetchPatched,
+            xhrPatched: !!previousDebugRun.xhrPatched,
+            lastApiEvents: Array.isArray(previousDebugRun.lastApiEvents) ? previousDebugRun.lastApiEvents.slice(-20) : []
+        } : null
     };
+    persistDebug();
 
     if (window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__) {
         const node = document.getElementById(SCRIPT_ID);
@@ -29,8 +83,24 @@
 
     window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__ = true;
 
+    let warehouseApiCaptureArmedUntil = 0;
+    let lastApiShopOrderSnapshot = null;
+
     function getDebug() {
         return window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__;
+    }
+
+    function pushApiDebugEvent(event = {}) {
+        const debug = getDebug();
+        const events = Array.isArray(debug.lastApiEvents) ? debug.lastApiEvents : [];
+
+        events.push({
+            at: new Date().toISOString(),
+            ...event
+        });
+
+        debug.lastApiEvents = events.slice(-20);
+        persistDebug();
     }
 
     function normalizeText(value) {
@@ -759,6 +829,532 @@
         return null;
     }
 
+
+    function getCurrentTime() {
+        return typeof Date?.now === 'function' ? Date.now() : new Date().getTime();
+    }
+
+    function armWarehouseApiCapture(durationMs = API_CAPTURE_WINDOW_MS) {
+        warehouseApiCaptureArmedUntil = getCurrentTime() + Math.max(1000, Number(durationMs) || API_CAPTURE_WINDOW_MS);
+        getDebug().lastApiCaptureArmedUntil = warehouseApiCaptureArmedUntil;
+        getDebug().lastApiResult = 'armed';
+        pushApiDebugEvent({ type: 'capture-armed', durationMs: Math.max(1000, Number(durationMs) || API_CAPTURE_WINDOW_MS) });
+        persistDebug();
+        return warehouseApiCaptureArmedUntil;
+    }
+
+    function isWarehouseApiCaptureArmed() {
+        return getCurrentTime() <= warehouseApiCaptureArmedUntil;
+    }
+
+    function getRequestUrl(input) {
+        try {
+            if (typeof input === 'string') {
+                return input;
+            }
+
+            if (input?.url) {
+                return String(input.url);
+            }
+        } catch {}
+
+        return '';
+    }
+
+    function shouldInspectWarehouseApiResponse(url = '') {
+        return isWarehouseApiCaptureArmed()
+            && !!url
+            && WAREHOUSE_API_URL_PATTERN.test(String(url));
+    }
+
+    function parseJsonPayload(text) {
+        if (!text || typeof text !== 'string' || text.length > API_RESPONSE_MAX_TEXT_LENGTH) {
+            return null;
+        }
+
+        const trimmed = text.trim();
+
+        if (!trimmed || !/^[{[]/.test(trimmed)) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return null;
+        }
+    }
+
+    function storeApiShopOrderSnapshot(shopOrder, url = '') {
+        if (!shopOrder) {
+            return null;
+        }
+
+        lastApiShopOrderSnapshot = {
+            capturedAt: getCurrentTime(),
+            url: String(url || ''),
+            shopOrder
+        };
+
+        return lastApiShopOrderSnapshot;
+    }
+
+    function getStoredApiShopOrderSnapshot() {
+        if (!lastApiShopOrderSnapshot?.shopOrder) {
+            return null;
+        }
+
+        if (getCurrentTime() - Number(lastApiShopOrderSnapshot.capturedAt) > API_SHOP_ORDER_SNAPSHOT_TTL_MS) {
+            lastApiShopOrderSnapshot = null;
+            return null;
+        }
+
+        const expectedOrder = getExpectedOrderFromUrl();
+
+        if (!valueMatchesExpectedOrder(lastApiShopOrderSnapshot.shopOrder, expectedOrder)) {
+            return null;
+        }
+
+        return lastApiShopOrderSnapshot.shopOrder;
+    }
+
+    function hasBridgeShopOrderBarcodeSnapshot(shopOrder = {}) {
+        return asArray(shopOrder?.assembly).some(entry => {
+            const productItem = entry?.product_item || entry?.productItem || {};
+            const barcode = normalizeId(productItem.barcode || productItem.bar_code || productItem.code);
+            const productId = normalizeId(productItem.product_id || productItem.productId || productItem.product?.id);
+
+            return !!barcode && !!productId;
+        });
+    }
+
+    function dispatchShopOrderFromApiResponse(shopOrder, url = '') {
+        const debug = getDebug();
+        debug.lastApiMatchedUrl = String(url || '');
+        debug.lastApiMatchedPath = debug.lastMatchedPath || 'api.response';
+        storeApiShopOrderSnapshot(shopOrder, url);
+
+        if (!hasBridgeShopOrderBarcodeSnapshot(shopOrder)) {
+            debug.lastApiResult = 'shopOrder found in API response without barcode snapshot';
+            pushApiDebugEvent({
+                type: 'api-shop-order-no-barcodes',
+                url: String(url || ''),
+                assemblyLength: asArray(shopOrder?.assembly).length
+            });
+            persistDebug();
+            return;
+        }
+
+        debug.lastApiResult = 'shopOrder found in API response';
+        persistDebug();
+
+        window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
+            detail: {
+                ok: true,
+                source: 'warehouse-api-response',
+                shopOrder,
+                debug
+            }
+        }));
+    }
+
+    function findShopOrderInApiPayload(payload, url = '') {
+        if (!isObject(payload)) {
+            return null;
+        }
+
+        const expectedOrder = getExpectedOrderFromUrl();
+        const debug = getDebug();
+        debug.lastExpectedOrder = expectedOrder;
+        debug.lastApiCandidateUrl = String(url || '');
+        debug.lastMatchedPath = '';
+        debug.lastApiMatchedPath = '';
+
+        return scanObjectGraph([{ value: payload, path: 'api.response' }], expectedOrder);
+    }
+
+    function inspectWarehouseApiPayload(payload, url = '') {
+        try {
+            const shopOrder = findShopOrderInApiPayload(payload, url);
+
+            if (!shopOrder) {
+                getDebug().lastApiResult = 'API response inspected: shopOrder not found';
+                pushApiDebugEvent({ type: 'payload-inspected', url: String(url || ''), result: 'shopOrder-not-found' });
+                return false;
+            }
+
+            pushApiDebugEvent({ type: 'payload-inspected', url: String(url || ''), result: 'shopOrder-found', matchedPath: getDebug().lastMatchedPath || '' });
+            dispatchShopOrderFromApiResponse(shopOrder, url);
+            return true;
+        } catch (error) {
+            getDebug().lastApiError = String(error?.message || error);
+            return false;
+        }
+    }
+
+    async function inspectFetchResponseForShopOrder(response, url = '') {
+        const responseUrl = String(url || response?.url || '');
+
+        if (!response) {
+            return false;
+        }
+
+        if (!shouldInspectWarehouseApiResponse(responseUrl)) {
+            if (isWarehouseApiCaptureArmed()) {
+                pushApiDebugEvent({ type: 'fetch-skip', url: responseUrl, reason: 'url-filter' });
+            }
+            return false;
+        }
+
+        const debug = getDebug();
+        debug.lastApiResponseCount += 1;
+        debug.lastApiCandidateUrl = responseUrl;
+        pushApiDebugEvent({ type: 'fetch-inspect', url: responseUrl, status: response.status || 0 });
+
+        try {
+            const clone = response.clone?.();
+            const text = await clone?.text?.();
+            const payload = parseJsonPayload(text);
+
+            if (!payload) {
+                debug.lastApiResult = 'API response skipped: non-json or too large';
+                pushApiDebugEvent({ type: 'fetch-skip', url: responseUrl, reason: 'non-json-or-too-large' });
+                return false;
+            }
+
+            return inspectWarehouseApiPayload(payload, responseUrl);
+        } catch (error) {
+            debug.lastApiError = String(error?.message || error);
+            return false;
+        }
+    }
+
+    function inspectXhrResponseForShopOrder(xhr, url = '') {
+        const responseUrl = String(url || xhr?.responseURL || '');
+
+        if (!xhr) {
+            return false;
+        }
+
+        if (!shouldInspectWarehouseApiResponse(responseUrl)) {
+            if (isWarehouseApiCaptureArmed()) {
+                pushApiDebugEvent({ type: 'xhr-skip', url: responseUrl, reason: 'url-filter' });
+            }
+            return false;
+        }
+
+        const debug = getDebug();
+        debug.lastApiResponseCount += 1;
+        debug.lastApiCandidateUrl = responseUrl;
+        pushApiDebugEvent({ type: 'xhr-inspect', url: responseUrl, status: xhr.status || 0 });
+
+        try {
+            const payload = typeof xhr.response === 'object' && xhr.response !== null
+                ? xhr.response
+                : parseJsonPayload(String(xhr.responseText || ''));
+
+            if (!payload) {
+                debug.lastApiResult = 'XHR response skipped: non-json or too large';
+                pushApiDebugEvent({ type: 'xhr-skip', url: responseUrl, reason: 'non-json-or-too-large' });
+                return false;
+            }
+
+            return inspectWarehouseApiPayload(payload, responseUrl);
+        } catch (error) {
+            debug.lastApiError = String(error?.message || error);
+            return false;
+        }
+    }
+
+    function patchWarehouseFetchCapture() {
+        if (typeof window.fetch !== 'function' || window.fetch.__tabWandererWarehousePatched) {
+            return false;
+        }
+
+        const originalFetch = window.fetch;
+
+        function patchedFetch(input, init) {
+            const url = getRequestUrl(input);
+
+            return originalFetch.apply(this, arguments)
+                .then(response => {
+                    inspectFetchResponseForShopOrder(response, url || response?.url || '');
+                    return response;
+                });
+        }
+
+        patchedFetch.__tabWandererWarehousePatched = true;
+        patchedFetch.__tabWandererOriginalFetch = originalFetch;
+        window.fetch = patchedFetch;
+        getDebug().fetchPatched = true;
+        pushApiDebugEvent({ type: 'fetch-patched' });
+        return true;
+    }
+
+    function patchWarehouseXhrCapture() {
+        if (typeof window.XMLHttpRequest !== 'function') {
+            return false;
+        }
+
+        const proto = window.XMLHttpRequest.prototype;
+
+        if (proto.__tabWandererWarehousePatched) {
+            return false;
+        }
+
+        const originalOpen = proto.open;
+        const originalSend = proto.send;
+
+        proto.open = function patchedOpen(method, url) {
+            this.__tabWandererWarehouseUrl = String(url || '');
+            return originalOpen.apply(this, arguments);
+        };
+
+        proto.send = function patchedSend() {
+            try {
+                this.addEventListener?.('loadend', () => {
+                    inspectXhrResponseForShopOrder(this, this.__tabWandererWarehouseUrl || this.responseURL || '');
+                });
+            } catch {}
+
+            return originalSend.apply(this, arguments);
+        };
+
+        proto.__tabWandererWarehousePatched = true;
+        getDebug().xhrPatched = true;
+        pushApiDebugEvent({ type: 'xhr-patched' });
+        return true;
+    }
+
+
+    function getElementText(element) {
+        return normalizeText(element?.innerText || element?.textContent || '');
+    }
+
+    function getElementNodes(selector) {
+        try {
+            return Array.from(document.querySelectorAll(selector) || []);
+        } catch {
+            return [];
+        }
+    }
+
+    function extractWarehouseDomProductId(text = '') {
+        const match = normalizeText(text).match(/(?:^|\s)ID\s*:\s*(\d{5,})\b/i);
+        return normalizeId(match?.[1]);
+    }
+
+    function extractWarehouseDomProductTitle(text = '', productId = '') {
+        const normalized = normalizeText(text);
+        const expectedProductId = normalizeId(productId);
+        const beforeId = normalized.split(/\bID\s*:\s*\d{5,}\b/i)[0] || '';
+        const title = normalizeText(beforeId)
+            .replace(/^Заказ\s*№?\s*\S+\s*/i, '')
+            .trim();
+
+        if (title) {
+            return title;
+        }
+
+        return normalizeText(normalized
+            .replace(new RegExp(`\\bID\\s*:\\s*${expectedProductId}\\b`, 'i'), '')
+            .split(/Собрано\s+\d+\s*\/\s*\d+/i)[0] || '');
+    }
+
+    function findWarehouseDomProductCards() {
+        const elements = getElementNodes('div, section, article, li, tr, tbody, [class*="panel"], [class*="item"], [class*="product"]');
+        const productCards = [];
+        const usedProductIds = new Set();
+
+        elements
+            .map(element => ({ element, text: getElementText(element) }))
+            .filter(entry => /\bID\s*:\s*\d{5,}\b/i.test(entry.text))
+            .filter(entry => /Собрано\s+\d+\s*\/\s*\d+/i.test(entry.text) || /штрихкод|barcode|\b\d{5,14}\b/i.test(entry.text))
+            .sort((a, b) => a.text.length - b.text.length)
+            .forEach(entry => {
+                const productId = extractWarehouseDomProductId(entry.text);
+
+                if (!productId || usedProductIds.has(productId)) {
+                    return;
+                }
+
+                const nestedProductIds = Array.from(entry.element.querySelectorAll('*') || [])
+                    .map(child => extractWarehouseDomProductId(getElementText(child)))
+                    .filter(Boolean);
+                const uniqueNestedProductIds = Array.from(new Set(nestedProductIds));
+
+                if (uniqueNestedProductIds.length > 1) {
+                    return;
+                }
+
+                productCards.push({
+                    element: entry.element,
+                    productId,
+                    title: extractWarehouseDomProductTitle(entry.text, productId)
+                });
+                usedProductIds.add(productId);
+            });
+
+        return productCards;
+    }
+
+    function collectWarehouseDomBarcodeCandidates(card, productId = '') {
+        const expectedProductId = normalizeId(productId);
+        const candidates = [];
+        const seen = new Set();
+
+        function push(barcode, element) {
+            const normalizedBarcode = normalizeId(barcode);
+
+            if (!normalizedBarcode
+                || normalizedBarcode === expectedProductId
+                || normalizedBarcode.length < 5
+                || normalizedBarcode.length > 14
+                || seen.has(normalizedBarcode)) {
+                return;
+            }
+
+            const text = getElementText(element);
+
+            if (/\bID\s*:/i.test(text) || /Собрано\s+\d+\s*\/\s*\d+/i.test(text)) {
+                return;
+            }
+
+            seen.add(normalizedBarcode);
+            candidates.push(normalizedBarcode);
+        }
+
+        getElementNodesFrom(card.element, '*').forEach(element => {
+            const text = getElementText(element);
+
+            if (/^\D{0,3}\d{5,14}\D{0,3}$/.test(text)) {
+                const match = text.match(/\d{5,14}/);
+                push(match?.[0], element);
+            }
+        });
+
+        return candidates;
+    }
+
+    function getElementNodesFrom(root, selector) {
+        try {
+            return Array.from(root?.querySelectorAll?.(selector) || []);
+        } catch {
+            return [];
+        }
+    }
+
+    function collectWarehouseProductMetaFromShopOrder(shopOrder = {}) {
+        const result = {};
+
+        function merge(productId, patch = {}) {
+            const normalizedProductId = normalizeId(productId);
+
+            if (!normalizedProductId) {
+                return;
+            }
+
+            result[normalizedProductId] = {
+                ...(result[normalizedProductId] || {}),
+                ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+            };
+        }
+
+        asArray(shopOrder.items).forEach(item => {
+            const productId = normalizeId(firstValue(item.item_id, item.itemId, item.product_id, item.productId));
+            merge(productId, {
+                orderItem: normalizeOrderItemForBridge(item),
+                title: normalizeText(firstValue(item.title, item.name))
+            });
+        });
+
+        asArray(shopOrder.assembly).forEach(entry => {
+            const normalized = normalizeAssemblyEntryForBridge(entry);
+            const productItem = normalized.product_item || {};
+            const productId = normalizeId(productItem.product_id || productItem.product?.id);
+            merge(productId, {
+                productItem,
+                orderItem: normalized.order_item,
+                title: normalizeText(productItem.product?.title || normalized.order_item?.title)
+            });
+        });
+
+        return result;
+    }
+
+    function createWarehouseDomAssemblyEntry(card, barcode, meta = {}) {
+        const productId = normalizeId(card.productId);
+        const productItem = meta.productItem || {};
+        const orderItem = meta.orderItem || {};
+        const productTitle = normalizeText(card.title || meta.title || productItem.product?.title || orderItem.title);
+
+        return {
+            id: normalizeId(`${productId}-${barcode}`),
+            quantity: 1,
+            product_item: {
+                id: normalizeId(productItem.id),
+                barcode: normalizeId(barcode),
+                type: normalizeNumber(productItem.type ?? 0),
+                quantity: normalizeNumber(productItem.quantity ?? 1),
+                reserved_quantity: normalizeNumber(productItem.reserved_quantity ?? productItem.reservedQuantity ?? 1),
+                product_id: productId,
+                product: {
+                    id: productId,
+                    title: productTitle
+                },
+                state: productItem.state || null
+            },
+            order_item: {
+                id: normalizeId(orderItem.id),
+                item_id: productId,
+                title: productTitle,
+                quantity: normalizeNumber(orderItem.quantity),
+                assembled_quantity: normalizeNumber(orderItem.assembled_quantity ?? orderItem.assembledQuantity),
+                assemble_status: normalizeText(orderItem.assemble_status || orderItem.assembleStatus)
+            }
+        };
+    }
+
+    function findShopOrderFromVisibleDom(angularShopOrder = null) {
+        const cards = findWarehouseDomProductCards();
+
+        if (!cards.length) {
+            return null;
+        }
+
+        const productMeta = collectWarehouseProductMetaFromShopOrder(angularShopOrder || {});
+        const assembly = [];
+
+        cards.forEach(card => {
+            const barcodes = collectWarehouseDomBarcodeCandidates(card, card.productId);
+            const meta = productMeta[card.productId] || {};
+
+            barcodes.forEach(barcode => {
+                assembly.push(createWarehouseDomAssemblyEntry(card, barcode, meta));
+            });
+        });
+
+        if (!assembly.length) {
+            return null;
+        }
+
+        const debug = getDebug();
+        debug.lastMatchedPath = 'dom.visible.product-cards';
+        debug.lastResult = 'visible DOM barcode snapshot found';
+        debug.lastCandidateCount = assembly.length;
+        persistDebug();
+
+        return {
+            id: normalizeText(firstValue(angularShopOrder?.id, angularShopOrder?.number, getExpectedOrderFromUrl())),
+            internalId: normalizeId(angularShopOrder?.internalId),
+            number: normalizeText(firstValue(angularShopOrder?.number, getExpectedOrderFromUrl())),
+            total_quantity: normalizeNumber(angularShopOrder?.total_quantity),
+            assembled_quantity: normalizeNumber(angularShopOrder?.assembled_quantity),
+            items: Array.isArray(angularShopOrder?.items) ? angularShopOrder.items : [],
+            assembly
+        };
+    }
+
     function findShopOrderFromAngular() {
         const expectedOrder = getExpectedOrderFromUrl();
         const debug = getDebug();
@@ -767,13 +1363,45 @@
         return scanObjectGraph(collectAngularRoots(), expectedOrder);
     }
 
+    window.addEventListener(API_CAPTURE_ARM_EVENT, event => {
+        armWarehouseApiCapture(event?.detail?.durationMs || API_CAPTURE_WINDOW_MS);
+    });
+
+    patchWarehouseFetchCapture();
+    patchWarehouseXhrCapture();
+
     window.addEventListener(REQUEST_EVENT, () => {
         try {
-            const shopOrder = findShopOrderFromAngular();
+            const storedApiShopOrder = getStoredApiShopOrderSnapshot();
+            const apiShopOrder = hasBridgeShopOrderBarcodeSnapshot(storedApiShopOrder) ? storedApiShopOrder : null;
+            const angularShopOrder = apiShopOrder ? null : findShopOrderFromAngular();
+            const domShopOrder = apiShopOrder ? null : findShopOrderFromVisibleDom(angularShopOrder);
+            const shopOrder = apiShopOrder || domShopOrder || storedApiShopOrder || angularShopOrder;
+            const source = apiShopOrder
+                ? 'warehouse-api-response'
+                : domShopOrder
+                    ? 'warehouse-dom-visible'
+                    : storedApiShopOrder
+                        ? 'warehouse-api-response-empty'
+                        : 'angular-snapshot';
+
+            if (apiShopOrder) {
+                const debug = getDebug();
+                debug.lastMatchedPath = debug.lastMatchedPath || 'api.response.shop_order';
+                debug.lastResult = 'using stored API shopOrder snapshot';
+                persistDebug();
+            } else if (storedApiShopOrder) {
+                const debug = getDebug();
+                debug.lastMatchedPath = debug.lastMatchedPath || 'api.response.shop_order';
+                debug.lastResult = domShopOrder
+                    ? 'stored API shopOrder had no barcodes; using visible DOM fallback'
+                    : 'stored API shopOrder had no barcodes';
+                persistDebug();
+            }
 
             window.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
                 detail: shopOrder
-                    ? { ok: true, shopOrder, debug: getDebug() }
+                    ? { ok: true, shopOrder, source, debug: getDebug() }
                     : { ok: false, error: 'warehouse shopOrder not found', debug: getDebug() }
             }));
         } catch (error) {

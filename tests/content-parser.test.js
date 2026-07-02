@@ -882,11 +882,10 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
 
     assert.deepEqual(JSON.parse(JSON.stringify(viewModel)), {
         title: 'tab_wanderer · Ozon barcodes',
-        actionLabel: 'Проверить штрихкоды',
+        actionLabel: 'Добавить в Ozon',
         actions: [
-            { id: 'ozon-resolve', label: 'Проверить штрихкоды', variant: 'primary', disabled: false },
-            { id: 'ozon-ui-apply', label: 'Добавить в Ozon', variant: 'secondary', disabled: false },
-            { id: 'warehouse-refresh', label: 'Обновить склад', variant: 'secondary', disabled: false }
+            { id: 'ozon-ui-apply', label: 'Добавить в Ozon', variant: 'primary', disabled: false },
+            { id: 'ozon-resolve', label: 'Проверить штрихкоды', variant: 'secondary', disabled: false }
         ],
         status: 'ready',
         message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
@@ -894,7 +893,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
             { label: 'Заказ', value: '9205-010726' },
             { label: 'Товаров', value: '2' },
             { label: 'Кандидатов', value: '3' },
-            { label: 'Пропущено', value: '1' }
+            { label: 'Пропущено мультишк', value: '1' }
         ],
         products: [
             {
