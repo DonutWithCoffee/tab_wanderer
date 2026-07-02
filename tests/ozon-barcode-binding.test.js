@@ -163,6 +163,52 @@ test('createOzonBarcodeBindingPlan blocks writes when seller id is missing', () 
     assert.equal(plan.summary.requestCount, 0);
 });
 
+test('Ozon binding plans keep skipped-only warehouse products out of Ozon errors', () => {
+    const context = loadOzonBarcodeBindingContext();
+    const warehouseExtraction = context.extractWarehouseAssemblyBarcodes({
+        id: '9205-010726',
+        assembly: [
+            createAssemblyEntry({
+                id: 1,
+                productId: 39437515,
+                barcode: 2049684,
+                type: 1,
+                quantity: 15,
+                reservedQuantity: 15
+            })
+        ]
+    });
+
+    const previewPlan = context.createOzonBarcodeBindingPreviewPlan({
+        warehouseExtraction,
+        ozonProductsByProductId: {}
+    });
+    const applyPlan = context.createOzonBarcodeBindingPlan({
+        warehouseExtraction,
+        sellerId: '',
+        ozonProductsByProductId: {}
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(previewPlan.summary)), {
+        productCount: 1,
+        readyProductCount: 0,
+        errorProductCount: 0,
+        skippedProductCount: 1,
+        toAddCount: 0,
+        alreadyExistsCount: 0,
+        skippedWarehouseCount: 1
+    });
+    assert.equal(previewPlan.productPlans[0].status, 'skipped');
+    assert.equal(previewPlan.productPlans[0].reason, 'noEligibleBarcodes');
+
+    assert.equal(applyPlan.summary.errorProductCount, 0);
+    assert.equal(applyPlan.summary.skippedProductCount, 1);
+    assert.equal(applyPlan.summary.toAddCount, 0);
+    assert.equal(applyPlan.summary.requestCount, 0);
+    assert.equal(applyPlan.productPlans[0].status, 'skipped');
+    assert.equal(applyPlan.productPlans[0].reason, 'noEligibleBarcodes');
+});
+
 test('createOzonBarcodeBindingPreviewPlan compares warehouse barcodes with resolved Ozon product without sellerId', () => {
     const context = loadOzonBarcodeBindingContext();
 

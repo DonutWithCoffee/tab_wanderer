@@ -112,6 +112,21 @@ function createOzonBindingProductPlan(productGroup, ozonProduct, options = {}) {
     const toAdd = [];
     const alreadyExists = [];
 
+    if (eligibleBarcodeEntries.length === 0) {
+        return {
+            status: OZON_BARCODE_BINDING_STATUS.SKIPPED,
+            reason: OZON_BARCODE_BINDING_REASONS.NO_ELIGIBLE_BARCODES,
+            productId,
+            productTitle: productGroup.productTitle || ozonProduct?.title || '',
+            ozonSku: normalizeOzonBindingId(ozonProduct?.ozonSku),
+            existingBarcodes: [...existingBarcodes],
+            toAdd,
+            alreadyExists,
+            skippedWarehouseBarcodes,
+            requests: []
+        };
+    }
+
     if (!sellerId) {
         return {
             status: OZON_BARCODE_BINDING_STATUS.ERROR,
@@ -207,6 +222,20 @@ function createOzonBarcodeBindingPreviewProductPlan(productGroup, ozonProductRes
     const productId = normalizeOzonBindingId(productGroup?.productId);
     const eligibleBarcodeEntries = Array.isArray(productGroup?.eligibleBarcodes) ? productGroup.eligibleBarcodes : [];
     const skippedWarehouseBarcodes = Array.isArray(productGroup?.skippedBarcodes) ? productGroup.skippedBarcodes : [];
+
+    if (eligibleBarcodeEntries.length === 0) {
+        return {
+            status: OZON_BARCODE_BINDING_STATUS.SKIPPED,
+            reason: OZON_BARCODE_BINDING_REASONS.NO_ELIGIBLE_BARCODES,
+            productId,
+            productTitle: productGroup?.productTitle || '',
+            ozonSku: '',
+            existingBarcodes: [],
+            toAdd: [],
+            alreadyExists: [],
+            skippedWarehouseBarcodes
+        };
+    }
 
     if (!ozonProductResult || ozonProductResult.ok !== true || !ozonProductResult.product) {
         return {
