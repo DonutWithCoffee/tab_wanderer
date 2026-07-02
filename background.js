@@ -46,6 +46,7 @@ const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
 const OZON_PRODUCTS_URL = 'https://seller.ozon.ru/app/products';
 const OZON_RESOLVE_TIMEOUT_MS = 30000;
 const OZON_UI_APPLY_TIMEOUT_MS = 60000;
+const OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT = false;
 const DIRECT_FOLLOW_UP_INTERVAL_MS = 2 * 60 * 1000;
 const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
 const FAST_POLL_INTERVAL_MS = 15000;
@@ -1856,16 +1857,25 @@ function buildOzonUiApplyProductResult(productRequest = {}, msg = {}) {
         verifiedCount,
         missingBarcodes,
         missingCount: missingBarcodes.length,
+        verifyUnconfirmed: details?.verifyUnconfirmed === true,
         error: msg.error || null,
         details
     };
+}
+
+function isOzonUiApplyProductError(result = {}) {
+    if (result.verifyUnconfirmed === true || result.details?.verifyUnconfirmed === true) {
+        return result.ok !== true;
+    }
+
+    return result.ok !== true || Number(result.missingCount) > 0;
 }
 
 function createOzonUiApplyFinalPayload(session = ozonUiApplySession) {
     const productResults = Array.isArray(session?.results) ? session.results : [];
     const allBarcodes = getUniqueOzonUiApplyBarcodes(productResults.flatMap(result => result.barcodes || []));
     const missingBarcodes = getUniqueOzonUiApplyBarcodes(productResults.flatMap(result => result.missingBarcodes || []));
-    const errorCount = productResults.filter(result => result.ok !== true || Number(result.missingCount) > 0).length;
+    const errorCount = productResults.filter(isOzonUiApplyProductError).length;
     const addedCount = productResults.reduce((sum, result) => sum + (Number(result.addedCount) || 0), 0);
     const verifiedCount = productResults.reduce((sum, result) => sum + (Number(result.verifiedCount) || 0), 0);
 
@@ -1885,7 +1895,8 @@ function createOzonUiApplyFinalPayload(session = ozonUiApplySession) {
             verify: {
                 verifiedCount,
                 missingBarcodes
-            }
+            },
+            verifyUnconfirmed: productResults.some(result => result.verifyUnconfirmed === true || result.details?.verifyUnconfirmed === true)
         },
         productResults
     };
@@ -1946,7 +1957,7 @@ async function failOzonUiApply(errorMessage = 'Ozon UI apply failed') {
 
     log('WARN', 'OZON_UI_APPLY', 'apply failed', errorMessage);
     await sendOzonUiApplyResultToWarehouse({ ok: false, error: errorMessage });
-    await cleanupOzonUiApply({ closeTab: true });
+    await cleanupOzonUiApply({ closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT });
     return true;
 }
 
@@ -2009,7 +2020,7 @@ async function openCurrentOzonUiApplyProduct() {
         const payload = createOzonUiApplyFinalPayload(ozonUiApplySession);
         log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', payload);
         await sendOzonUiApplyResultToWarehouse(payload);
-        await cleanupOzonUiApply({ closeTab: true });
+        await cleanupOzonUiApply({ closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT });
         return true;
     }
 
@@ -2112,7 +2123,7 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
         const payload = createOzonUiApplyFinalPayload(ozonUiApplySession);
         log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', payload);
         await sendOzonUiApplyResultToWarehouse(payload);
-        await cleanupOzonUiApply({ closeTab: true });
+        await cleanupOzonUiApply({ closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT });
     } else {
         await openCurrentOzonUiApplyProduct();
     }

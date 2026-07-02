@@ -1106,6 +1106,121 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon UI apply result', () 
     assert.equal(viewModel.products[0].ozonApplyAddedCount, 2);
 });
 
+test('Ozon apply product text hides fallback reason when final verification succeeds', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '24126456',
+        addedCount: 2,
+        verifiedCount: 2,
+        missingBarcodes: [],
+        barcodes: ['2317613', '2317680'],
+        details: {
+            writeMethod: 'api-ui-fallback',
+            fallbackReason: 'api-verify-after-reload-failed',
+            verify: {
+                verifiedCount: 2,
+                missingBarcodes: []
+            }
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 2,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+    const product = viewModel.products[0];
+    const text = context.createWarehouseOzonApplyProductText(product);
+
+    assert.equal(text, 'Ozon API + UI fallback: проверено 2/2');
+    assert.equal(text.includes('api-verify-after-reload-failed'), false);
+    assert.equal(viewModel.ozonApply.productResults[0].fallbackReason, 'api-verify-after-reload-failed');
+});
+
+test('Ozon apply product text keeps fallback reason when verification is incomplete', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    const text = context.createWarehouseOzonApplyProductText({
+        eligibleCount: 2,
+        ozonApplyStatus: 'ready',
+        ozonApplyVerifiedCount: 1,
+        ozonApplyMissingCount: 1,
+        ozonApplyWriteMethod: 'API + UI fallback',
+        ozonApplyFallbackReason: 'api-verify-after-reload-failed'
+    });
+
+    assert.equal(text, 'Ozon API + UI fallback: проверено 1/2, не найдено 1, fallback: api-verify-after-reload-failed');
+});
+
+test('Ozon apply view model reports API write with unconfirmed verify without false added zero error', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '42614044',
+        addedCount: 3,
+        verifiedCount: 0,
+        missingBarcodes: ['1111111', '2222222', '3333333'],
+        barcodes: ['1111111', '2222222', '3333333'],
+        errorCount: 0,
+        details: {
+            writeMethod: 'api',
+            verifyUnconfirmed: true,
+            verify: {
+                verifiedCount: 0,
+                missingBarcodes: ['1111111', '2222222', '3333333']
+            }
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '5561-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 3,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '5561-010726',
+            productsById: {
+                42614044: {
+                    productId: '42614044',
+                    productTitle: 'Плата разработчика Waveshare ESP32-P4-WIFI6',
+                    eligibleBarcodes: [{ barcode: '1111111' }, { barcode: '2222222' }, { barcode: '3333333' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+    const product = viewModel.products[0];
+    const productText = context.createWarehouseOzonApplyProductText(product);
+
+    assert.equal(viewModel.message, 'Ozon: запись отправлена, проверка не подтвердила 0/3.');
+    assert.equal(productText, 'Ozon API: запись отправлена, проверка не подтвердила 0/3');
+    assert.equal(viewModel.ozonApply.errorCount, 0);
+    assert.equal(viewModel.metrics.some(item => item.label === 'Ошибки Ozon'), false);
+});
+
 test('createWarehouseBarcodePreviewViewModel reports loading and error states', () => {
     const context = loadContentContext(createDocumentStub({ headers: [] }));
 

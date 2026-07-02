@@ -115,6 +115,7 @@ function loadBridgeContext(documentStub, overrides = {}) {
         location: { href: 'https://seller.ozon.ru/app/products?search=24260137', search: '?search=24260137' },
         URLSearchParams,
         Event,
+        clearTimeout: () => {},
         MouseEvent: class {},
         KeyboardEvent: class {},
         CustomEvent: class {
@@ -127,12 +128,13 @@ function loadBridgeContext(documentStub, overrides = {}) {
             screenX: 0,
             screenY: 0,
             getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
-            setTimeout: (callback) => {
-                if (typeof callback === 'function') {
+            setTimeout: (callback, ms = 0) => {
+                if (typeof callback === 'function' && Number(ms) < 5000) {
                     Promise.resolve().then(callback);
                 }
                 return 0;
             },
+            clearTimeout: () => {},
             addEventListener: (type, listener) => {
                 listeners[type] = listeners[type] || [];
                 listeners[type].push(listener);
@@ -224,6 +226,63 @@ test('Ozon product bridge includes visible barcode from DOM row context', async 
 });
 
 
+
+test('Ozon product bridge resolves full barcode list through barcode details API for preview', async () => {
+    const fetchCalls = [];
+    const barcodeText = new ElementStub({ tagName: 'SPAN', text: '2433878', attrs: { 'data-style': 'text' } });
+    const barcodeCount = new ElementStub({ tagName: 'SPAN', text: '+ 3 штрихкода', attrs: { 'data-style': 'count' } });
+    const barcodeContainer = new ElementStub({ children: [barcodeText, barcodeCount] });
+    const productRow = new ElementStub({
+        tagName: 'TR',
+        text: 'Промышленный 1-канальный модуль реле Артикул 42608563 SKU 1237406094 2433878 + 3 штрихкода',
+        children: [barcodeContainer]
+    });
+    const context = loadBridgeContext(createDocumentStub([productRow]), {
+        window: {
+            __TAB_WANDERER_OZON_SELLER_ID__: '185464',
+            fetch: async (url, init = {}) => {
+                fetchCalls.push({ url, init });
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        barcodes: [
+                            { item_id: '1237406094', barcode: '2433878', is_deletable: true },
+                            { item_id: '1237406094', barcode: '2433879', is_deletable: true },
+                            { item_id: '1237406094', barcode: '2433880', is_deletable: true },
+                            { item_id: '1237406094', barcode: '2433881', is_deletable: true }
+                        ]
+                    })
+                };
+            }
+        }
+    });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:ozon-product-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request', {
+        detail: { productId: '42608563' }
+    }));
+    await flushAsyncWork(80);
+
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0].url, '/api/sc/barcode-details-by-item-id');
+    assert.deepEqual(JSON.parse(fetchCalls[0].init.body), { item_id: ['1237406094'] });
+    assert.equal(responses.length, 1);
+    assert.equal(responses[0].ok, true);
+    assert.deepEqual(Array.from(responses[0].source.products[0].existingBarcodes), [
+        '2433878',
+        '2433879',
+        '2433880',
+        '2433881'
+    ]);
+    assert.equal(responses[0].source.products[0].fullBarcodeSource, 'api-barcode-details');
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastResolveBarcodeDetailsRead.ok, true);
+});
+
 test('Ozon product bridge reads full barcode list from existing barcode drawer', async () => {
     const barcodeText = new ElementStub({ tagName: 'SPAN', text: '2465970', attrs: { 'data-style': 'text' } });
     const barcodeCount = new ElementStub({ tagName: 'SPAN', text: '+ 8 штрихкодов', attrs: { 'data-style': 'count' } });
@@ -311,11 +370,15 @@ test('Ozon product bridge writes barcodes through API and verifies drawer state'
     context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
         detail: { productId: '42608563', barcodes: ['2486857'] }
     }));
-    await flushAsyncWork(24);
+    await flushAsyncWork(80);
 
-    assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0].url, '/api/barcode-add-v2');
-    assert.deepEqual(JSON.parse(fetchCalls[0].init.body), {
+    const writeCalls = fetchCalls.filter(call => call.url === '/api/barcode-add-v2');
+    const detailsCalls = fetchCalls.filter(call => call.url === '/api/sc/barcode-details-by-item-id');
+
+    assert.equal(writeCalls.length, 1);
+    assert.equal(detailsCalls.length, 1);
+    assert.equal(writeCalls[0].url, '/api/barcode-add-v2');
+    assert.deepEqual(JSON.parse(writeCalls[0].init.body), {
         seller_id: '185464',
         barcodes: [
             { barcode: '2486857', item_id: '3410615250' }
@@ -325,5 +388,173 @@ test('Ozon product bridge writes barcodes through API and verifies drawer state'
     assert.equal(responses[0].ok, true);
     assert.equal(responses[0].verifiedCount, 1);
     assert.equal(responses[0].details.writeMethod, 'api');
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastApiApply.result, 'verified');
+});
+
+
+test('Ozon product bridge waits for drawer state to catch up after API write', async () => {
+    const fetchCalls = [];
+    const productRow = new ElementStub({
+        tagName: 'TR',
+        text: 'Артикул 40157897 SKU 3410615250 2400001 + 2 штрихкода',
+        children: [
+            new ElementStub({
+                children: [
+                    new ElementStub({ tagName: 'SPAN', text: '2400001', attrs: { 'data-style': 'text' } }),
+                    new ElementStub({ tagName: 'SPAN', text: '+ 2 штрихкода', attrs: { 'data-style': 'count' } })
+                ]
+            })
+        ]
+    });
+    const oldBarcode = new ElementStub({ tagName: 'SPAN', text: '2400001' });
+    const fullBarcodeNodes = [
+        oldBarcode,
+        new ElementStub({ tagName: 'SPAN', text: '2400002' }),
+        new ElementStub({ tagName: 'SPAN', text: '2400003' })
+    ];
+    const drawer = new ElementStub({
+        tagName: 'ASIDE',
+        text: 'Добавить штрихкод 2400001 Сохранить',
+        children: [oldBarcode]
+    });
+    let readCalls = 0;
+
+    drawer.querySelectorAll = (selector) => {
+        readCalls += 1;
+        const nodes = readCalls > 4 ? fullBarcodeNodes : [oldBarcode];
+        const dataStyleMatch = String(selector).match(/\[data-style="([^"]+)"\]/);
+
+        if (dataStyleMatch) {
+            return nodes.filter(node => node.attrs['data-style'] === dataStyleMatch[1]);
+        }
+
+        return nodes;
+    };
+
+    const context = loadBridgeContext(createDocumentStub([productRow, drawer]), {
+        window: {
+            __TAB_WANDERER_OZON_SELLER_ID__: '185464',
+            fetch: async (url, init = {}) => {
+                fetchCalls.push({ url, init });
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ errors: [] })
+                };
+            }
+        }
+    });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:ozon-ui-apply-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
+        detail: { productId: '40157897', barcodes: ['2400001', '2400002', '2400003'] }
+    }));
+    await flushAsyncWork(80);
+
+    const writeCalls = fetchCalls.filter(call => call.url === '/api/barcode-add-v2');
+    const detailsCalls = fetchCalls.filter(call => call.url === '/api/sc/barcode-details-by-item-id');
+
+    assert.equal(writeCalls.length, 1);
+    assert.equal(detailsCalls.length, 1);
+    assert.equal(responses.length, 1);
+    assert.equal(responses[0].ok, true);
+    assert.equal(responses[0].verifiedCount, 3);
+    assert.equal(responses[0].details.verify.readAttempts > 1, true);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastApiApply.result, 'verified');
+});
+
+
+test('Ozon product bridge verifies API write from barcode details response when drawer stays partial', async () => {
+    const fetchCalls = [];
+    let context = null;
+    const productRow = new ElementStub({
+        tagName: 'TR',
+        text: 'Артикул 40157897 SKU 3410615250 2400001 + 2 штрихкода',
+        children: [
+            new ElementStub({
+                children: [
+                    new ElementStub({ tagName: 'SPAN', text: '2400001', attrs: { 'data-style': 'text' } }),
+                    new ElementStub({ tagName: 'SPAN', text: '+ 2 штрихкода', attrs: { 'data-style': 'count' } })
+                ]
+            })
+        ]
+    });
+    const drawer = new ElementStub({
+        tagName: 'ASIDE',
+        text: 'Добавить штрихкод 2400001 Сохранить',
+        children: [new ElementStub({ tagName: 'SPAN', text: '2400001' })]
+    });
+
+    drawer.querySelectorAll = (selector) => {
+        const dataStyleMatch = String(selector).match(/\[data-style="([^"]+)"\]/);
+
+        if (dataStyleMatch) {
+            return drawer.children.filter(node => node.attrs['data-style'] === dataStyleMatch[1]);
+        }
+
+        return drawer.children;
+    };
+
+    context = loadBridgeContext(createDocumentStub([productRow, drawer]), {
+        window: {
+            __TAB_WANDERER_OZON_SELLER_ID__: '185464',
+            fetch: async (url, init = {}) => {
+                fetchCalls.push({ url, init });
+
+                if (String(url).includes('barcode-details')) {
+                    const body = {
+                        barcodes: [
+                            { item_id: '3410615250', barcode: '2400001', is_deletable: true },
+                            { item_id: '3410615250', barcode: '2400002', is_deletable: true },
+                            { item_id: '3410615250', barcode: '2400003', is_deletable: true }
+                        ]
+                    };
+
+                    return {
+                        ok: true,
+                        status: 200,
+                        clone: () => ({ json: async () => body }),
+                        json: async () => body
+                    };
+                }
+
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ errors: [] })
+                };
+            }
+        }
+    });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:ozon-ui-apply-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
+        detail: { productId: '40157897', barcodes: ['2400001', '2400002', '2400003'] }
+    }));
+    await flushAsyncWork(80);
+
+    const writeCalls = fetchCalls.filter(call => call.url === '/api/barcode-add-v2');
+    const detailsCalls = fetchCalls.filter(call => String(call.url).includes('barcode-details'));
+
+    assert.equal(writeCalls.length, 1);
+    assert.equal(detailsCalls.length, 1);
+    assert.equal(responses.length, 1);
+    assert.equal(responses[0].ok, true);
+    assert.equal(responses[0].verifiedCount, 3);
+    assert.deepEqual(Array.from(responses[0].missingBarcodes), []);
+    assert.equal(responses[0].details.verify.source, 'api-read-after-write-barcode-details');
+    assert.equal(responses[0].details.verify.readAttempts, 0);
+    assert.deepEqual(JSON.parse(detailsCalls[0].init.body), { item_id: ['3410615250'] });
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastBarcodeDetailsResponse.method, 'POST');
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastBarcodeDetailsResponse.status, 200);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastBarcodeDetailsResponse.requestBody, JSON.stringify({ item_id: ['3410615250'] }));
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastApiApply.result, 'verified');
 });
