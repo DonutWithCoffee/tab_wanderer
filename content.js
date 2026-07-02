@@ -754,6 +754,7 @@ let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
 let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
+let warehouseShopOrderReadReason = 'initial';
 let warehouseShopOrderRetryTimer = null;
 let warehouseAssemblyActionRefreshTimers = [];
 let warehouseAssemblyActionDebug = readWarehouseAssemblyActionDebugFromSession();
@@ -1097,7 +1098,7 @@ function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
 
     if (typeof setTimeout !== 'function') {
         updateWarehouseAssemblyActionDebug({ reloadTimerState: 'fired', reloadFallbackReason: 'setTimeout unavailable' });
-        requestWarehouseShopOrderSnapshot({ resetAttempts: false });
+        requestWarehouseShopOrderSnapshot({ resetAttempts: false, reason: 'assembly-action' });
         return true;
     }
 
@@ -1105,7 +1106,7 @@ function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
     WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS.forEach((delayMs, index) => {
         const timerId = setTimeout(() => {
             warehouseAssemblyActionRefreshTimers = warehouseAssemblyActionRefreshTimers.filter(currentTimerId => currentTimerId !== timerId);
-            requestWarehouseShopOrderSnapshot({ resetAttempts: false });
+            requestWarehouseShopOrderSnapshot({ resetAttempts: false, reason: 'assembly-action' });
 
             if (index === WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS.length - 1) {
                 updateWarehouseAssemblyActionDebug({
@@ -2168,7 +2169,7 @@ function scheduleWarehouseShopOrderRetry(errorMessage = 'warehouse shopOrder not
     warehouseShopOrderRetryTimer = setTimeout(() => {
         warehouseShopOrderRetryTimer = null;
         warehouseShopOrderReadAttempt = nextAttempt;
-        requestWarehouseShopOrderSnapshot({ resetAttempts: false });
+        requestWarehouseShopOrderSnapshot({ resetAttempts: false, reason: warehouseShopOrderReadReason });
     }, WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS);
 
     return true;
@@ -2219,13 +2220,20 @@ function handleWarehouseShopOrderBridgeResponse(event) {
         return lastWarehouseBarcodePreview;
     }
 
-    clearWarehouseShopOrderRetryTimer();
-    warehouseShopOrderReadAttempt = 0;
     const nextWarehouseBarcodePreview = createWarehouseBarcodePreviewFromShopOrder(detail.shopOrder);
 
     const summary = nextWarehouseBarcodePreview.summary || nextWarehouseBarcodePreview.extraction?.summary || {};
     const responseSource = detail.source || 'angular-snapshot';
     const hasFreshBarcodeSnapshot = Number(summary.eligibleCount) > 0 || Number(summary.skippedCount) > 0;
+
+    if (!hasFreshBarcodeSnapshot
+        && warehouseShopOrderReadReason !== 'assembly-action'
+        && scheduleWarehouseShopOrderRetry('warehouse barcode candidates not found')) {
+        return lastWarehouseBarcodePreview;
+    }
+
+    clearWarehouseShopOrderRetryTimer();
+    warehouseShopOrderReadAttempt = 0;
 
     if (shouldIgnoreLowerPriorityWarehouseSnapshot(responseSource, summary)) {
         log('INFO', 'WAREHOUSE_OZON', 'ignored lower priority barcode snapshot', {
@@ -2275,7 +2283,9 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     return lastWarehouseBarcodePreview;
 }
 
-function requestWarehouseShopOrderSnapshot({ resetAttempts = true } = {}) {
+function requestWarehouseShopOrderSnapshot({ resetAttempts = true, reason = 'initial' } = {}) {
+    warehouseShopOrderReadReason = reason;
+
     if (resetAttempts) {
         clearWarehouseShopOrderRetryTimer();
         warehouseShopOrderReadAttempt = 1;

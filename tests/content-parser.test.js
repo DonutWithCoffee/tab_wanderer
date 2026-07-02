@@ -35,7 +35,8 @@ function loadContentContext(documentStub, overrides = {}) {
             location: overrides.windowLocation || {
                 origin: 'https://amperkot.ru',
                 href: 'https://amperkot.ru/admin/orders/1000-300326/'
-            }
+            },
+            ...(overrides.window || {})
         },
         location: {
             reload: overrides.reload || (() => {})
@@ -43,7 +44,13 @@ function loadContentContext(documentStub, overrides = {}) {
         setTimeout: overrides.setTimeout || (() => 0),
         clearTimeout: overrides.clearTimeout || (() => {}),
         setInterval: overrides.setInterval || (() => 0),
-        clearInterval: overrides.clearInterval || (() => {})
+        clearInterval: overrides.clearInterval || (() => {}),
+        CustomEvent: overrides.CustomEvent || class {
+            constructor(type, options = {}) {
+                this.type = type;
+                this.detail = options.detail;
+            }
+        }
     };
 
     context.globalThis = context;
@@ -844,6 +851,75 @@ test('handleWarehouseShopOrderBridgeResponse stores preview and reports missing 
 
     assert.equal(ok.ok, true);
     assert.equal(context.getLastWarehouseBarcodePreview().summary.eligibleCount, 1);
+});
+
+test('handleWarehouseShopOrderBridgeResponse retries initial empty warehouse snapshots until barcodes appear', () => {
+    const timers = [];
+    const context = loadContentContext(createDocumentStub({ headers: [] }), {
+        setTimeout: (callback) => {
+            timers.push(callback);
+            return timers.length;
+        },
+        clearTimeout: () => {}
+    });
+    context.window.location.href = 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=9205-010726';
+
+    const result = context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            source: 'angular-snapshot',
+            shopOrder: {
+                id: '9205-010726',
+                assembly: []
+            }
+        }
+    });
+
+    assert.equal(result.ok, null);
+    assert.match(result.message, /Ждём данные сборки на странице склада/);
+    assert.equal(timers.length, 1);
+    assert.equal(context.getLastWarehouseBarcodePreview().ok, null);
+});
+
+test('handleWarehouseShopOrderBridgeResponse keeps after-assembly empty snapshot flow unchanged', () => {
+    const timers = [];
+    const documentStub = {
+        ...createDocumentStub({ headers: [] }),
+        getElementById: (id) => id === 'tab-wanderer-warehouse-barcode-bridge'
+            ? { dataset: { installed: 'true' } }
+            : null
+    };
+    const context = loadContentContext(documentStub, {
+        window: {
+            dispatchEvent: () => {}
+        },
+        setTimeout: (callback) => {
+            timers.push(callback);
+            return timers.length;
+        },
+        clearTimeout: () => {}
+    });
+    context.window.location.href = 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=9205-010726';
+
+    context.requestWarehouseShopOrderSnapshot({ resetAttempts: false, reason: 'assembly-action' });
+    const result = context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            source: 'warehouse-api-response-empty',
+            shopOrder: {
+                id: '9205-010726',
+                assembly: []
+            }
+        }
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(result.summary)), {
+        productCount: 0,
+        eligibleCount: 0,
+        skippedCount: 0
+    });
+    assert.equal(timers.length, 0);
 });
 
 test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode preview', () => {
