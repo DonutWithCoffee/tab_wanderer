@@ -10,8 +10,8 @@
 Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Manifest version: 0.9.9
-Stage: Pre-1.0, docs sync after stable Ozon/warehouse barcode flow and refactor cleanup
-Latest pushed checkpoint: 1466ec1 refactor(ozon): extract warehouse result messaging
+Stage: Pre-1.0 product simplification, reminders and notification polish
+Latest pushed checkpoint: c854afe docs(project): sync workflow and current handoff context
 Expected tests: 214 pass / 0 fail
 Working tree expected: clean
 ```
@@ -26,6 +26,7 @@ d9c38f9 refactor(ozon): extract UI apply result helpers
 9f75fe1 refactor(ozon): use extracted apply result helpers
 d1eb0d3 refactor(ozon): extract session utility helpers
 1466ec1 refactor(ozon): extract warehouse result messaging
+c854afe docs(project): sync workflow and current handoff context
 ```
 
 ---
@@ -44,7 +45,7 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  1466ec1 refactor(ozon): extract warehouse result messaging
+  c854afe docs(project): sync workflow and current handoff context
 npm test → 214 pass / 0 fail
 ```
 
@@ -60,7 +61,6 @@ npm test
 ## 3. Files To Read First
 
 ```text
-AGENTS.md
 readme.md
 docs/project-context.md
 docs/roadmap.md
@@ -205,44 +205,51 @@ Stop point:
 
 ```text
 Do not start full Ozon session controller extraction unless it is the active priority.
-The next priority after this cleanup is documentation sync / user-provided task.
+The next priority after this cleanup is product simplification, notification polish and watched-order reminders.
 ```
 
 ---
 
-## 8. Current Documentation Priority
+## 8. Current Product Priority
+
+Product frame:
+
+```text
+tab_wanderer = уведомления о новых/изменённых заказах + отслеживаемые заказы с напоминаниями + Ozon/warehouse модуль штрихкодов
+```
 
 Current priority:
 
 ```text
-Bring documentation up to date.
-Remove obsolete code-agent-specific references.
-Keep docs useful for future ChatGPT sessions.
-Document current workflow rules explicitly.
-Record latest Ozon/warehouse stable state and refactor status.
-Do not touch product code during docs cleanup unless necessary.
+Pre-1.0 product simplification, reminders and notification polish.
+Legal entity department work is postponed until QA with that department.
+Watched order reminders are required regardless of legal workflow.
 ```
 
 ---
 
-## 9. Recommended Next Work After Docs
+## 9. Recommended Next Work
 
-Possible next slices:
+Recommended order:
 
 ```text
-1. User-provided priority task.
-2. If returning to refactor: introduce explicit Ozon operation lock for simultaneous warehouse tabs.
-3. If returning to cleanup: limit Ozon debug payloads to compact summaries.
-4. If preparing release: add release/package script that excludes .git, docs/private, node_modules and temporary archives.
-5. If preparing 1.0 RC: run full smoke checklist from docs/smoke-checklist.md.
+1. Hide user-facing history/order lookup entry while keeping eventJournal/order lookup as internal diagnostic/foundation.
+2. Simplify Options: remove user-facing controls for Флаги / Резерв / Комплектация.
+3. Restore informative notification format: order number + status + payment + delivery, with было → стало for changed fields.
+4. Add one-time reminders for watched orders.
+5. After legal department QA, design legal workflow from real process.
+6. Later, add release packaging script.
 ```
 
 Avoid:
 
 ```text
 Large background.js rewrite without a focused reason.
+Full Ozon session controller extraction unless it becomes explicit priority.
 Mixing Ozon action code into order-monitor semantics.
 Centralized collector before local 1.0 is stable.
+Legal workflow assumptions before QA.
+Recurring reminder complexity in the first reminder MVP.
 Storing Ozon auth/session data.
 Committing private admin samples or temporary archives.
 ```

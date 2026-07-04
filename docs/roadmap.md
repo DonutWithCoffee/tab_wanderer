@@ -12,7 +12,7 @@
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — UI/UX polish + Ozon/warehouse action layer + docs sync ⏳ current
+Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 ```
@@ -22,7 +22,7 @@ Version state:
 ```text
 Manifest version: 0.9.9
 Tests: 214 pass / 0 fail
-Latest pushed checkpoint: 1466ec1 refactor(ozon): extract warehouse result messaging
+Latest pushed checkpoint: c854afe docs(project): sync workflow and current handoff context
 ```
 
 Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest остаётся `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
@@ -157,12 +157,22 @@ diagnostic log/export polished
 
 ---
 
-## Pre-1.0 — UI/UX polish + Ozon/warehouse action layer ⏳ current
+## Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ⏳ current
 
-Цель:
+Новая продуктовая рамка:
 
 ```text
-довести интерфейс до понятного, читаемого и безопасного состояния вместе с пользователем
+tab_wanderer = уведомления о новых/изменённых заказах + отслеживаемые заказы с напоминаниями + Ozon/warehouse модуль штрихкодов
+```
+
+Цель этапа:
+
+```text
+облегчить пользовательский смысл плагина
+убрать слабые/перегружающие пользовательские поверхности
+вернуть информативные уведомления
+добавить практичные напоминания к отслеживаемым заказам
+сохранить стабильный Ozon/warehouse flow
 ```
 
 Сделано по UI/monitor side:
@@ -171,8 +181,9 @@ diagnostic log/export polished
 popup quick-control model
 Options autosave model
 Orders page lookup/watchlist flow
-history wording clarified as local-only
 monitor diagnostics/log tools
+documentation synced for new ChatGPT sessions
+legacy handoff replaced with docs/chat-handoff.md
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -207,12 +218,106 @@ background.js reduced but still owns worker/session lifecycle
 content.js reduced but still owns DOM rendering/runtime messaging
 ```
 
-Текущий приоритет:
+### Pre-1.0 product cleanup tasks
+
+1. Упростить пользовательскую поверхность:
 
 ```text
-sync documentation with current code state
-remove obsolete code-agent-specific docs
-make docs sufficient for future ChatGPT sessions
+hide user-facing order history / order lookup entry for 1.0
+keep eventJournal/order lookup code as internal diagnostic/foundation
+stop describing local order history as a user-facing 1.0 feature
+keep Orders page focused on watched orders and reminders
+```
+
+Причина:
+
+```text
+локальная история не является серверной историей заказа
+она зависит от того, видел ли заказ конкретный экземпляр расширения
+как пользовательская функция 1.0 она может создать неправильные ожидания
+```
+
+2. Упростить Options UI:
+
+```text
+remove user-facing controls for:
+  - Флаги
+  - Резерв
+  - Комплектация
+```
+
+Не удалять сразу из parser/core:
+
+```text
+keep as context/diagnostic fields
+keep tests where they protect parser behavior
+remove from notification trigger controls / user settings surface
+```
+
+3. Вернуть информативный формат уведомлений:
+
+```text
+order number is always shown
+status is always shown
+payment type is always shown
+delivery type is always shown
+changed field shows было → стало
+unchanged fields show current value
+```
+
+Example:
+
+```text
+Заказ 1234-010726
+Статус: Новый → Собран
+Оплата: Банковская карта
+Доставка: СДЭК
+```
+
+4. Добавить reminders для watched orders:
+
+```text
+one-time reminder for watched order
+user selects date/time
+optional short note
+Chrome notification fires at selected time
+notification includes order number and reminder text
+triggered reminder becomes done/expired
+```
+
+MVP non-goals:
+
+```text
+recurring reminders
+calendar integrations
+complex reminder templates
+legal-department-specific workflow statuses
+```
+
+5. Legal entity department:
+
+```text
+postpone design until QA session with legal entity department
+collect real workflow first
+then decide whether they need filters, presets, reminders or separate views
+```
+
+6. Release packaging:
+
+```text
+not the next priority
+return after product simplification, reminders and notification polish stabilize
+```
+
+Recommended next implementation order:
+
+```text
+1. Hide user-facing history/order lookup entry and update tests/docs.
+2. Simplify Options by removing Flags / Reserve / Completion controls from UI.
+3. Restore informative notification message format.
+4. Add one-time watched order reminders.
+5. After legal department QA, design legal workflow if needed.
+6. Later, add release packaging script.
 ```
 
 ---

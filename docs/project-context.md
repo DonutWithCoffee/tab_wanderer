@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: `Pre-1.0 docs sync after stable Ozon/warehouse barcode flow`.
+Актуально на момент: `Pre-1.0 product simplification, reminders and notification polish`.
 
 Этот документ заменяет старые message/handoff тексты и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,10 +11,10 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
-Текущая стадия: Pre-1.0 documentation sync after Ozon/warehouse stabilization and refactor cleanup
+Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Tests: 214 pass / 0 fail
-Latest pushed checkpoint: 1466ec1 refactor(ozon): extract warehouse result messaging
+Latest pushed checkpoint: c854afe docs(project): sync workflow and current handoff context
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
 ```
@@ -27,7 +27,7 @@ Roadmap:
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — UI/UX polish + Ozon/warehouse action layer + docs sync ⏳ current
+Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 Post-1.0 — centralized collector / Ozon hardening / Firefox fork
@@ -43,6 +43,7 @@ d9c38f9 refactor(ozon): extract UI apply result helpers
 9f75fe1 refactor(ozon): use extracted apply result helpers
 d1eb0d3 refactor(ozon): extract session utility helpers
 1466ec1 refactor(ozon): extract warehouse result messaging
+c854afe docs(project): sync workflow and current handoff context
 ```
 
 ---
@@ -110,21 +111,30 @@ git push
 
 ## 3. Product Vision
 
+Плагин удерживается в более узкой продуктовой рамке:
+
+```text
+tab_wanderer = уведомления о новых/изменённых заказах + отслеживаемые заказы с напоминаниями + Ozon/warehouse модуль штрихкодов
+```
+
 Плагин решает бизнес-задачи:
 
 ```text
 1. Отслеживать появление новых заказов.
 2. Отслеживать изменения известных заказов.
 3. Делать мониторинг глубже первой страницы.
-4. Уменьшать шум уведомлений.
+4. Показывать информативные desktop-уведомления по заказам.
 5. Позволять сотруднику быстро управлять уведомлениями.
 6. Позволять сотруднику отслеживать конкретные заказы.
-7. Показывать локально обнаруженные изменения по конкретному заказу.
+7. Давать одноразовые напоминания по отслеживаемым заказам.
 8. Давать диагностический лог для удалённой поддержки.
 9. Сохранять стабильность при reload/restart браузера.
 10. Автоматизировать безопасную привязку warehouse barcodes в Ozon как отдельный action layer.
 11. В будущем — централизовать сбор событий.
 ```
+
+User-facing order history/order lookup is not part of 1.0 product focus.
+The code may keep eventJournal/order lookup as internal diagnostic/foundation, but the UI should not sell it as a reliable server-side order history.
 
 Важное ограничение:
 
@@ -512,32 +522,42 @@ tests/history-ui.test.js
 
 ---
 
-## 15. Current Documentation Priority
+## 15. Current Product Priority
 
-Current task:
+Current task family:
 
 ```text
-bring docs to current code state
-remove obsolete code-agent-specific documentation
-keep docs useful for new ChatGPT sessions
-record exact working method and commit rules
-record current Ozon/warehouse behavior and refactor status
+Pre-1.0 product simplification, reminders and notification polish
 ```
 
----
-
-## 16. Recommended Next Work
-
-After docs sync, follow the user’s next priority.
-
-Possible future engineering slices:
+Decisions:
 
 ```text
-Ozon operation lock for simultaneous warehouse tabs
-compact Ozon debug payload policy
-release packaging script excluding .git/docs/private/node_modules/temp archives
-1.0 RC smoke pass
-full Ozon session controller extraction only when it becomes active priority
+Legal entity department workflow is postponed until a QA session with that department.
+Watched order reminders are mandatory for Pre-1.0 regardless of legal workflow.
+Release packaging is useful but not the next priority.
+Full Ozon session controller extraction is paused unless it becomes an explicit priority.
+```
+
+Immediate roadmap:
+
+```text
+1. Hide user-facing history/order lookup entry; keep eventJournal/order lookup as diagnostic/foundation.
+2. Simplify Options: remove user-facing controls for Флаги / Резерв / Комплектация.
+3. Restore informative notification format: order number + status + payment + delivery, with было → стало for changed fields.
+4. Add one-time reminders for watched orders.
+5. After legal department QA, design legal workflow from real process.
+```
+
+Reminder MVP:
+
+```text
+one active one-time reminder per watched order is enough for the first slice
+user chooses date/time
+optional short note
+Chrome notification includes order number and reminder text
+triggered reminder becomes done/expired
+no recurring reminders in MVP
 ```
 
 Avoid now:
@@ -546,6 +566,8 @@ Avoid now:
 large background.js rewrite without focused need
 mixing Ozon action layer with list-monitor semantics
 centralized collector before local 1.0 is stable
+legal-department feature design before QA
+release packaging before product simplification/reminders stabilize
 storing auth/session data
 committing docs/private or temporary archives
 ```
