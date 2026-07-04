@@ -12,11 +12,13 @@ const NOTIFICATION_FIELD_LABELS = {
     city: 'Город'
 };
 
-const NOTIFICATION_NEW_ORDER_FIELDS = [
+const NOTIFICATION_CONTEXT_FIELDS = [
     'status',
-    'delivery',
-    'payment'
+    'payment',
+    'delivery'
 ];
+
+const NOTIFICATION_NEW_ORDER_FIELDS = NOTIFICATION_CONTEXT_FIELDS;
 
 function formatNotificationValue(value) {
     const normalizeDisplayText = (item) => {
@@ -67,29 +69,43 @@ function getNotificationAllowedChangedFields(changedFields = []) {
         : [];
 }
 
+function createCurrentStateNotificationLine(order = {}, field) {
+    const label = NOTIFICATION_FIELD_LABELS[field] || field;
+
+    return `${label}: ${formatNotificationValue(order[field])}`;
+}
+
+function createChangedStateNotificationLine(order = {}, prevOrder = {}, field) {
+    const label = NOTIFICATION_FIELD_LABELS[field] || field;
+    const before = formatNotificationValue(prevOrder[field]);
+    const after = formatNotificationValue(order[field]);
+
+    return `${label}: ${before} → ${after}`;
+}
+
 function createNewOrderNotificationMessage(order = {}) {
     return NOTIFICATION_NEW_ORDER_FIELDS
-        .map(field => `${NOTIFICATION_FIELD_LABELS[field]}: ${formatNotificationValue(order[field])}`)
+        .map(field => createCurrentStateNotificationLine(order, field))
         .join('\n');
 }
 
 function createChangedOrderNotificationMessage(order = {}, eventContext = {}) {
     const changedFields = getNotificationAllowedChangedFields(eventContext.changedFields);
+    const changedFieldSet = new Set(changedFields);
     const prevOrder = eventContext.prevOrder || {};
+    const lines = NOTIFICATION_CONTEXT_FIELDS.map(field => (
+        changedFieldSet.has(field)
+            ? createChangedStateNotificationLine(order, prevOrder, field)
+            : createCurrentStateNotificationLine(order, field)
+    ));
 
-    if (!changedFields.length) {
-        return 'Изменения обнаружены.';
-    }
+    changedFields
+        .filter(field => !NOTIFICATION_CONTEXT_FIELDS.includes(field))
+        .forEach(field => {
+            lines.push(createChangedStateNotificationLine(order, prevOrder, field));
+        });
 
-    return changedFields
-        .map(field => {
-            const label = NOTIFICATION_FIELD_LABELS[field] || field;
-            const before = formatNotificationValue(prevOrder[field]);
-            const after = formatNotificationValue(order[field]);
-
-            return `${label}: ${before} → ${after}`;
-        })
-        .join('\n');
+    return lines.join('\n');
 }
 
 function createOrderNotificationContent(order = {}, eventContext = {}) {
@@ -115,10 +131,13 @@ function createOrderNotificationContent(order = {}, eventContext = {}) {
 
 globalThis.NOTIFICATION_EVENT_FIELDS = NOTIFICATION_EVENT_FIELDS;
 globalThis.NOTIFICATION_FIELD_LABELS = NOTIFICATION_FIELD_LABELS;
+globalThis.NOTIFICATION_CONTEXT_FIELDS = NOTIFICATION_CONTEXT_FIELDS;
 globalThis.NOTIFICATION_NEW_ORDER_FIELDS = NOTIFICATION_NEW_ORDER_FIELDS;
 globalThis.formatNotificationValue = formatNotificationValue;
 globalThis.getOrderNotificationTag = getOrderNotificationTag;
 globalThis.getNotificationAllowedChangedFields = getNotificationAllowedChangedFields;
+globalThis.createCurrentStateNotificationLine = createCurrentStateNotificationLine;
+globalThis.createChangedStateNotificationLine = createChangedStateNotificationLine;
 globalThis.createNewOrderNotificationMessage = createNewOrderNotificationMessage;
 globalThis.createChangedOrderNotificationMessage = createChangedOrderNotificationMessage;
 globalThis.createOrderNotificationContent = createOrderNotificationContent;

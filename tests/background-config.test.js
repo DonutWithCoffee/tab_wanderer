@@ -2744,7 +2744,10 @@ test('DIRECT_ORDER after direct baseline records event and notifies through shar
     assert.equal(response.checked, true);
     assert.equal(context.__test.notifications.length, 1);
     assert.equal(context.__test.notifications[0].title, 'Заказ №1000-300326 изменён');
-    assert.equal(context.__test.notifications[0].message, 'Статус: Новый → Комплектуется');
+    assert.equal(
+        context.__test.notifications[0].message,
+        'Статус: Новый → Комплектуется\nОплата: Оплата онлайн\nДоставка: Пункт самовывоза СДЭК'
+    );
     assert.equal(state.knownOrdersDB['1000-300326'].status, 'Комплектуется');
     assert.equal(entry.orderId, '1000-300326');
     assert.equal(entry.eventType, 'order-changed');

@@ -547,7 +547,7 @@ test('runBaseline preserves known state outside current window snapshot', () => 
     );
     assert.equal(state.pendingRebaseline, false);
 });
-test('processOrders notification for changed order uses before-after diff message', () => {
+test('processOrders notification for changed order keeps order context and before-after diff message', () => {
     const context = loadBackgroundContext();
 
     const prevOrder = createOrder({
@@ -582,7 +582,7 @@ test('processOrders notification for changed order uses before-after diff messag
     );
     assert.equal(
         context.__test.notifications[0].message,
-        'Статус: Новый → Ожидает оплаты\nДоставка: Самовывоз → Курьер СДЭК\nГород: Москва → Санкт-Петербург'
+        'Статус: Новый → Ожидает оплаты\nОплата: Оплата онлайн\nДоставка: Самовывоз → Курьер СДЭК\nГород: Москва → Санкт-Петербург'
     );
 });
 
@@ -614,7 +614,7 @@ test('processOrders stores tag-only changes without notifying user', () => {
     assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['tags']);
 });
 
-test('processOrders notification for new order keeps compact current-state message', () => {
+test('processOrders notification for new order keeps required current-state context', () => {
     const context = loadBackgroundContext();
 
     const existingOrder = createOrder();
@@ -643,7 +643,7 @@ test('processOrders notification for new order keeps compact current-state messa
     );
     assert.equal(
         context.__test.notifications[0].message,
-        'Статус: Новый\nДоставка: Самовывоз\nОплата: Безналичный расчет для юридических лиц'
+        'Статус: Новый\nОплата: Безналичный расчет для юридических лиц\nДоставка: Самовывоз'
     );
     assert.equal(context.__test.notifications[0].message.includes('79213241566'), false);
 });
