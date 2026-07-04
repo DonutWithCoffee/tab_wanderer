@@ -13,8 +13,8 @@
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
 Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Tests: 222 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): add reminder UI
+Tests: 225 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -51,6 +51,7 @@ feat(notifications): include full order context
 feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
 feat(watched-orders): add reminder UI
+feat(watched-orders): add follow-up interval setting
 ```
 
 ---
@@ -419,6 +420,7 @@ selected order shows local detected changes only
 watched orders managed on Orders page
 popup only adds watched order by full orderId
 Options links to Orders page instead of managing watchlist directly
+Options manages direct follow-up interval for watched orders
 ```
 
 Direct follow-up:
@@ -429,6 +431,7 @@ subsequent direct changes = eventJournal + optional notification
 tag-only direct changes = history/event only, no notification
 direct changes update knownOrdersDB
 direct follow-up state is separate from list-state
+direct follow-up interval is configurable in Options: 2 / 5 / 10 / 15 / 30 minutes; default is 2
 ```
 
 ---
@@ -545,7 +548,7 @@ content.js still owns DOM rendering and runtime messaging
 Baseline:
 
 ```text
-npm test → 222 pass / 0 fail
+npm test → 225 pass / 0 fail
 ```
 
 Important suites:
@@ -590,8 +593,10 @@ Immediate roadmap:
 2. Simplify Options: remove user-facing controls for Флаги / Резерв / Комплектация.
 3. Restore informative notification format: order number + status + payment + delivery, with было → стало for changed fields.
 4. Add one-time reminders for watched orders.
-5. Smoke reminder alarm firing and click-through before RC.
-6. After legal department QA, design legal workflow from real process.
+5. Add configurable direct follow-up interval for watched orders.
+6. Smoke interval cadence, reminder alarm firing and click-through before RC.
+7. Start Pre-1.0 UI polish after watched-orders smoke.
+8. After legal department QA, design legal workflow from real process.
 ```
 
 Reminder MVP:
@@ -601,6 +606,7 @@ one active pending one-time reminder per watched order
 user chooses date/time through watched orders UI
 optional short note
 pending reminder can be cleared from watched orders UI
+Direct follow-up cadence is configurable from Options
 Chrome notification includes order number and reminder text
 triggered reminder becomes done
 no recurring reminders in MVP

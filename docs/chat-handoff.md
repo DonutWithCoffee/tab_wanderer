@@ -11,8 +11,8 @@ Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Manifest version: 0.9.9
 Stage: Pre-1.0 product simplification, reminders and notification polish
-Latest pushed checkpoint: feat(watched-orders): add reminder UI
-Expected tests: 222 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
+Expected tests: 225 pass / 0 fail
 Distribution target: Chrome Web Store / Unlisted listing
 Working tree expected: clean
 ```
@@ -34,6 +34,7 @@ feat(notifications): include full order context
 feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
 feat(watched-orders): add reminder UI
+feat(watched-orders): add follow-up interval setting
 ```
 
 ---
@@ -52,8 +53,8 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  feat(watched-orders): add reminder UI
-npm test → 222 pass / 0 fail
+  feat(watched-orders): add follow-up interval setting
+npm test → 225 pass / 0 fail
 ```
 
 If dependencies are missing:
@@ -242,11 +243,11 @@ Chrome Web Store is the chosen distribution channel for 1.0+; listing should be 
 Recommended order:
 
 ```text
-1. Smoke watched-order reminders manually: set, reload extension, fire alarm, notification, click-through to order page.
-2. Polish reminder UI text only if QA exposes confusion.
-3. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
-4. After legal department QA, design legal workflow from real process.
-5. Later, add release packaging script.
+1. Smoke watched-order interval setting manually: change interval in Options and verify direct follow-up cadence.
+2. Smoke watched-order reminders manually: set, reload extension, fire alarm, notification, click-through to order page.
+3. Start Pre-1.0 UI polish: Orders/Tracking page first, then Options and popup quick actions.
+4. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
+5. After legal department QA, design legal workflow from real process.
 ```
 
 Avoid:

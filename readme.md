@@ -12,8 +12,8 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Текущий фокус: product simplification, watched-order reminders и notification polish
-Tests: 222 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): add reminder UI
+Tests: 225 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -118,6 +118,7 @@ Options — настройки и диагностика:
 monitorMode
 monitorScope
 deepSyncMaxPages
+watched order follow-up interval
 notificationTriggers
 notificationSuppressors
 monitor diagnostics
@@ -137,6 +138,7 @@ diagnostic log tools
 создать одно активное one-time reminder по отслеживаемому заказу
 показать pending/done/cancelled reminder state
 удалить pending reminder
+настроить интервал прямой проверки отслеживаемых заказов
 локальный order lookup/eventJournal оставить как diagnostic/foundation
 не продавать локальную историю как серверную историю заказа
 ```
@@ -162,6 +164,7 @@ URL reuse запрещён
 открывает конкретную карточку заказа по direct URL
 парсит detail page отдельно от основного list-monitor
 закрывается после проверки
+интервал проверки настраивается в Options: 2 / 5 / 10 / 15 / 30 минут, default 2 минуты
 ```
 
 Для Ozon используется отдельный inactive/background worker:
@@ -464,7 +467,7 @@ npm test
 Expected baseline:
 
 ```text
-222 pass / 0 fail
+225 pass / 0 fail
 ```
 
 Before commit:

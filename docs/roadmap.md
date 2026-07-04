@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 222 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): add reminder UI
+Tests: 225 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -191,6 +191,7 @@ informative notification format restored
 watched-order reminder core model added
 background chrome.alarms + reminder runtime API added
 watched-order reminder UI added on Orders/Tracking page
+watched-order direct follow-up interval setting added in Options
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -237,14 +238,16 @@ add watched-order reminder core model
 add background chrome.alarms + runtime API for reminder scheduling/firing
 add watched orders page UI: date/time + optional note + clear reminder
 display active/completed reminder state
+configure watched-order direct follow-up interval: 2 / 5 / 10 / 15 / 30 minutes
 ```
 
-Reminder MVP remaining checks:
+Reminder / direct follow-up remaining checks:
 
 ```text
+manual smoke for configured follow-up interval cadence
 manual smoke for fired reminder notification
 manual smoke for notification click-through to order page
-polish wording only if QA exposes confusion
+then start Pre-1.0 UI polish if smoke is clean
 ```
 
 Reminder MVP non-goals:
@@ -267,10 +270,11 @@ then decide whether they need filters, presets, reminders or separate views
 Recommended next implementation order:
 
 ```text
-1. Smoke reminder alarm firing and order-page click-through manually.
-2. Polish reminder texts/states only if QA exposes confusion.
-3. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
-4. After legal department QA, design legal workflow if needed.
+1. Smoke configured watched-order follow-up interval manually.
+2. Smoke reminder alarm firing and order-page click-through manually.
+3. Start Pre-1.0 UI polish: Orders/Tracking page, Options, popup quick actions.
+4. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
+5. After legal department QA, design legal workflow if needed.
 ```
 
 ---
