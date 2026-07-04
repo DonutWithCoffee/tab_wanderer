@@ -13,8 +13,8 @@
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
 Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Tests: 220 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
+Tests: 222 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add reminder UI
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -50,6 +50,7 @@ ui(options): hide low-value monitor scope filters
 feat(notifications): include full order context
 feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
+feat(watched-orders): add reminder UI
 ```
 
 ---
@@ -79,13 +80,13 @@ Agreement must be earned by analysis.
 Code workflow:
 
 ```text
-small coherent slices
+coherent controlled slices
 avoid unrelated refactor
-prefer 1–3 files per implementation step when practical
+prefer 1–3 files per implementation step when practical, but allow larger LOC when one behavior needs it and risk stays controlled
 commit coherent behavior/refactor slices, not half-finished work
-prefer full-file archives for implementation results
+provide archives with full replacement files only, not full project archives
 avoid .patch/.diff artifacts
-if current files are unavailable or stale, ask user for fresh archive/files
+ask for a fresh archive/files only when current code context is unavailable, stale or unsafe to continue from
 ```
 
 Git workflow:
@@ -544,7 +545,7 @@ content.js still owns DOM rendering and runtime messaging
 Baseline:
 
 ```text
-npm test → 220 pass / 0 fail
+npm test → 222 pass / 0 fail
 ```
 
 Important suites:
@@ -589,17 +590,19 @@ Immediate roadmap:
 2. Simplify Options: remove user-facing controls for Флаги / Резерв / Комплектация.
 3. Restore informative notification format: order number + status + payment + delivery, with было → стало for changed fields.
 4. Add one-time reminders for watched orders.
-5. After legal department QA, design legal workflow from real process.
+5. Smoke reminder alarm firing and click-through before RC.
+6. After legal department QA, design legal workflow from real process.
 ```
 
 Reminder MVP:
 
 ```text
-one active one-time reminder per watched order is enough for the first slice
-user chooses date/time
+one active pending one-time reminder per watched order
+user chooses date/time through watched orders UI
 optional short note
+pending reminder can be cleared from watched orders UI
 Chrome notification includes order number and reminder text
-triggered reminder becomes done/expired
+triggered reminder becomes done
 no recurring reminders in MVP
 ```
 

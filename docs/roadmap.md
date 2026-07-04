@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 220 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
+Tests: 222 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add reminder UI
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -190,6 +190,7 @@ low-value Options filters hidden: Флаги / Резерв / Комплекта
 informative notification format restored
 watched-order reminder core model added
 background chrome.alarms + reminder runtime API added
+watched-order reminder UI added on Orders/Tracking page
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -234,15 +235,16 @@ simplify Options by removing Флаги / Резерв / Комплектаци�
 restore informative notification message format
 add watched-order reminder core model
 add background chrome.alarms + runtime API for reminder scheduling/firing
+add watched orders page UI: date/time + optional note + clear reminder
+display active/completed reminder state
 ```
 
-Reminder MVP still in progress:
+Reminder MVP remaining checks:
 
 ```text
-UI on watched orders page: date/time + optional note
-edit/clear reminder controls
-display active/completed reminder state
-manual smoke for fired reminder notification and order-page click-through
+manual smoke for fired reminder notification
+manual smoke for notification click-through to order page
+polish wording only if QA exposes confusion
 ```
 
 Reminder MVP non-goals:
@@ -265,12 +267,10 @@ then decide whether they need filters, presets, reminders or separate views
 Recommended next implementation order:
 
 ```text
-1. Add UI for one-time watched-order reminders.
-2. Smoke reminder alarm firing and order-page click-through manually.
-3. Polish reminder texts/states if QA exposes confusion.
-4. Run docs/smoke sync after reminder UI is complete.
-5. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
-6. After legal department QA, design legal workflow if needed.
+1. Smoke reminder alarm firing and order-page click-through manually.
+2. Polish reminder texts/states only if QA exposes confusion.
+3. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
+4. After legal department QA, design legal workflow if needed.
 ```
 
 ---

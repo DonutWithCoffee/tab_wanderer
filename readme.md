@@ -12,8 +12,8 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Текущий фокус: product simplification, watched-order reminders и notification polish
-Tests: 220 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
+Tests: 222 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add reminder UI
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -127,14 +127,16 @@ diagnostic log tools
 
 ### Заказы
 
-Страница `history.html/history.js` технически остаётся страницей заказов, но пользовательский фокус 1.0 — **отслеживаемые заказы и будущие напоминания**, а не локальная история заказа.
+Страница `history.html/history.js` технически остаётся страницей заказов, но пользовательский фокус 1.0 — **отслеживаемые заказы и одноразовые напоминания**, а не локальная история заказа.
 
 Текущие/целевые сценарии:
 
 ```text
 добавить/убрать заказ из отслеживаемых
 список отслеживаемых заказов
-будущие one-time reminders по отслеживаемым заказам
+создать одно активное one-time reminder по отслеживаемому заказу
+показать pending/done/cancelled reminder state
+удалить pending reminder
 локальный order lookup/eventJournal оставить как diagnostic/foundation
 не продавать локальную историю как серверную историю заказа
 ```
@@ -462,7 +464,7 @@ npm test
 Expected baseline:
 
 ```text
-220 pass / 0 fail
+222 pass / 0 fail
 ```
 
 Before commit:

@@ -11,8 +11,8 @@ Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Manifest version: 0.9.9
 Stage: Pre-1.0 product simplification, reminders and notification polish
-Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
-Expected tests: 220 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): add reminder UI
+Expected tests: 222 pass / 0 fail
 Distribution target: Chrome Web Store / Unlisted listing
 Working tree expected: clean
 ```
@@ -33,6 +33,7 @@ ui(options): hide low-value monitor scope filters
 feat(notifications): include full order context
 feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
+feat(watched-orders): add reminder UI
 ```
 
 ---
@@ -51,8 +52,8 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  feat(watched-orders): schedule reminder alarms
-npm test → 220 pass / 0 fail
+  feat(watched-orders): add reminder UI
+npm test → 222 pass / 0 fail
 ```
 
 If dependencies are missing:
@@ -106,11 +107,12 @@ Style: direct engineer-to-engineer.
 Default flow: analysis → solution → artifact/commands.
 Prefer critical issues first.
 Challenge risky or wrong assumptions.
-Do not invent current code; inspect files or ask for archive.
+Do not invent current code; inspect available files or ask for archive only when needed.
 Do not silently continue from stale memory if files changed.
-Keep implementation slices small and coherent.
-Prefer 1–3 files per slice when practical.
-For implementation work, provide full-file archive, not patch files.
+Keep implementation slices coherent and controlled.
+Prefer 1–3 files per slice when practical, but larger LOC is acceptable when it keeps one behavior together and does not increase regression risk.
+Request a fresh project archive only when current code context is missing, stale or unsafe to continue from.
+For implementation work, provide an archive with full replacement files only, not a full project archive and not patch files.
 Do not send raw code snippets unless the user explicitly asks.
 When tests are green and a commit is appropriate, always provide commit commands.
 Never use git add .
@@ -240,12 +242,11 @@ Chrome Web Store is the chosen distribution channel for 1.0+; listing should be 
 Recommended order:
 
 ```text
-1. Add UI for one-time watched-order reminders: date/time + optional note + clear/edit state.
-2. Smoke reminder alarm firing and order-page click-through manually.
-3. Sync docs/smoke checklist after reminder UI is complete.
-4. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
-5. After legal department QA, design legal workflow from real process.
-6. Later, add release packaging script.
+1. Smoke watched-order reminders manually: set, reload extension, fire alarm, notification, click-through to order page.
+2. Polish reminder UI text only if QA exposes confusion.
+3. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
+4. After legal department QA, design legal workflow from real process.
+5. Later, add release packaging script.
 ```
 
 Avoid:
