@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js');
+importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -1778,55 +1778,6 @@ async function handleOzonProductResolveResult(senderTabId, msg = {}) {
 
 
 // ---------- OZON UI BARCODE APPLY ----------
-function getOzonUiApplyProductGroups(warehouseExtraction = {}) {
-    return getOzonResolveProductGroups(warehouseExtraction)
-        .map(group => ({
-            ...group,
-            productId: normalizeOzonResolveId(group?.productId),
-            eligibleBarcodes: Array.isArray(group?.eligibleBarcodes) ? group.eligibleBarcodes : []
-        }))
-        .filter(group => group.productId && group.eligibleBarcodes.length > 0);
-}
-
-function getUniqueOzonUiApplyBarcodes(entries = []) {
-    const seen = new Set();
-    const result = [];
-
-    for (const entry of entries) {
-        const barcode = normalizeOzonResolveId(entry?.barcode || entry);
-
-        if (!barcode || seen.has(barcode)) {
-            continue;
-        }
-
-        seen.add(barcode);
-        result.push(barcode);
-    }
-
-    return result;
-}
-
-function createOzonUiApplyRequestFromWarehouseExtraction(warehouseExtraction = {}) {
-    const productRequests = getOzonUiApplyProductGroups(warehouseExtraction)
-        .map(group => ({
-            productId: group.productId,
-            productTitle: String(group.productTitle || ''),
-            barcodes: getUniqueOzonUiApplyBarcodes(group.eligibleBarcodes)
-        }))
-        .filter(request => request.productId && request.barcodes.length > 0);
-
-    if (!productRequests.length) {
-        return { ok: false, error: 'no eligible warehouse barcodes' };
-    }
-
-    return {
-        ok: true,
-        productRequests,
-        productCount: productRequests.length,
-        barcodeCount: productRequests.reduce((sum, request) => sum + request.barcodes.length, 0)
-    };
-}
-
 function getCurrentOzonUiApplyProductRequest(session = ozonUiApplySession) {
     return session?.productRequests?.[session.index] || null;
 }
