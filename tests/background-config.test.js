@@ -2567,6 +2567,59 @@ test('direct follow-up tick opens separate direct worker for watched order', asy
     assert.equal(state.workerTabId, 77);
 });
 
+test('direct follow-up tick respects configured interval', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: null,
+        directFollowUpState: {
+            lastCompletedAt: Date.now(),
+            nextIndex: 0
+        },
+        userConfig: createWindowedConfig(context, {
+            watchedOrderFollowUpIntervalMinutes: 5,
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const skipped = await context.runDirectFollowUpTick();
+
+    assert.equal(skipped, false);
+    assert.equal(context.__test.createdTabs.length, 0);
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: null,
+        directFollowUpState: {
+            lastCompletedAt: Date.now() - (5 * 60 * 1000),
+            nextIndex: 0
+        },
+        userConfig: createWindowedConfig(context, {
+            watchedOrderFollowUpIntervalMinutes: 5,
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const started = await context.runDirectFollowUpTick();
+
+    assert.equal(started, true);
+    assert.equal(context.__test.createdTabs.length, 1);
+});
+
 test('DIRECT_ORDER from direct worker updates watched order status and closes direct tab', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

@@ -1,6 +1,10 @@
 const OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES = 50;
 const OPTIONS_MIN_DEEP_SYNC_MAX_PAGES = 1;
 const OPTIONS_MAX_DEEP_SYNC_MAX_PAGES = 50;
+const OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const OPTIONS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const OPTIONS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 30;
+const OPTIONS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS = [2, 5, 10, 15, 30];
 const OPTIONS_SCOPE_AUTOSAVE_DEBOUNCE_MS = 700;
 const OPTIONS_WATCHED_ORDER_LIMIT = 100;
 
@@ -254,8 +258,43 @@ function getWatchedOrdersSummary(config = {}) {
     return `${count} заказов`;
 }
 
+function getWatchedOrdersSummaryWithInterval(config = {}) {
+    return `${getWatchedOrdersSummary(config)}; проверка: ${getWatchedOrderFollowUpIntervalLabel(config)}`;
+}
+
 function normalizeMonitorMode(value) {
     return String(value || 'windowed') === 'active' ? 'active' : 'windowed';
+}
+
+function normalizeWatchedOrderFollowUpIntervalMinutes(value) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) {
+        return OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    const integer = Math.floor(numeric);
+
+    if (integer <= OPTIONS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES) {
+        return OPTIONS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    if (integer >= OPTIONS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES) {
+        return OPTIONS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    const exact = OPTIONS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS.find((item) => item === integer);
+
+    if (exact) {
+        return exact;
+    }
+
+    return OPTIONS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS.find((item) => item >= integer)
+        || OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+}
+
+function getWatchedOrderFollowUpIntervalLabel(config = {}) {
+    return `каждые ${normalizeWatchedOrderFollowUpIntervalMinutes(config.watchedOrderFollowUpIntervalMinutes)} мин.`;
 }
 
 function normalizeDeepSyncMaxPages(value) {
@@ -509,7 +548,7 @@ function renderConfigSummary(config, dictionaries) {
     setText('optionsDeepSyncSummary', `${normalizeDeepSyncMaxPages(config.deepSyncMaxPages)} страниц`);
     setText('optionsScopeSummary', getScopeSummary(config, dictionaries));
     setText('optionsNotificationSummary', getNotificationSummary(config));
-    setText('optionsWatchedOrdersSummary', getWatchedOrdersSummary(config));
+    setText('optionsWatchedOrdersSummary', getWatchedOrdersSummaryWithInterval(config));
     setText('optionsLoadStatus', 'Текущие настройки загружены.');
 }
 
@@ -525,6 +564,7 @@ function renderSettings(config = {}) {
 
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
+    setValue('optionsWatchedOrderFollowUpIntervalSelect', normalizeWatchedOrderFollowUpIntervalMinutes(config.watchedOrderFollowUpIntervalMinutes));
     renderScopeControls(config, currentDictionaries);
     renderWatchedOrders(config);
 
@@ -578,6 +618,15 @@ function saveDeepSyncMaxPagesFromUI() {
     };
 
     saveConfig(nextConfig, 'Глубина синхронизации сохранена.');
+}
+
+function saveWatchedOrderFollowUpIntervalFromUI() {
+    const nextConfig = {
+        ...currentConfig,
+        watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(getValue('optionsWatchedOrderFollowUpIntervalSelect'))
+    };
+
+    saveConfig(nextConfig, 'Интервал проверки отслеживаемых заказов сохранён.');
 }
 
 function collectMonitorScopeFromUI(baseConfig = {}) {
@@ -833,6 +882,7 @@ function saveNotificationSuppressorsFromUI(successMessage = 'Подавлени�
 function bindSettingsAutosave() {
     const monitorMode = document.getElementById('optionsMonitorModeSelect');
     const deepSyncMaxPages = document.getElementById('optionsDeepSyncMaxPages');
+    const watchedOrderFollowUpInterval = document.getElementById('optionsWatchedOrderFollowUpIntervalSelect');
 
     if (monitorMode) {
         monitorMode.addEventListener('change', () => {
@@ -843,6 +893,12 @@ function bindSettingsAutosave() {
     if (deepSyncMaxPages) {
         deepSyncMaxPages.addEventListener('change', () => {
             saveDeepSyncMaxPagesFromUI();
+        });
+    }
+
+    if (watchedOrderFollowUpInterval) {
+        watchedOrderFollowUpInterval.addEventListener('change', () => {
+            saveWatchedOrderFollowUpIntervalFromUI();
         });
     }
 
@@ -924,7 +980,8 @@ function renderMonitorDiagnostics(status = {}) {
             `работает: ${getYesNo(status.isRunning === true)}`,
             `состояние: ${getTextValue(status.monitorState, 'uninitialized')}`,
             `режим: ${getMonitorModeLabel({ monitorMode: status.monitorMode })}`,
-            `глубина: ${getNumber(status.deepSyncMaxPages, OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES)} страниц`
+            `глубина: ${getNumber(status.deepSyncMaxPages, OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES)} страниц`,
+            `отслеживаемые: каждые ${getNumber(status.watchedOrderFollowUpIntervalMinutes, OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES)} мин.`
         ].join('; ')
     );
 
@@ -1120,7 +1177,7 @@ function buildMonitorStatusLogHeader(status = {}) {
         `Сформирован: ${formatTimestamp(Date.now())}`,
         `Мониторинг: включён=${getYesNo(status.isRunning === true)}; состояние=${getDiagnosticMonitorStateLabel(status.monitorState)}; режим=${getDiagnosticMonitorModeLabel(status.monitorMode)}; глубина=${getOptionalNumberText(status.deepSyncMaxPages)} страниц`,
         `Основной worker: ${getYesNo(status.hasWorkerTab === true)}; tabId=${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`,
-        `Прямая проверка: worker=${getYesNo(status.hasDirectWorkerTab === true)}; tabId=${status.directWorkerTabId === null || status.directWorkerTabId === undefined ? '—' : String(status.directWorkerTabId)}; отслеживаемых=${getNumber(status.watchedOrdersCount)}; текущий заказ=${getTextValue(directState.currentOrderId)}`,
+        `Прямая проверка: worker=${getYesNo(status.hasDirectWorkerTab === true)}; tabId=${status.directWorkerTabId === null || status.directWorkerTabId === undefined ? '—' : String(status.directWorkerTabId)}; отслеживаемых=${getNumber(status.watchedOrdersCount)}; интервал=${getNumber(status.watchedOrderFollowUpIntervalMinutes, OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES)} мин.; текущий заказ=${getTextValue(directState.currentOrderId)}`,
         `Заказы: известно=${getNumber(status.knownOrdersCount)}; окно=${getNumber(status.windowOrdersCount)}; hash=${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}; целей уведомлений=${getNumber(status.notificationTargetsCount)}`,
         `Журналы: диагностика=${getNumber(status.diagnosticLogCount)}; история=${getNumber(status.eventJournalCount)}; удалено диагностических=${getNumber(status.diagnosticLogDroppedEntries)}; удалено исторических=${getNumber(status.eventJournalDroppedEntries)}`,
         `Синхронизация: ожидает перебазировки=${getYesNo(status.pendingRebaseline === true)}; причина=${getTextValue(status.pendingSyncReason)}; последний baseline=${getTextValue(status.lastBaselineDate)}; последний deep sync=${formatTimestamp(status.lastDeepSyncAt)}`,

@@ -47,13 +47,33 @@ const OZON_PRODUCTS_URL = 'https://seller.ozon.ru/app/products';
 const OZON_RESOLVE_TIMEOUT_MS = 30000;
 const OZON_UI_APPLY_TIMEOUT_MS = 60000;
 const OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT = false;
-const DIRECT_FOLLOW_UP_INTERVAL_MS = 2 * 60 * 1000;
+const DIRECT_FOLLOW_UP_POLL_INTERVAL_MS = 30000;
 const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
 const WATCHED_ORDER_REMINDER_ALARM_PREFIX = 'tab_wanderer_watched_order_reminder:';
 const FAST_POLL_INTERVAL_MS = 15000;
 const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const COLLECTION_TIMEOUT_MS = 60000;
 const COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER = 2;
+
+function getConfiguredWatchedOrderFollowUpIntervalMinutes() {
+    if (typeof normalizeWatchedOrderFollowUpIntervalMinutes === 'function') {
+        return normalizeWatchedOrderFollowUpIntervalMinutes(userConfig?.watchedOrderFollowUpIntervalMinutes);
+    }
+
+    return Number(userConfig?.watchedOrderFollowUpIntervalMinutes) || 2;
+}
+
+function getConfiguredWatchedOrderFollowUpIntervalMs() {
+    return getConfiguredWatchedOrderFollowUpIntervalMinutes() * 60 * 1000;
+}
+
+function isDirectFollowUpDue(now = Date.now()) {
+    const lastCompletedAt = Number(directFollowUpState?.lastCompletedAt) || 0;
+    const lastStartedAt = Number(directFollowUpState?.lastStartedAt) || 0;
+    const lastActivityAt = Math.max(lastCompletedAt, lastStartedAt);
+
+    return !lastActivityAt || (now - lastActivityAt) >= getConfiguredWatchedOrderFollowUpIntervalMs();
+}
 
 function getConfiguredDeepSyncMaxPages() {
     if (typeof normalizeDeepSyncMaxPages === 'function') {
@@ -214,6 +234,10 @@ async function completeDirectFollowUpCheck(orderId, result = {}) {
 
 async function runDirectFollowUpTick() {
     if (!isRunning || monitorState !== 'active' || directWorkerTabId || directFollowUpState?.currentOrderId) {
+        return false;
+    }
+
+    if (!isDirectFollowUpDue()) {
         return false;
     }
 
@@ -891,6 +915,7 @@ function getEffectiveUserConfig(storedConfig) {
         ...configWithoutRules,
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
+        watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safe.watchedOrderFollowUpIntervalMinutes),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safe.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safe.monitorScope),
@@ -1821,7 +1846,7 @@ setInterval(() => {
 
 setInterval(() => {
     runDirectFollowUpTick();
-}, DIRECT_FOLLOW_UP_INTERVAL_MS);
+}, DIRECT_FOLLOW_UP_POLL_INTERVAL_MS);
 
 
 // ---------- OZON BARCODE RESOLVE PREVIEW ----------

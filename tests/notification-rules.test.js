@@ -256,6 +256,19 @@ test('getEffectiveConfig normalizes deep sync max pages', () => {
     assert.equal(context.getEffectiveConfig({ deepSyncMaxPages: 'abc' }).deepSyncMaxPages, 50);
 });
 
+
+test('getEffectiveConfig normalizes watched order follow-up interval', () => {
+    const context = loadRulesContext();
+
+    assert.equal(context.getEffectiveConfig({}).watchedOrderFollowUpIntervalMinutes, 2);
+    assert.equal(context.getEffectiveConfig({ watchedOrderFollowUpIntervalMinutes: 2 }).watchedOrderFollowUpIntervalMinutes, 2);
+    assert.equal(context.getEffectiveConfig({ watchedOrderFollowUpIntervalMinutes: 5 }).watchedOrderFollowUpIntervalMinutes, 5);
+    assert.equal(context.getEffectiveConfig({ watchedOrderFollowUpIntervalMinutes: 12 }).watchedOrderFollowUpIntervalMinutes, 15);
+    assert.equal(context.getEffectiveConfig({ watchedOrderFollowUpIntervalMinutes: 999 }).watchedOrderFollowUpIntervalMinutes, 30);
+    assert.equal(context.getEffectiveConfig({ watchedOrderFollowUpIntervalMinutes: -1 }).watchedOrderFollowUpIntervalMinutes, 2);
+    assert.equal(context.getEffectiveConfig({ watchedOrderFollowUpIntervalMinutes: 'abc' }).watchedOrderFollowUpIntervalMinutes, 2);
+});
+
 test('getEffectiveConfig normalizes watched orders config', () => {
     const context = loadRulesContext();
 

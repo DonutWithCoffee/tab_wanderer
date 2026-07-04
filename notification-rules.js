@@ -1,10 +1,15 @@
 const DEFAULT_DEEP_SYNC_MAX_PAGES = 50;
 const MIN_DEEP_SYNC_MAX_PAGES = 1;
 const MAX_DEEP_SYNC_MAX_PAGES = 50;
+const DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 30;
+const ALLOWED_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = [2, 5, 10, 15, 30];
 
 const DEFAULT_CONFIG = {
     monitorMode: 'windowed',
     deepSyncMaxPages: DEFAULT_DEEP_SYNC_MAX_PAGES,
+    watchedOrderFollowUpIntervalMinutes: DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES,
     notificationTriggers: {
         newOrders: true,
         changedOrders: true,
@@ -37,6 +42,10 @@ self.DEFAULT_CONFIG = DEFAULT_CONFIG;
 self.DEFAULT_DEEP_SYNC_MAX_PAGES = DEFAULT_DEEP_SYNC_MAX_PAGES;
 self.MIN_DEEP_SYNC_MAX_PAGES = MIN_DEEP_SYNC_MAX_PAGES;
 self.MAX_DEEP_SYNC_MAX_PAGES = MAX_DEEP_SYNC_MAX_PAGES;
+self.DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+self.MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+self.MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+self.ALLOWED_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = ALLOWED_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
 
 
 function normalizeDeepSyncMaxPages(value) {
@@ -58,6 +67,35 @@ function normalizeDeepSyncMaxPages(value) {
 
     return integer;
 }
+
+function normalizeWatchedOrderFollowUpIntervalMinutes(value) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) {
+        return DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    const integer = Math.floor(numeric);
+
+    if (integer <= MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES) {
+        return MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    if (integer >= MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES) {
+        return MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    const exact = ALLOWED_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES.find((item) => item === integer);
+
+    if (exact) {
+        return exact;
+    }
+
+    return ALLOWED_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES.find((item) => item >= integer)
+        || DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+}
+
+self.normalizeWatchedOrderFollowUpIntervalMinutes = normalizeWatchedOrderFollowUpIntervalMinutes;
 
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
@@ -131,6 +169,7 @@ function getEffectiveConfig(config = {}) {
         ...configWithoutRules,
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
+        watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safeConfig.watchedOrderFollowUpIntervalMinutes),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safeConfig.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safeConfig.monitorScope),

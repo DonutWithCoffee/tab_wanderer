@@ -103,6 +103,7 @@ function createOptionsDom() {
         'optionsNotificationSummary',
         'optionsMonitorModeSelect',
         'optionsDeepSyncMaxPages',
+        'optionsWatchedOrderFollowUpIntervalSelect',
         'optionsNotifyNewOrders',
         'optionsNotifyChangedOrders',
         'optionsNotifyFieldStatus',
@@ -153,6 +154,7 @@ function loadOptionsContext(overrides = {}) {
     const defaultConfig = {
         monitorMode: 'windowed',
         deepSyncMaxPages: 50,
+        watchedOrderFollowUpIntervalMinutes: 2,
         notificationTriggers: {
             newOrders: true,
             changedOrders: true,
@@ -219,6 +221,7 @@ function loadOptionsContext(overrides = {}) {
         monitorState: 'active',
         monitorMode: 'windowed',
         deepSyncMaxPages: 50,
+        watchedOrderFollowUpIntervalMinutes: 2,
         workerTabId: 77,
         hasWorkerTab: true,
         pendingRebaseline: false,
@@ -418,6 +421,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsSettingsSaveStatus"/);
     assert.match(html, /id="optionsMonitorModeSelect"/);
     assert.match(html, /id="optionsDeepSyncMaxPages"/);
+    assert.match(html, /id="optionsWatchedOrderFollowUpIntervalSelect"/);
     assert.match(html, /id="optionsNotifyNewOrders"/);
     assert.match(html, /id="optionsNotifyChangedOrders"/);
     assert.match(html, /id="optionsSuppressLegalEntityPayment"/);
@@ -471,7 +475,7 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Склад: все');
     assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
-    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ');
+    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ; проверка: каждые 2 мин.');
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /глубина: 50 страниц/);
 });
 
@@ -546,6 +550,23 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     assert.equal(Object.prototype.hasOwnProperty.call(updateMessages[0].userConfig.monitorScope, 'orderFlags'), false);
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Склад: все');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
+});
+
+test('options page autosaves watched order follow-up interval', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const select = document.getElementById('optionsWatchedOrderFollowUpIntervalSelect');
+
+    select.value = '15';
+    select.dispatchEvent({ type: 'change', target: select });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.watchedOrderFollowUpIntervalMinutes, 15);
+    assert.equal(document.getElementById('optionsWatchedOrderFollowUpIntervalSelect').value, '15');
+    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ; проверка: каждые 15 мин.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Интервал проверки отслеживаемых заказов сохранён.');
 });
 
 test('options page autosaves and clamps deep sync max pages', () => {
@@ -633,6 +654,7 @@ test('options page refreshes monitor diagnostics on demand', () => {
 
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
     assert.equal(document.getElementById('optionsDiagnosticsStatus').innerText, 'Диагностика загружена.');
+    assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /отслеживаемые: каждые 2 мин\./);
     assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /лимит: 50/);
 });
 

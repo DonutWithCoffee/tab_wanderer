@@ -26,6 +26,16 @@ function normalizeMonitorStatusMode(userConfig = {}) {
     return userConfig?.monitorMode === 'active' ? 'active' : 'windowed';
 }
 
+function normalizeMonitorStatusWatchedOrderFollowUpIntervalMinutes(userConfig = {}) {
+    if (typeof normalizeWatchedOrderFollowUpIntervalMinutes === 'function') {
+        return normalizeWatchedOrderFollowUpIntervalMinutes(userConfig?.watchedOrderFollowUpIntervalMinutes);
+    }
+
+    const numeric = Number(userConfig?.watchedOrderFollowUpIntervalMinutes);
+
+    return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 2;
+}
+
 function normalizeMonitorStatusDeepSyncMaxPages(userConfig = {}) {
     if (typeof normalizeDeepSyncMaxPages === 'function') {
         return normalizeDeepSyncMaxPages(userConfig?.deepSyncMaxPages);
@@ -85,6 +95,7 @@ function createMonitorStatusSnapshot(state = {}) {
         monitorState: String(state.monitorState || DEFAULT_MONITOR_STATUS_STATE.UNINITIALIZED),
         monitorMode: normalizeMonitorStatusMode(userConfig),
         deepSyncMaxPages: normalizeMonitorStatusDeepSyncMaxPages(userConfig),
+        watchedOrderFollowUpIntervalMinutes: normalizeMonitorStatusWatchedOrderFollowUpIntervalMinutes(userConfig),
         workerTabId,
         hasWorkerTab: workerTabId !== null && workerTabId !== undefined,
         directWorkerTabId,
@@ -117,5 +128,6 @@ globalThis.cloneMonitorStatusValue = cloneMonitorStatusValue;
 globalThis.countObjectKeys = countObjectKeys;
 globalThis.normalizeMonitorStatusMode = normalizeMonitorStatusMode;
 globalThis.normalizeMonitorStatusDeepSyncMaxPages = normalizeMonitorStatusDeepSyncMaxPages;
+globalThis.normalizeMonitorStatusWatchedOrderFollowUpIntervalMinutes = normalizeMonitorStatusWatchedOrderFollowUpIntervalMinutes;
 globalThis.createCollectionSessionStatusSnapshot = createCollectionSessionStatusSnapshot;
 globalThis.createMonitorStatusSnapshot = createMonitorStatusSnapshot;
