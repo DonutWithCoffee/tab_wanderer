@@ -1,26 +1,26 @@
 # tab_wanderer
 
-Chrome extension для мониторинга заказов в админке Amperkot.
+Chrome extension для мониторинга заказов в админке Amperkot и отдельного warehouse/Ozon barcode action flow.
 
-`tab_wanderer` работает как локальный наблюдатель: собирает snapshot заказов через изолированную worker-вкладку, сравнивает текущее состояние с локально известным состоянием, пишет обнаруженные события в локальные журналы и показывает уведомления по настройкам пользователя.
+`tab_wanderer` работает локально: собирает snapshot заказов через изолированную worker-вкладку, сравнивает текущее состояние с локально известным состоянием, пишет обнаруженные события в локальные журналы и показывает уведомления по настройкам пользователя.
 
 ---
 
 ## Текущий статус
 
 ```text
-Стадия разработки: Pre-1.0 Ozon barcode flow checkpoint + Codex handoff
+Стадия разработки: Pre-1.0 docs sync after stable Ozon/warehouse barcode flow
 Manifest version: 0.9.9
-Build checkpoint: 0.9.9.9-docs
-Текущий фокус: Ozon/warehouse smoke QA, small polish, затем UI/UX polish и 1.0 RC
-Tests: 201 pass / 0 fail
+Текущий фокус: актуализация документации и подготовка к следующей приоритетной задаче
+Tests: 214 pass / 0 fail
+Latest pushed checkpoint: 1466ec1 refactor(ozon): extract warehouse result messaging
 ```
 
 Документы проекта:
 
 ```text
 AGENTS.md
-docs/codex-handoff.md
+docs/chat-handoff.md
 docs/project-context.md
 docs/roadmap.md
 docs/smoke-checklist.md
@@ -38,13 +38,13 @@ docs/smoke-checklist.md
 - события по заказам, которые сотрудник добавил в отслеживаемые;
 - локальные обнаруженные изменения по конкретному заказу;
 - диагностическое состояние и локальный диагностический лог для поддержки;
-- Ozon barcode binding со страницы сборки склада в Ozon Seller UI.
+- безопасную привязку складских штрихкодов в Ozon Seller UI со страницы сборки склада.
 
 Плагин **не является серверной историей заказов**. Он показывает только то, что было обнаружено локальным экземпляром расширения во время работы.
 
 ---
 
-## Основная модель
+## Основная модель мониторинга
 
 Система разделяет сбор данных, события и уведомления.
 
@@ -84,8 +84,6 @@ Start / Stop
 скачать diagnostic log
 ```
 
-В popup добавление в watchlist выполняется только по полному номеру заказа, например `2579-290626`. Поиск по первым 4 цифрам вынесен на страницу “Заказы”, чтобы не перегружать основное окно.
-
 ### Options
 
 Options — настройки и диагностика:
@@ -100,8 +98,6 @@ monitor diagnostics
 diagnostic log tools
 ссылка на страницу “Заказы”
 ```
-
-Ежедневное управление отслеживаемыми заказами не хранится в Options.
 
 ### Заказы
 
@@ -119,11 +115,9 @@ diagnostic log tools
 список отслеживаемых заказов
 ```
 
-На странице явно сохраняется смысл: это локально обнаруженные плагином изменения, а не полная серверная история заказа.
-
 ---
 
-## Worker tab
+## Worker tab model
 
 Основной мониторинг выполняется через отдельную worker-вкладку.
 
@@ -135,8 +129,6 @@ URL reuse запрещён
 нельзя брать произвольную admin-вкладку с похожим URL
 ```
 
-Это нужно потому, что менеджер может работать в другой вкладке админки с тем же URL.
-
 Для отслеживаемых заказов используется отдельный direct worker:
 
 ```text
@@ -146,11 +138,18 @@ URL reuse запрещён
 закрывается после проверки
 ```
 
+Для Ozon используется отдельный inactive/background worker:
+
+```text
+#tab_wanderer_ozon_worker=1
+открывает Ozon Seller product page/search
+не должен уводить фокус с рабочей складской вкладки
+используется только для action layer, не для order-monitor
+```
+
 ---
 
 ## Collection model
-
-Система использует два контура основного сбора.
 
 ### Fast poll
 
@@ -168,8 +167,6 @@ pagination через ?page=N
 по умолчанию до 50 страниц / около 1500 заказов
 safe range: 1–50 страниц
 ```
-
-По ручной проверке 50 страниц собираются примерно за 30–35 секунд. После deep session worker возвращается на page 1.
 
 Deep sync завершается по явной pagination-информации:
 
@@ -224,7 +221,7 @@ catch-up = обновить state/history
 live monitoring = создавать desktop-уведомления
 ```
 
-Startup catch-up не создаёт пачку desktop-уведомлений по backlog. Это защищает сотрудников от лавины уведомлений при включении плагина утром или после перезагрузки расширения.
+Startup catch-up не создаёт пачку desktop-уведомлений по backlog.
 
 ---
 
@@ -239,8 +236,6 @@ payment
 city
 tags
 ```
-
-Эти поля участвуют в event fingerprint, `changedFields` и eventJournal.
 
 Notification-visible fields:
 
@@ -279,8 +274,6 @@ tag-only changes не создают desktop-уведомления
 
 ## Уведомления
 
-Уведомления создаются для событий, которые прошли notification decision model.
-
 Текущие trigger-группы:
 
 ```text
@@ -304,23 +297,6 @@ ignoreOzon
 ```
 
 Suppressors не являются monitorScope и не останавливают сбор/историю.
-
-Для новых заказов уведомление показывает компактное текущее состояние:
-
-```text
-Статус: Новый
-Доставка: Самовывоз
-Оплата: ...
-```
-
-Для изменений уведомление показывает diff `было → стало`:
-
-```text
-Статус: Новый → Ожидает оплаты
-Доставка: Самовывоз → Курьер СДЭК
-```
-
-При клике на уведомление открывается карточка заказа.
 
 ---
 
@@ -363,142 +339,128 @@ watchedOrders
 короткий номер: 2579
 ```
 
-Если короткий номер совпадает с несколькими заказами, страница показывает кандидатов.
-
 ---
 
-## Diagnostic log
+## Warehouse / Ozon barcode binding
 
-Локальный diagnostic log нужен для удалённой поддержки без DevTools.
+Это отдельный action layer. Он не является частью основного мониторинга заказов.
 
-Доступ:
-
-```text
-GET_DIAGNOSTIC_LOG preview → последние 100 записей
-GET_DIAGNOSTIC_LOG full → весь retained log
-CLEAR_DIAGNOSTIC_LOG
-```
-
-Retention:
+Сценарии:
 
 ```text
-preview limit: 100 entries
-max retained entries: 5000
-max retained bytes: 2_000_000
-diagnosticLogDroppedEntries сохраняется и показывается в export header
-```
-
-В лог не должны попадать:
-
-```text
-телефоны
-полный payload заказа
-HTML/DOM
-cookie/token/auth данные
-```
-
----
-
-## Ozon barcode binding / warehouse action layer
-
-Ozon-сценарий является action layer поверх warehouse/admin страниц и не смешивается с основным monitor worker.
-
-Текущий рабочий поток:
-
-```text
-warehouse assembly page
-→ после “Собрать заказ” ловим warehouse API response
-→ если API snapshot не содержит barcode-кандидатов, читаем visible DOM fallback без reload
-→ показываем preview в панели склада
-→ “Добавить в Ozon” открывает Ozon worker tab в фоне
-→ поиск товара Ozon по productId / offerId
-→ API write через /api/barcode-add-v2
-→ verify через полный список штрихкодов в drawer
-→ если API/verify не сработали, UI fallback через drawer
-→ post-write verify
-```
-
-Зафиксированные live-факты:
-
-```text
-Amperkot product ID = Ozon product offer/article for search
-Ozon search URL = https://seller.ozon.ru/app/products?search=<productId>
-Ozon write endpoint = POST /api/barcode-add-v2
-seller_id берётся из активной Ozon Seller UI-сессии/headers/state
-item_id = Ozon SKU / ozonSku
-cookies/tokens/auth данные не сохраняются
+warehouse page получает barcode preview без reload после “Собрать заказ”
+старые уже собранные заказы показывают initial barcode preview при открытии страницы
+панель warehouse/Ozon свёрнута по умолчанию
+панель разворачивается/сворачивается по клику
+кнопка “Список ШК” показывает selectable список штрихкодов по товарам
+кнопка “Проверить штрихкоды” сверяет состояние Ozon без записи
+кнопка “Записать в Ozon” пишет недостающие штрихкоды
 ```
 
 Warehouse source priority:
 
 ```text
-1. API response shop_order after “Собрать заказ”, если в нём есть barcode snapshot
-2. visible DOM product cards, если API snapshot пустой по barcode
-3. manual “Проверить штрихкоды” для уже собранных/старых заказов
-4. reload не используется как основной сценарий
+1. captured warehouse API response with usable barcode snapshot
+2. visible DOM fallback if API snapshot is empty/unusable
 ```
 
-UI policy:
+Ozon preview/verify priority:
 
 ```text
-“Обновить склад” убрана
-“Проверить штрихкоды” остаётся последней кнопкой
-“Пропущено мультишк” показывает multi-barcode rows, которые не пишутся автоматически
-Ozon worker tab открывается inactive/background и не должен уводить сотрудника из текущей вкладки
+1. POST /api/sc/barcode-details-by-item-id with { item_id: ["<ozonSku>"] }
+2. drawer/DOM fallback
+```
+
+Ozon write:
+
+```text
+POST /api/barcode-add-v2
+payload: { seller_id, barcodes: [{ barcode, item_id }] }
+```
+
+Rules:
+
+```text
+не хранить Ozon cookies/tokens/auth/session data
+Ozon worker открывается inactive/background
+multi-barcode warehouse rows не пишутся автоматически
+multi-barcode rows показываются как “Пропущено мультиштрихов”
+UI fallback остаётся доступным при сбоях API write/verify
 ```
 
 ---
 
-## Core modules
+## Current module layout
 
-Pure/domain logic постепенно вынесена из `background.js`:
+Core modules include:
 
 ```text
 core/order-model.js
 core/sync-model.js
 core/collection-model.js
 core/event-journal.js
-core/monitor-status.js
 core/diagnostic-log.js
-core/notification-message.js
 core/runtime-api.js
-core/watched-orders.js
-core/direct-follow-up.js
+core/monitor-status.js
 core/order-lookup.js
+core/direct-follow-up.js
+core/watched-orders.js
 core/warehouse-barcode-extractor.js
+core/warehouse-ozon-view-model.js
 core/ozon-product-search.js
 core/ozon-barcode-binding.js
+core/ozon-ui-apply-result.js
+core/ozon-session-utils.js
+core/ozon-session-messaging.js
 ```
 
-Chrome APIs остаются на runtime edge.
+`background.js` still owns monitor lifecycle and Ozon worker/session lifecycle. `content.js` still owns DOM rendering and runtime messaging, but warehouse/Ozon view-model logic is extracted.
 
 ---
 
-## Тесты
-
-Запуск:
+## Development commands
 
 ```bash
 npm test
 ```
 
-Текущий checkpoint:
+Expected baseline:
 
 ```text
-201 pass 0 fail
+214 pass / 0 fail
 ```
+
+Before commit:
+
+```bash
+git status
+npm test
+git diff --stat
+git diff --name-status
+```
+
+Commit style:
+
+```bash
+git add <explicit-file-list>
+git diff --cached --stat
+git commit -m "type(scope): short summary"
+git push
+```
+
+Never use `git add .`.
 
 ---
 
-## Release direction
+## Private / local files
 
-Текущий этап после diagnostics/log polish checkpoint:
+Do not commit:
 
 ```text
-Pre-1.0 Ozon/warehouse smoke QA
-small Ozon panel/diagnostic polish
-UI/UX polish
-manual browser smoke QA
-1.0 RC
-1.0 Stable local-first Chrome extension release
+docs/private/
+.git/
+node_modules/
+*.patch
+*.diff
+temporary zip archives
 ```

@@ -1,6 +1,6 @@
 # tab_wanderer — ручной smoke checklist
 
-Актуально для `0.9.9` / Pre-1.0 Ozon barcode flow checkpoint + Codex handoff.
+Актуально для `0.9.9` / Pre-1.0 after stable Ozon/warehouse barcode flow.
 
 Цель: перед `1.0 RC` быстро проверить, что расширение не создаёт ложные уведомления, не мешает рабочей вкладке менеджера и остаётся понятным для обычного сотрудника.
 
@@ -9,7 +9,7 @@
 ## 0. Перед проверкой
 
 ```text
-npm test → 201 pass / 0 fail
+npm test → 214 pass / 0 fail
 расширение загружено в chrome://extensions
 расширение перезагружено после установки новой сборки
 есть доступ к https://amperkot.ru/admin/orders/
@@ -286,28 +286,36 @@ recovery не создаёт notification flood
 
 ```text
 1. Открыть warehouse assembly page для заказа со складскими штрихкодами.
-2. Просканировать/собрать заказ штатным складским действием.
-3. Нажать “Собрать заказ”.
-4. Убедиться, что страница не reload-ится.
-5. Проверить, что panel показывает товары, кандидатов и “Пропущено мультишк”.
-6. Для старого уже собранного заказа нажать “Проверить штрихкоды”.
-7. Нажать “Добавить в Ozon”.
-8. Проверить, что Ozon worker открывается в фоне и не уводит фокус с рабочей вкладки.
-9. Дождаться результата записи и verify.
+2. Проверить, что панель свернута по умолчанию.
+3. Развернуть панель кликом.
+4. Если заказ уже собран, убедиться, что initial barcode preview появился без ручного reload.
+5. Для свежей сборки просканировать/собрать заказ штатным складским действием.
+6. Нажать “Собрать заказ”.
+7. Убедиться, что страница не reload-ится.
+8. Проверить, что panel показывает товары, “Штрихкодов” и “Пропущено мультиштрихов”.
+9. Нажать “Список ШК”.
+10. Убедиться, что штрихкоды сгруппированы по товарам и любой штрихкод можно выделить/скопировать.
+11. Нажать “Проверить штрихкоды”.
+12. Нажать “Записать в Ozon”.
+13. Проверить, что Ozon worker открывается в фоне и не уводит фокус с рабочей вкладки.
+14. Дождаться результата записи и verify.
 ```
 
 Ожидаемо:
 
 ```text
 после “Собрать заказ” preview обновляется без reload
-если API response содержит пригодный barcode snapshot, используется API
+старый уже собранный заказ показывает preview на page open
+если warehouse API response содержит пригодный barcode snapshot, используется API
 если API shop_order пойман, но barcode snapshot пустой, используется visible DOM fallback
-manual “Проверить штрихкоды” остаётся последней кнопкой
-“Обновить склад” отсутствует
-multi-barcode rows не пишутся автоматически и считаются как “Пропущено мультишк”
+manual “Проверить штрихкоды” читает Ozon barcode details API и не пишет в Ozon
+multi-barcode rows не пишутся автоматически и считаются как “Пропущено мультиштрихов”
 Ozon search идёт по productId/offerId
 API write выполняется через /api/barcode-add-v2
-post-write verify читает полный drawer barcode list
+post-write verify выполняется через /api/sc/barcode-details-by-item-id
+verify body использует item_id как массив
+verify читает response.barcodes[].barcode
+drawer/DOM остаётся fallback
 при неподтверждённом API/verify остаётся UI fallback
 cookies/tokens/auth данные не попадают в storage/log/export
 ```
@@ -316,14 +324,29 @@ Debug при проблемах:
 
 ```js
 JSON.stringify(window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__, null, 2)
+JSON.stringify(window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__, null, 2)
 ```
 
-Ключевые признаки успешного API capture:
+Ключевые признаки успешного warehouse API capture:
 
 ```text
 lastMatchedPath: "api.response.shop_order"
 lastResult: "using stored API shopOrder snapshot"
 ```
 
-Но если такой API snapshot не содержит barcode-кандидатов, это не ошибка: bridge должен перейти на visible DOM fallback.
+Если такой API snapshot не содержит barcode-кандидатов, это не ошибка: bridge должен перейти на visible DOM fallback.
 
+---
+
+## 13. Release/package hygiene
+
+Перед релизным архивом проверить, что не попадают:
+
+```text
+.git/
+node_modules/
+docs/private/
+*.patch
+*.diff
+temporary zip archives
+```

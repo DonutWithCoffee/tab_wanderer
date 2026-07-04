@@ -1,6 +1,6 @@
 # tab_wanderer — Roadmap
 
-Документ фиксирует путь разработки от текущего состояния `Pre-1.0 Ozon barcode flow checkpoint + Codex handoff` до `1.0` и post-1.0.
+Документ фиксирует путь разработки от текущего состояния `Pre-1.0` до `1.0` и post-1.0.
 
 ---
 
@@ -12,7 +12,7 @@
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — UI/UX polish + Ozon/warehouse action layer ⏳ current
+Pre-1.0 — UI/UX polish + Ozon/warehouse action layer + docs sync ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 ```
@@ -21,11 +21,11 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Build checkpoint: 0.9.9.9-docs
-Tests: 201 pass / 0 fail
+Tests: 214 pass / 0 fail
+Latest pushed checkpoint: 1466ec1 refactor(ozon): extract warehouse result messaging
 ```
 
-Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest поднимается до `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
+Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest остаётся `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
 
 ---
 
@@ -138,113 +138,21 @@ manifest/version sync to 0.9.8
 закрыть продуктовые и технические разрывы до этапа визуальной/UI-polish работы
 ```
 
-### 0.9.9.1 — Monitor scope settings ✅
+Сделано:
 
 ```text
 monitorScope editing moved to Options
 scope dictionaries shown to user
 scope changes are debounced
 scope change triggers safe rebaseline/current-window rebuild
-knownOrdersDB is preserved
-```
-
-### 0.9.9.2 — History filters / timeline rethink ✅
-
-Первичная идея broad timeline была пересмотрена.
-
-Итоговое решение:
-
-```text
-не показывать общую ленту всех событий как пользовательскую “историю заказов”
-оставить local eventJournal как internal storage
-default user flow = поиск конкретного заказа
-```
-
-Причина: расширение видит только локально обнаруженные изменения и не может честно обещать полную серверную историю заказа.
-
-### 0.9.9.3 — Watched orders config/UI foundation ✅
-
-```text
-core/watched-orders.js
-userConfig.watchedOrders.items
-normalization / dedupe / status fields
-options foundation for add/remove before UI relocation
-watchedOrdersCount in monitor status
-```
-
-### 0.9.9.4 — Direct follow-up worker + order page parser ✅
-
-```text
-separate direct worker marker
-open order page by direct URL
-parse detail page via parseOrderDetails
-update watched order status / lastCheckedAt / lastError
-close direct worker after check
-```
-
-Parser был проверен на реальном HTML карточки заказа и переведён на section-aware extraction, чтобы не путать табличные суммы/доставку с блоком “Доставка”.
-
-### 0.9.9.5 — Direct follow-up events/history/notifications ✅
-
-```text
-first successful direct observation = direct baseline without notification
-subsequent direct changes = eventJournal + optional notification
-tag-only direct changes = history/event only, no notification
-direct changes update knownOrdersDB
-```
-
-Позже добавлена consistency-фаза:
-
-```text
-directFollowUpOrdersDB / directFollowUpHashDB separated from list-state
-direct baseline does not overwrite richer list-state with sparse detail-page data
-direct changes synchronize windowOrdersDB/windowOrdersHashDB to avoid duplicate list notifications
-```
-
-### 0.9.9.6 — Temporary production rules cleanup ✅
-
-Старые hidden hardcoded ignores заменены явными quick suppressors:
-
-```text
-ignoreLegalEntityPayment
-→ suppress notifications for legal entity bank transfer
-
-ignoreOzon
-→ suppress notifications for Ozon orders
-```
-
-Cleanup:
-
-```text
-legacy monitorScope.predicates removed
-old stored predicates are ignored
-monitorScope signature no longer includes predicates
-```
-
-### 0.9.9.7 — Local order/history search basics ✅
-
-Итоговая модель:
-
-```text
-history page по пользовательскому смыслу стала страницей “Заказы”
-no broad event timeline
-search by full orderId or 4-digit short number
-multiple candidates shown before selection
-selected order shows local detected changes only
+knownOrdersDB preserved across scope/mode/depth changes
+order-specific lookup replaces broad event timeline
 watched orders managed on Orders page
-popup only adds watched order by full orderId
-Options links to Orders page instead of managing watchlist directly
-```
-
-### 0.9.9.8 — Docs/version checkpoint ✅ done
-
-```text
-README synced
-docs/project-context.md synced
-docs/roadmap.md synced
-docs/smoke-checklist.md added
-manifest/version.js bumped to 0.9.9 checkpoint
-test count recorded: 168 pass / 0 fail
+direct follow-up baseline/events/notifications stabilized
+legacy monitorScope.predicates removed
+quick suppressors replace hidden hardcoded ignores
+startup/recovery catch-up notification flood suppressed
+diagnostic log/export polished
 ```
 
 ---
@@ -254,168 +162,122 @@ test count recorded: 168 pass / 0 fail
 Цель:
 
 ```text
-довести интерфейс до понятного, читаемого и красивого состояния вместе с пользователем
+довести интерфейс до понятного, читаемого и безопасного состояния вместе с пользователем
 ```
 
-Входит:
+Сделано по UI/monitor side:
 
 ```text
-popup UI/UX polish
-Options UI/UX polish
-Orders page UI/UX polish
-diagnostics/log wording and layout polish
-empty/loading/error states
-visual hierarchy
-wording pass
-manual browser smoke QA
+popup quick-control model
+Options autosave model
+Orders page lookup/watchlist flow
+history wording clarified as local-only
+monitor diagnostics/log tools
 ```
 
-### Pre-1.0 diagnostics/log polish checkpoint ✅
+Сделано по warehouse/Ozon action layer:
 
 ```text
-log export wording clarified
-smoke checklist clarified
-manual QA checklist aligned with current diagnostics behavior
-test count recorded: 171 pass / 0 fail
+warehouse page barcode preview without reload after “Собрать заказ”
+initial barcode preview on page open for already assembled orders
+skipped-only Ozon products are not sent to Ozon
+multi-barcode warehouse rows are skipped automatically
+warehouse panel collapsed by default
+panel expands/collapses on click
+button “Список ШК” shows selectable barcodes grouped by product
+button “Проверить штрихкоды” reads Ozon state without writing
+button “Записать в Ozon” writes missing barcodes
+Ozon write through /api/barcode-add-v2
+post-write verify through /api/sc/barcode-details-by-item-id
+verify payload uses item_id as array
+barcode details response uses response.barcodes[].barcode
+drawer/DOM remains fallback
+UI fallback remains available if API write/verify cannot confirm
+Ozon/warehouse live smoke passed by user
 ```
 
-### Pre-1.0 Ozon barcode binding core checkpoint ✅ latest checkpoint
+Сделано по refactor cleanup:
 
 ```text
-warehouse assembly barcode preview added
-warehouse API response capture added
-API-first refresh after “Собрать заказ” added
-empty API barcode snapshot falls back to visible DOM without page reload
-manual “Проверить штрихкоды” kept as the last button for old assembled orders
-manual “Обновить склад” removed
-label “Пропущено мультишк” added for skipped multi-barcode rows
-Ozon worker tab opens in background/inactive
-Ozon product search by Amperkot productId / Ozon offerId added
-full barcode drawer read added
-API write via /api/barcode-add-v2 added
-post-write drawer verify added
-UI fallback retained when API write/verify does not confirm
-multi-product apply queue runs sequentially
-local diff artifacts ignored
-test count recorded: 201 pass / 0 fail
+core/warehouse-ozon-view-model.js extracted
+core/ozon-ui-apply-result.js extracted
+core/ozon-session-utils.js extracted
+core/ozon-session-messaging.js extracted
+background.js reduced but still owns worker/session lifecycle
+content.js reduced but still owns DOM rendering/runtime messaging
 ```
 
-Границы этапа:
+Текущий приоритет:
 
 ```text
-не менять core semantics без отдельного QA slice
-не смешивать Options с ежедневным управлением заказами
-не возвращать broad full event timeline
+sync documentation with current code state
+remove obsolete code-agent-specific docs
+make docs sufficient for future ChatGPT sessions
 ```
 
 ---
 
 ## 1.0 RC ⏳
 
-Цель:
+Перед RC нужно:
 
 ```text
-заморозить продуктовую семантику и проверить расширение как release candidate
+run full npm test baseline
+run smoke checklist from docs/smoke-checklist.md
+verify popup/options/orders pages
+verify startup/recovery/catch-up behavior
+verify deep sync and page return to page 1
+verify diagnostic log/export
+verify Ozon/warehouse flow after docs/refactor
+check release packaging does not include .git, docs/private, node_modules or temp archives
 ```
 
-Входит:
+Potential pre-RC cleanup candidates:
 
 ```text
-manual smoke checklist completed
-fresh diagnostic log sanity check
-startup/reload/recovery checks
-notification flood checks
-watchlist/direct follow-up checks
-order lookup checks
-README/project docs final pass
-release notes draft
-```
-
----
-
-## 1.0 — Stable Monitoring Release ⏳
-
-Definition of Done:
-
-```text
-stable worker lifecycle
-worker identified by marker + tabId
-no URL-based tab reuse
-trusted snapshot model
-knownOrdersDB preserved across rebaseline
-windowOrdersDB rebuilt safely
-fast poll works
-deep sync works up to configured safe limit
-deep sync completes from pagination-last-page / empty-first-page / max-pages
-startup catch-up does not flood desktop notifications
-monitorMode works
-monitorScope works
-notificationTriggers work
-notificationSuppressors work
-notification diff было → стало works
-tags do not create user notification noise
-eventJournal works with retention
-order lookup works for full orderId and short number
-Orders page is minimally usable
-watchlist/direct follow-up works
-direct follow-up does not duplicate list-monitor notifications
-diagnostic log export works
-diagnostic log export returns full retained log
-diagnostic/event log retention prevents unbounded storage growth
-notifications open order page
-warehouse/Ozon barcode flow passes manual smoke or remains explicitly marked experimental
-manual browser smoke test passed
-README/project-context/roadmap updated
-manifest/version/release notes prepared
-tests green
-tag v1.0
+Ozon operation lock for simultaneous warehouse tabs
+compact Ozon debug payload policy
+release packaging script
+small UI text polish if user requests
 ```
 
 ---
 
-## Post-1.0 Roadmap
+## 1.0 Stable Monitoring Release ⏳
 
-### Centralized collector / dashboard
+Scope:
 
 ```text
-collect parsed events from multiple plugin instances
-support two branches in different cities
-store shared event history centrally
-provide manager/director dashboard
-possible Raspberry Pi or user VPS deployment
+local-first monitoring extension
+stable popup/options/orders UX
+local event journal and diagnostics
+configurable notification triggers/suppressors
+watchlist/direct follow-up
+warehouse/Ozon barcode action layer as local helper
 ```
 
-Not part of current local-first Chrome extension release.
-
-### Priority/direct follow-up evolution
-
-Current 1.0-local watchlist is browser-local. Post-1.0 direction:
+Non-goals for 1.0:
 
 ```text
-more robust direct order page checks
-better scheduling/backoff
-possible central/shared watchlist
-shared history across workplaces
+centralized server collector
+multi-branch centralized dashboard
+Firefox fork
+server-side order history
+Ozon auth/session storage
 ```
 
-### Ozon barcode binding evolution
+---
 
-Core local action flow is implemented before 1.0, but the following hardening remains post-checkpoint/post-1.0 work:
+## Post-1.0
 
-```text
-configurable minimum/base product price threshold before automatic binding
-better diagnostics/export for warehouse/Ozon action failures
-more UI wording polish for warehouse panel
-optional central policies if centralized collector/dashboard is introduced
-regression checks if Ozon Seller UI layout changes
-```
-
-This remains a separate automation/action layer and must not be mixed into monitor worker collection semantics.
-
-### Firefox fork
+Possible directions:
 
 ```text
-evaluate browser API differences
-adapt extension runtime
-fork only after Chrome 1.0 is stable
+centralized collector/dashboard
+multi-branch aggregation
+Raspberry Pi / VPS deployment for collector
+Firefox fork feasibility
+Ozon operation hardening and queue/lock model
+configurable minimum/base product price threshold for barcode binding
+packaging/release automation
 ```

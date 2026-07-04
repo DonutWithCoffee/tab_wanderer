@@ -1,8 +1,8 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: `Pre-1.0 Ozon barcode flow checkpoint + Codex handoff`.
+Актуально на момент: `Pre-1.0 docs sync after stable Ozon/warehouse barcode flow`.
 
-Этот документ заменяет старые `Message 51` и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
+Этот документ заменяет старые message/handoff тексты и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
 ---
 
@@ -10,13 +10,13 @@
 
 ```text
 Проект: tab_wanderer
-Назначение: Chrome extension для мониторинга заказов в админке Amperkot
-Текущая стадия: Pre-1.0 Ozon barcode flow checkpoint + Codex handoff
+Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
+Текущая стадия: Pre-1.0 documentation sync after Ozon/warehouse stabilization and refactor cleanup
 Manifest version: 0.9.9
-Build checkpoint: 0.9.9.9-docs
-Tests: 201 pass / 0 fail
-Last known clean HEAD: d270841 chore: ignore local diff artifacts
-Previous feature HEAD: 03d567a feat(ozon): refresh warehouse barcodes without page reload
+Tests: 214 pass / 0 fail
+Latest pushed checkpoint: 1466ec1 refactor(ozon): extract warehouse result messaging
+Branch: main
+Repo: DonutWithCoffee/tab_wanderer
 ```
 
 Roadmap:
@@ -27,28 +27,22 @@ Roadmap:
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — UI/UX polish + Ozon/warehouse action layer ⏳ current
+Pre-1.0 — UI/UX polish + Ozon/warehouse action layer + docs sync ⏳ current
 1.0 RC ⏳
 1.0 Stable Monitoring Release ⏳
 Post-1.0 — centralized collector / Ozon hardening / Firefox fork
 ```
 
-Recent important slices:
+Recent important commits:
 
 ```text
-refactor(history): replace timeline with order lookup
-refactor(ui): move watchlist workflow to orders page
-fix(watchlist): stabilize direct follow-up state
-fix(history): bound event journal retention
-fix(core): suppress startup catch-up notifications
-refactor(config): remove legacy monitor scope predicates
-docs(project): sync 0.9.9 checkpoint
-polish(diagnostics): clarify log export and smoke checklist
-feat(ozon): resolve warehouse/Ozon barcode preview
-feat(ozon): apply multiple products sequentially
-feat(ozon): write barcodes through API with UI fallback
-feat(ozon): refresh warehouse barcodes without page reload
-chore: ignore local diff artifacts
+0c5c09e fix(ozon): verify barcode binding through barcode details API
+0c19488 feat(warehouse): add collapsible barcode preview panel
+5b9dfa1 refactor(warehouse): extract Ozon preview view model
+d9c38f9 refactor(ozon): extract UI apply result helpers
+9f75fe1 refactor(ozon): use extracted apply result helpers
+d1eb0d3 refactor(ozon): extract session utility helpers
+1466ec1 refactor(ozon): extract warehouse result messaging
 ```
 
 ---
@@ -61,7 +55,7 @@ Preferred style:
 Russian language
 engineer-to-engineer
 brief but complete
-analysis → solution → code/artifact
+analysis → solution → code/artifact/commands
 critical issues first
 no automatic agreement with user conclusions
 challenge risky/wrong assumptions explicitly
@@ -80,9 +74,10 @@ Code workflow:
 ```text
 small coherent slices
 avoid unrelated refactor
-prefer 1–3 files per small implementation step when practical
-but commit coherent vertical behavior slices, not tiny partial commits
-patches should be provided as scoped diffs/edits; full replacement files only when explicitly requested
+prefer 1–3 files per implementation step when practical
+commit coherent behavior/refactor slices, not half-finished work
+prefer full-file archives for implementation results
+avoid .patch/.diff artifacts
 if current files are unavailable or stale, ask user for fresh archive/files
 ```
 
@@ -93,8 +88,22 @@ User works in VS Code integrated Git Bash on Windows.
 Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Tests before commit: npm test
-Before commit, provide explicit git add file list and Conventional Commit message.
-After user confirms tests are green, proceed with commit/push instructions.
+Always provide explicit git add file list and Conventional Commit message when tests are green and a commit is appropriate.
+Never use git add .
+Do not commit/push unless user asks or confirms.
+```
+
+Standard commit commands:
+
+```bash
+git status
+npm test
+git diff --stat
+git diff --name-status
+git add <explicit-file-list>
+git diff --cached --stat
+git commit -m "type(scope): short summary"
+git push
 ```
 
 ---
@@ -113,8 +122,8 @@ After user confirms tests are green, proceed with commit/push instructions.
 7. Показывать локально обнаруженные изменения по конкретному заказу.
 8. Давать диагностический лог для удалённой поддержки.
 9. Сохранять стабильность при reload/restart браузера.
-10. В будущем — централизовать сбор событий.
-11. На текущем Pre-1.0 этапе — автоматизировать безопасную привязку warehouse barcodes в Ozon как отдельный action layer.
+10. Автоматизировать безопасную привязку warehouse barcodes в Ozon как отдельный action layer.
+11. В будущем — централизовать сбор событий.
 ```
 
 Важное ограничение:
@@ -161,9 +170,9 @@ URL reuse запрещён
 partial diff запрещён
 baseline/rebaseline/startup catch-up не должны создавать notification flood
 Chrome APIs держать на краях
-новую domain logic постепенно выносить из background.js
+новую domain logic постепенно выносить из background.js/content.js
 warehouse/Ozon action layer не должен ломать monitor worker semantics
-не сохранять Ozon cookies/tokens/auth данные
+не сохранять Ozon cookies/tokens/auth/session данные
 ```
 
 Всегда выбирать:
@@ -186,8 +195,6 @@ Main list worker:
 
 Причина: менеджер может работать в другой admin-tab с таким же URL, и это не worker.
 
-После deep sync worker обязан вернуться на page 1, иначе fast cycle может смотреть старую глубокую страницу вместо свежих заказов.
-
 Direct follow-up worker:
 
 ```text
@@ -196,6 +203,15 @@ separate marker: #tab_wanderer_direct_worker=1
 открывает конкретную карточку заказа по direct URL
 парсит detail page отдельно от list parser
 закрывается после проверки
+```
+
+Ozon worker:
+
+```text
+separate marker: #tab_wanderer_ozon_worker=1
+используется только для Ozon preview/apply action layer
+открывается inactive/background
+не должен забирать фокус со складской вкладки
 ```
 
 ---
@@ -260,95 +276,44 @@ polling каждые 15 секунд
 Deep sync:
 
 ```text
-pagination через ?page=N
+periodic collection через ?page=N
 каждые 5 минут
-настраиваемый лимит deepSyncMaxPages
-safe range: 1–50 страниц
-default: 50 страниц / около 1500 заказов
+по умолчанию до 50 pages
+safe configurable range: 1–50
 ```
 
-Ручная проверка:
+Stop/completion:
 
 ```text
-30 страниц / 900 заказов ≈ 18 секунд
-50 страниц / 1500 заказов ≈ 30–35 секунд
+pagination-last-page
+pagination-single-page
+empty-first-page для scope без заказов
+deep-sync-page-limit
+advance-attempt-limit / timeout protection
 ```
 
-Monitor modes:
+Важное правило:
 
 ```text
-windowed:
-  fast + deep sync
-
-active:
-  page 1 only
-  deep sync не запускается
-```
-
-Important:
-
-```text
-не останавливаться только из-за встречи известного заказа
-после deep session всегда возвращать worker на page 1
-deep sync завершается по pagination-last-page / pagination-single-page / empty-first-page / max-pages
-empty page не является обычным stop condition для валидной глубокой страницы
-empty first page при выбранном scope = корректное завершение без timeout
-```
-
-Collection/session pure logic:
-
-```text
-core/collection-model.js
+empty page не является нормальным stop condition для валидной глубокой страницы admin orders.
+empty first page при выбранном scope считается корректным завершением без заказов.
 ```
 
 ---
 
-## 9. Sync / Catch-up Policy
-
-Sync reasons:
+## 9. Monitor Modes
 
 ```text
-initial
-manual-start
-recovery
-stale-resume
-scope-change
-mode-change
-window-sync
-direct-follow-up
-normal
+windowed
+→ page 1 fast poll + periodic deep sync
+
+active
+→ page 1 only, без deep sync
 ```
-
-Startup/catch-up rule:
-
-```text
-catch-up = синхронизация state/history
-live monitoring = desktop notifications
-```
-
-Manual start with existing known DB may produce catch-up events/history, but desktop notifications are suppressed for startup backlog.
-
-Why:
-
-```text
-A worker starting in the morning must not notify hundreds/thousands of historical orders from the current deep window.
-```
-
-Safe baselines:
-
-```text
-initial
-recovery
-stale-resume
-scope-change
-mode-change
-```
-
-These rebuild trusted/current windows without notification flood.
 
 ---
 
-## 10. Event Field Contract
+## 10. Event / Notification Model
 
 Event fields:
 
@@ -360,15 +325,6 @@ city
 tags
 ```
 
-These fields participate in:
-
-```text
-event fingerprint
-changedFields
-eventJournal
-order lookup detected changes
-```
-
 Notification-visible fields:
 
 ```text
@@ -378,537 +334,218 @@ payment
 city
 ```
 
-Important:
+Suppressors:
 
 ```text
-tags remain event/history/search data
-tags are not displayed in notifications
-tag-only changes do not create desktop notifications
-if status + tags changed, notification shows only status
-```
-
-Context/search fields:
-
-```text
-id
-internalId
-orderUrl
-date
-phoneNormalized
-totalAmount
-productsDone
-productsTotal
-manager
-contractor
-hasAutoreserve
-```
-
-Context/search fields may be stored and displayed, but they do not create notification-triggering changes.
-
-Ignored/noise fields:
-
-```text
-shipmentDateText
-hasOrderFlag
-user column
-```
-
----
-
-## 11. Notification Decision / Message Model
-
-Entry point:
-
-```text
-evaluateNotification(order, eventContext, config)
-```
-
-Config:
-
-```js
-notificationTriggers: {
-    newOrders: true,
-    changedOrders: true,
-    changedFields: {
-        status: true,
-        delivery: true,
-        payment: true,
-        city: true
-    }
-},
-notificationSuppressors: {
-    ignoreLegalEntityPayment: false,
-    ignoreOzon: false
-}
+ignoreLegalEntityPayment
+ignoreOzon
 ```
 
 Rules:
 
 ```text
-notificationTriggers suppress notification only
-notificationSuppressors suppress notification only
-DB/hash/window state always update
-eventJournal writes events independently from desktop notification decisions
-startup catch-up suppresses desktop notifications
-```
-
-Messages:
-
-```text
-new-order → compact current state
-order-changed → diff было → стало по notification-visible fields
-```
-
-Tags do not enter notification surface.
-
----
-
-## 12. Event Journal / Order Lookup
-
-Core files:
-
-```text
-core/event-journal.js
-core/order-lookup.js
-```
-
-Journal entry stores:
-
-```text
-orderId
-orderUrl
-eventType
-eventKind
-syncReason
-changedFields
-diff было → стало
-order context
-prevHash/newHash
-monitorMode
-monitorScopeSignature
-coverage metadata
-notification decision
-```
-
-Retention policy:
-
-```text
-max retained entries = 5000
-max retained bytes = 2_000_000
-eventJournalDroppedEntries stores number of dropped old events
-```
-
-Runtime access:
-
-```text
-GET_EVENT_JOURNAL
-GET_ORDER_LOOKUP
-```
-
-User-facing page:
-
-```text
-history.html/history.js, labeled as “Заказы”
-```
-
-Current product decision:
-
-```text
-No broad full event timeline in user UI.
-Orders page is order-specific lookup + watchlist management.
-```
-
-Lookup accepts:
-
-```text
-full orderId: 2579-290626
-short number: 2579
-```
-
-Sources:
-
-```text
-knownOrdersDB
-eventJournal
-watchedOrders
-```
-
-If a short number has multiple candidates, the user must choose a full orderId.
-
----
-
-## 13. Watchlist / Direct Follow-up
-
-Core files:
-
-```text
-core/watched-orders.js
-core/direct-follow-up.js
-```
-
-Meaning:
-
-```text
-“Отслеживаемые заказы” = local user-managed watchlist of specific full order IDs.
-```
-
-Rules:
-
-```text
-popup adds watched order only by full orderId
-Orders page manages watched orders and order lookup
-Options only links to Orders page
-watchlist bypasses monitorScope via direct follow-up
-first direct observation is baseline, no notification
-subsequent direct changes can write eventJournal and notify by normal rules
-direct changes synchronize window state to avoid duplicate list notifications
-```
-
-Watched order item fields:
-
-```text
-id
-status
-addedAt
-lastCheckedAt
-lastBaselineAt
-lastEventAt
-lastError
+tag-only changes write local history but do not create desktop notifications
+suppressors suppress notifications only
+new/changed trigger settings do not block state update/history
+startup/recovery catch-up records state safely without notification flood
 ```
 
 ---
 
-## 14. Diagnostic Log
+## 11. Order Lookup / Watched Orders
 
-Core file:
+Current product model:
 
 ```text
-core/diagnostic-log.js
+history page по пользовательскому смыслу = “Заказы” page
+no broad timeline
+search by full orderId or 4-digit short number
+multiple candidates shown before selection
+selected order shows local detected changes only
+watched orders managed on Orders page
+popup only adds watched order by full orderId
+Options links to Orders page instead of managing watchlist directly
 ```
 
-Runtime helpers:
+Direct follow-up:
 
 ```text
-core/runtime-api.js
-```
-
-Purpose:
-
-```text
-remote support without DevTools
-worker can download .txt and send it to developer
-```
-
-Runtime access:
-
-```text
-GET_DIAGNOSTIC_LOG preview → last 100 entries
-GET_DIAGNOSTIC_LOG full → full retained log
-CLEAR_DIAGNOSTIC_LOG
-```
-
-UI:
-
-```text
-popup → Download diagnostic log
-options → diagnostic log details/dropdown in support area
-preview/copy → preview
-download/export → full retained log
-```
-
-Retention policy:
-
-```text
-preview limit = 100 entries
-max retained entries = 5000
-max retained bytes = 2_000_000
-diagnosticLogDroppedEntries stores number of dropped old entries
-export header shows retained/exported/dropped counts
-```
-
-Persistent log writes support-useful events, not noisy raw payloads.
-
-Do not log:
-
-```text
-raw config predicates
-raw order payloads
-HTML/DOM
-cookies/tokens/auth data
-raw phone numbers where avoidable
+first successful direct observation = direct baseline without notification
+subsequent direct changes = eventJournal + optional notification
+tag-only direct changes = history/event only, no notification
+direct changes update knownOrdersDB
+direct follow-up state is separate from list-state
 ```
 
 ---
 
-## 15. UI Contract
+## 12. Ozon / Warehouse Contract
 
-Popup:
+Current stable behavior:
 
 ```text
-quick control only
-Start / Stop
-status summary
-quick notification suppressors
-add watched order by full orderId only
-open Orders page
-open Options
-Download diagnostic log
+warehouse page gets barcode preview without reload after “Собрать заказ”
+already assembled orders get initial barcode preview on page open
+panel is collapsed by default
+panel expands/collapses on click
+button “Список ШК” shows selectable barcode list grouped by product
+button “Проверить штрихкоды” previews Ozon state without writing
+button “Записать в Ozon” writes missing barcodes
+Ozon worker opens inactive/background
+multi-barcode warehouse rows are skipped automatically
+multi-barcode rows are surfaced as “Пропущено мультиштрихов”
 ```
 
-Options:
+Ozon API contract:
 
 ```text
-settings + diagnostics only
-monitorMode
-monitorScope
-deepSyncMaxPages
-notificationTriggers
-notificationSuppressors
-monitor diagnostics
-diagnostic log tools
-link to Orders page
-```
-
-Orders page:
-
-```text
-order lookup by full orderId or short 4-digit number
-candidate selection
-selected order summary
-local detected changes for selected order only
-watched orders list
-add/remove watch state
-```
-
-Important:
-
-```text
-Do not return broad full event timeline as default user UI.
-```
-
----
-
-## 16. Ozon Barcode Binding / Warehouse Action Layer
-
-Назначение:
-
-```text
-считать штрихкоды со страницы сборки склада
-сопоставить товар склада с товаром Ozon по productId / offerId
-записать отсутствующие штрихкоды в Ozon Seller UI
-проверить результат после записи
-сохранить ручной контроль и понятный preview для сотрудника
-```
-
-Архитектурная граница:
-
-```text
-Ozon barcode binding = action layer
-не является частью основного list-monitor collection loop
-не влияет на order notification rules
-не влияет на eventJournal/order lookup semantics
-не должен захватывать рабочую admin-вкладку менеджера
-```
-
-Warehouse source priority после “Собрать заказ”:
-
-```text
-1. captured warehouse API response api.response.shop_order
-2. если API shop_order найден, но barcode snapshot пустой → visible DOM fallback
-3. если action response не было → manual “Проверить штрихкоды” для старого заказа
-4. page reload не используется как нормальный сценарий
-```
-
-Подтверждённые live-факты:
-
-```text
-Amperkot product ID = Ozon offer/article для поиска
-Ozon search URL = https://seller.ozon.ru/app/products?search=<productId>
+Amperkot product ID = Ozon offer/article for search
+Ozon product search URL = https://seller.ozon.ru/app/products?search=<productId>
 Ozon write endpoint = POST /api/barcode-add-v2
-payload = { seller_id, barcodes: [{ barcode, item_id }] }
-success response может быть { "errors": [] }
+write payload shape = { seller_id, barcodes: [{ barcode, item_id }] }
 item_id = Ozon SKU / ozonSku
-seller_id берётся из активной Ozon Seller UI-сессии/headers/state
-cookies/tokens/auth данные не сохраняются
+post-write verify endpoint = POST /api/sc/barcode-details-by-item-id
+verify payload shape = { item_id: ["<ozonSku>"] }
+verify response source = response.barcodes[].barcode
 ```
 
-Ozon worker policy:
+Source priority:
 
 ```text
-worker marker: #tab_wanderer_ozon_worker=1
-worker tab opens inactive/background
-URL reuse rules apply: не брать произвольную пользовательскую вкладку
-search exact product row by DOM is primary resolve source
-list-by-filter/API resolve may be diagnostic/fallback only, because live UI row can exist when pure API resolve returns empty
+Warehouse source priority:
+1. captured warehouse API response with usable barcode snapshot
+2. visible DOM fallback if API barcode snapshot is empty/unusable
+
+Ozon preview/check priority:
+1. barcode details API
+2. drawer/DOM fallback
+
+Ozon write verify priority:
+1. barcode details API
+2. drawer/DOM fallback
+3. UI fallback if API write/verify cannot confirm
 ```
 
-Write/verify policy:
+Security/privacy:
 
 ```text
-primary write: /api/barcode-add-v2 через текущую Seller UI-сессию
-verify: открыть/прочитать full barcode drawer, а не только строку списка
-UI fallback: drawer flow, если API write или verify не подтвердились
-post-write verify обязателен
-multi-product queue sequential
-multi-barcode warehouse rows skipped automatically and shown as “Пропущено мультишк”
-```
-
-Текущая warehouse panel UI:
-
-```text
-“Добавить в Ozon” — основной action
-“Проверить штрихкоды” — последняя кнопка, нужна для старых уже собранных заказов
-“Обновить склад” убрана
-после “Собрать заказ” preview обновляется без reload
-```
-
-Known pending product requirement:
-
-```text
-configurable minimum/base product price threshold for automatic barcode binding
+Do not store Ozon cookies/tokens/auth/session data.
+Do not export raw HTML, cookies, tokens or full private order payloads to diagnostic logs.
+Debug helpers are allowed in page memory, but should stay compact.
 ```
 
 ---
 
-## 17. Temporary / Removed Production Rules
+## 13. Current Module Layout
 
-Old behavior:
-
-```text
-hidden hardcoded ignore rules for Ozon and legal entity bank transfer
-legacy monitorScope.predicates.ozonOnly / juridicalOnly
-```
-
-Current behavior:
+Core modules:
 
 ```text
-explicit quick notification suppressors
-legacy monitorScope.predicates removed from default config / normalization / signature
-old storage predicates are ignored safely
+core/order-model.js
+core/sync-model.js
+core/collection-model.js
+core/event-journal.js
+core/diagnostic-log.js
+core/runtime-api.js
+core/monitor-status.js
+core/order-lookup.js
+core/direct-follow-up.js
+core/watched-orders.js
+core/warehouse-barcode-extractor.js
+core/warehouse-ozon-view-model.js
+core/ozon-product-search.js
+core/ozon-barcode-binding.js
+core/ozon-ui-apply-result.js
+core/ozon-session-utils.js
+core/ozon-session-messaging.js
 ```
 
----
-
-## 18. Tests
-
-Command:
-
-```bash
-npm test
-```
-
-Current checkpoint:
+Main runtime files:
 
 ```text
-201 pass 0 fail
+background.js
+content.js
+warehouse-barcode-bridge.js
+ozon-product-bridge.js
+popup.js
+options.js
+history.js
+notification-rules.js
 ```
 
-Test suites cover:
+Current refactor status:
 
 ```text
-config normalization
-notification rules
-URL builder
-hash/date normalization
-content parser
-real order detail parser sample
-background core/process
-collection model
-runtime API helpers
-event journal retention
-monitor status
-diagnostic log
-popup UI
-options UI
-orders/history UI
-startup catch-up suppression
-direct follow-up consistency
-legacy monitorScope.predicates cleanup
-warehouse barcode extractor
-warehouse bridge API-first/DOM fallback
-Ozon product resolve bridge
-Ozon barcode binding payload/planning
-Ozon API write + drawer verify + UI fallback
+warehouse/Ozon view model extracted
+Ozon apply result helpers extracted
+Ozon session utility helpers extracted
+Ozon warehouse result messaging extracted
+background.js still owns monitor lifecycle and Ozon worker/session lifecycle
+content.js still owns DOM rendering and runtime messaging
 ```
 
 ---
 
-## 19. Manual Smoke Checklist
+## 14. Tests
 
-Smoke checklist lives in:
+Baseline:
 
 ```text
-docs/smoke-checklist.md
+npm test → 214 pass / 0 fail
 ```
 
-Must be checked before 1.0 RC:
+Important suites:
 
 ```text
-startup catch-up no notification flood
-worker isolation
-fast/deep sync
-popup controls
-Options autosave
-Orders page lookup/watchlist
-direct follow-up
-diagnostic export
-STOP/START/reload
-warehouse/Ozon barcode smoke
-```
-
----
-
-## 20. Current Known Boundaries
-
-Local-first boundaries:
-
-```text
-state/history are local to one browser profile
-no central DB before post-1.0
-no multi-employee attribution
-no complete server-side order history guarantee
-```
-
-UI boundaries:
-
-```text
-functional but not final-polished
-visual hierarchy and wording polish belong to Pre-1.0 UI/UX stage
-```
-
-Direct follow-up boundaries:
-
-```text
-depends on detail page parser stability
-should be validated if admin order page layout changes
+tests/background-core.test.js
+tests/background-process.test.js
+tests/content-parser.test.js
+tests/warehouse-barcode-extractor.test.js
+tests/warehouse-barcode-bridge.test.js
+tests/ozon-product-search.test.js
+tests/ozon-barcode-binding.test.js
+tests/ozon-product-bridge.test.js
+tests/popup-ui.test.js
+tests/options-ui.test.js
+tests/history-ui.test.js
 ```
 
 ---
 
-## 21. Next Work
+## 15. Current Documentation Priority
 
-Immediate next phase:
+Current task:
 
 ```text
-Ozon/warehouse smoke QA and small polish
-Pre-1.0 UI/UX polish with user
+bring docs to current code state
+remove obsolete code-agent-specific documentation
+keep docs useful for new ChatGPT sessions
+record exact working method and commit rules
+record current Ozon/warehouse behavior and refactor status
 ```
 
-Then:
+---
+
+## 16. Recommended Next Work
+
+After docs sync, follow the user’s next priority.
+
+Possible future engineering slices:
 
 ```text
-1.0 RC
-manual smoke QA
-release notes
-tag/release
-1.0 Stable
+Ozon operation lock for simultaneous warehouse tabs
+compact Ozon debug payload policy
+release packaging script excluding .git/docs/private/node_modules/temp archives
+1.0 RC smoke pass
+full Ozon session controller extraction only when it becomes active priority
 ```
 
-Post-1.0:
+Avoid now:
 
 ```text
-centralized collector/dashboard
-multi-branch event aggregation
-Ozon hardening: price threshold, diagnostics, central policies
-Firefox fork
+large background.js rewrite without focused need
+mixing Ozon action layer with list-monitor semantics
+centralized collector before local 1.0 is stable
+storing auth/session data
+committing docs/private or temporary archives
 ```
