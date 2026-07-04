@@ -2,10 +2,10 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>tab_wanderer watched orders</title>
+    <title>tab_wanderer — отслеживаемые заказы</title>
     <style>
         body {
-            max-width: 960px;
+            max-width: 1080px;
             margin: 16px auto;
             padding: 0 16px 32px;
             font-family: Arial, sans-serif;
@@ -67,6 +67,25 @@
             margin-top: 10px;
         }
 
+        .watched-orders-controls {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+            gap: 12px;
+            margin: 12px 0;
+        }
+
+        .control-card {
+            border: 1px solid #e2e2e2;
+            border-radius: 8px;
+            background: #fff;
+            padding: 12px;
+        }
+
+        .control-card-title {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
         .lookup-row input,
         .inline-form input,
         .inline-form select {
@@ -83,8 +102,19 @@
         .lookup-row button,
         .inline-form button,
         .watched-order-actions button,
-        .actions-row button {
+        .actions-row button,
+        .button-link {
             padding: 8px 12px;
+        }
+
+        .button-link {
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #f7f7f7;
+            color: #222;
+            text-decoration: none;
+            font-size: 13px;
         }
 
         #historyStatus,
@@ -97,12 +127,15 @@
             background: #fff;
         }
 
-        .candidate-item,
-        .watched-order-row {
+        .candidate-item {
             display: flex;
             justify-content: space-between;
             gap: 12px;
             align-items: center;
+        }
+
+        .watched-order-row {
+            display: block;
         }
 
         .candidate-item {
@@ -183,8 +216,22 @@
             background: #fff8e6;
         }
 
+        .watched-order-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .watched-order-title-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
         .watched-order-main {
-            flex: 1;
             min-width: 280px;
         }
 
@@ -194,6 +241,33 @@
             gap: 8px;
             flex-wrap: wrap;
             justify-content: flex-end;
+        }
+
+        .watched-order-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .watched-order-meta-cell {
+            border: 1px solid #eee;
+            border-radius: 6px;
+            background: #fafafa;
+            padding: 8px;
+        }
+
+        .watched-order-meta-label {
+            color: #666;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .watched-order-meta-value {
+            margin-top: 4px;
+            font-size: 13px;
+            line-height: 1.35;
         }
 
         .reminder-panel {
@@ -267,6 +341,16 @@
             padding-top: 10px;
             border-top: 1px solid #eee;
         }
+
+        @media (max-width: 760px) {
+            .watched-orders-controls {
+                grid-template-columns: 1fr;
+            }
+
+            .watched-order-actions {
+                justify-content: flex-start;
+            }
+        }
     </style>
 </head>
 <body>
@@ -284,23 +368,35 @@
 </header>
 
 <section class="watched-orders-panel" aria-label="Отслеживаемые заказы">
-    <h3>Список заказов</h3>
-    <div class="inline-form">
-        <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
-        <input id="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий (опционально)" autocomplete="off">
-        <button id="ordersAddWatchedOrder" type="button">Добавить</button>
+    <h3>Управление отслеживанием</h3>
+
+    <div class="watched-orders-controls">
+        <div class="control-card">
+            <div class="control-card-title">Добавить заказ</div>
+            <p class="hint">Заказ сначала проверяется в админке. Если карточка не найдена, он не попадёт в список.</p>
+            <div class="inline-form">
+                <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
+                <input id="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий (опционально)" autocomplete="off">
+                <button id="ordersAddWatchedOrder" type="button">Проверить и добавить</button>
+            </div>
+        </div>
+
+        <div class="control-card" aria-label="Интервал прямой проверки отслеживаемых заказов">
+            <div class="control-card-title">Интервал проверки</div>
+            <div class="inline-form">
+                <label for="ordersWatchedOrderFollowUpIntervalSelect">Периодичность</label>
+                <select id="ordersWatchedOrderFollowUpIntervalSelect">
+                    <option value="2">Каждые 2 минуты</option>
+                    <option value="5">Каждые 5 минут</option>
+                    <option value="10">Каждые 10 минут</option>
+                    <option value="15">Каждые 15 минут</option>
+                    <option value="30">Каждые 30 минут</option>
+                </select>
+            </div>
+            <p class="hint">Проверяется один заказ за тик. Полный круг зависит от количества заказов.</p>
+        </div>
     </div>
-    <div class="inline-form" aria-label="Интервал прямой проверки отслеживаемых заказов">
-        <label for="ordersWatchedOrderFollowUpIntervalSelect">Интервал проверки</label>
-        <select id="ordersWatchedOrderFollowUpIntervalSelect">
-            <option value="2">Каждые 2 минуты</option>
-            <option value="5">Каждые 5 минут</option>
-            <option value="10">Каждые 10 минут</option>
-            <option value="15">Каждые 15 минут</option>
-            <option value="30">Каждые 30 минут</option>
-        </select>
-        <span class="hint">Проверяется один заказ за тик. Полный круг зависит от количества заказов.</span>
-    </div>
+
     <div class="status-panel">
         <div id="ordersWatchedStatus">Загрузка списка...</div>
     </div>

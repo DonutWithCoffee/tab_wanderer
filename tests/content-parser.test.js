@@ -650,7 +650,13 @@ test('parseOrderDetails strips dynamic local time from order city', () => {
                 'Способ оплаты',
                 'Оплата онлайн'
             ].join('\n')
-        })
+        }),
+        {
+            windowLocation: {
+                origin: 'https://amperkot.ru',
+                href: 'https://amperkot.ru/admin/orders/3010-010726/'
+            }
+        }
     );
 
     const order = context.parseOrderDetails('3010-010726');
@@ -702,7 +708,13 @@ test('parseOrderDetails reads real admin order page layout without table total n
                 'Оплачено',
                 '0 %'
             ].join('\n')
-        })
+        }),
+        {
+            windowLocation: {
+                origin: 'https://amperkot.ru',
+                href: 'https://amperkot.ru/admin/orders/2579-290626/'
+            }
+        }
     );
 
     const order = context.parseOrderDetails('2579-290626');
@@ -732,6 +744,31 @@ test('parseOrderDetails returns null when order page has no recognizable order d
     assert.equal(context.parseOrderDetails('9999-010101'), null);
 });
 
+
+
+test('parseOrderDetails rejects expected order when current URL is not that order page', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            bodyText: [
+                'Список заказов',
+                'Статус',
+                'Новый',
+                'Способ доставки',
+                'Самовывоз',
+                'Способ оплаты',
+                'Наличными в офисе'
+            ].join('\n')
+        }),
+        {
+            windowLocation: {
+                origin: 'https://amperkot.ru',
+                href: 'https://amperkot.ru/admin/orders/'
+            }
+        }
+    );
+
+    assert.equal(context.parseOrderDetails('1234-123412'), null);
+});
 
 test('content runtime messaging ignores extension context invalidated throws', () => {
     let sendCalls = 0;

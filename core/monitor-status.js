@@ -89,6 +89,12 @@ function createMonitorStatusSnapshot(state = {}) {
             hasKnownOrders
         })
         : null;
+    const pendingWatchedOrderAdd = state.pendingWatchedOrderAdd && typeof state.pendingWatchedOrderAdd === 'object'
+        ? state.pendingWatchedOrderAdd
+        : null;
+    const lastWatchedOrderAddResult = state.lastWatchedOrderAddResult && typeof state.lastWatchedOrderAddResult === 'object'
+        ? cloneMonitorStatusValue(state.lastWatchedOrderAddResult)
+        : null;
 
     return {
         isRunning: state.isRunning === true,
@@ -101,6 +107,12 @@ function createMonitorStatusSnapshot(state = {}) {
         directWorkerTabId,
         hasDirectWorkerTab: directWorkerTabId !== null && directWorkerTabId !== undefined,
         directFollowUpState,
+        watchedOrderAddState: {
+            pending: Boolean(pendingWatchedOrderAdd),
+            orderId: pendingWatchedOrderAdd?.orderId || null,
+            startedAt: Number(pendingWatchedOrderAdd?.startedAt) || null,
+            lastResult: lastWatchedOrderAddResult
+        },
         pendingRebaseline: state.pendingRebaseline === true,
         pendingSyncReason: state.pendingSyncReason || null,
         pendingSyncAction,

@@ -6,6 +6,8 @@ const ORDERS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
 const ORDERS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
 const ORDERS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 30;
 const ORDERS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS = [2, 5, 10, 15, 30];
+const ORDERS_WATCHED_ORDER_ADD_POLL_INTERVAL_MS = 1000;
+const ORDERS_WATCHED_ORDER_ADD_MAX_POLLS = 60;
 
 
 let currentOrdersConfig = {
@@ -56,8 +58,13 @@ const FIELD_LABELS = {
 
 function sendMessage(message, callback) {
     chrome.runtime.sendMessage(message, (response) => {
+        const runtimeError = chrome.runtime.lastError;
+        const safeResponse = runtimeError
+            ? { ok: false, error: runtimeError.message || 'Ошибка связи с background.' }
+            : response;
+
         if (typeof callback === 'function') {
-            callback(response);
+            callback(safeResponse);
         }
     });
 }
@@ -245,6 +252,22 @@ function normalizeOrdersWatchedOrderFollowUpIntervalMinutes(value) {
 
 function getOrdersWatchedOrderFollowUpIntervalLabel(config = {}) {
     return `каждые ${normalizeOrdersWatchedOrderFollowUpIntervalMinutes(config.watchedOrderFollowUpIntervalMinutes)} мин.`;
+}
+
+function buildWatchedOrderAdminUrl(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+
+    if (!isValidOrdersWatchedOrderId(id)) {
+        return '';
+    }
+
+    return `https://amperkot.ru/admin/orders/${id}/`;
+}
+
+function formatWatchedOrderTimestamp(value, emptyLabel = 'ещё не было') {
+    const timestamp = normalizeOrdersTimestamp(value);
+
+    return timestamp ? formatTimestamp(timestamp) : emptyLabel;
 }
 
 function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
@@ -698,6 +721,37 @@ function renderWatchedOrderReminder(item) {
 }
 
 
+function getWatchedOrdersStats(items = []) {
+    const safeItems = Array.isArray(items) ? items : [];
+
+    return {
+        total: safeItems.length,
+        active: safeItems.filter(item => item.status === 'active').length,
+        unresolved: safeItems.filter(item => item.status === 'unresolved').length,
+        pendingReminders: safeItems.filter(item => item.reminder?.status === 'pending').length
+    };
+}
+
+function renderWatchedOrderMetaCell(label, value) {
+    return `
+        <div class="watched-order-meta-cell">
+            <div class="watched-order-meta-label">${escapeHtml(label)}</div>
+            <div class="watched-order-meta-value">${escapeHtml(value)}</div>
+        </div>
+    `;
+}
+
+function renderWatchedOrderMetaGrid(item) {
+    return `
+        <div class="watched-order-meta-grid">
+            ${renderWatchedOrderMetaCell('Добавлен', formatWatchedOrderTimestamp(item.addedAt))}
+            ${renderWatchedOrderMetaCell('Baseline', formatWatchedOrderTimestamp(item.lastBaselineAt, 'ожидается'))}
+            ${renderWatchedOrderMetaCell('Проверка', formatWatchedOrderTimestamp(item.lastCheckedAt, 'ещё не проверялся'))}
+            ${renderWatchedOrderMetaCell('Изменение', formatWatchedOrderTimestamp(item.lastEventAt, 'изменений не было'))}
+        </div>
+    `;
+}
+
 function renderWatchedOrderNote(item) {
     const note = normalizeOrdersWatchedOrderNote(item?.note);
     const inputId = getWatchedOrderNoteInputId(item.id);
@@ -726,12 +780,13 @@ function renderWatchedOrderNote(item) {
 function renderWatchedOrders(config = currentOrdersConfig) {
     const watchedOrders = getOrdersWatchedOrdersConfig(config);
     const intervalLabel = getOrdersWatchedOrderFollowUpIntervalLabel(config);
+    const stats = getWatchedOrdersStats(watchedOrders.items);
 
     renderOrdersWatchedOrderFollowUpInterval(config);
     setInnerText(
         'ordersWatchedStatus',
         watchedOrders.items.length
-            ? `В прямой проверке: ${watchedOrders.items.length}; интервал: ${intervalLabel}`
+            ? `Отслеживается: ${stats.total}; активных: ${stats.active}; с напоминанием: ${stats.pendingReminders}; интервал: ${intervalLabel}`
             : `Список отслеживаемых заказов пуст. Интервал проверки: ${intervalLabel}`
     );
 
@@ -740,27 +795,31 @@ function renderWatchedOrders(config = currentOrdersConfig) {
         return;
     }
 
-    setInnerHtml('ordersWatchedList', watchedOrders.items.map((item) => `
-        <article class="watched-order-row" data-order-id="${escapeHtml(item.id)}">
-            <div class="watched-order-main">
-                <div class="watched-orders-title">${escapeHtml(item.id)}</div>
-                ${renderBadge(getWatchedOrderStatusLabel(item.status), getWatchedOrderStatusBadgeClass(item.status))}
-                <div class="watched-order-meta">
-                    Добавлен: ${escapeHtml(formatTimestamp(item.addedAt))}<br>
-                    Baseline: ${escapeHtml(formatTimestamp(item.lastBaselineAt))}<br>
-                    Последняя проверка: ${escapeHtml(formatTimestamp(item.lastCheckedAt))}<br>
-                    Последнее изменение: ${escapeHtml(formatTimestamp(item.lastEventAt))}
-                    ${item.lastError ? `<br>Ошибка: ${escapeHtml(item.lastError)}` : ''}
+    setInnerHtml('ordersWatchedList', watchedOrders.items.map((item) => {
+        const adminUrl = buildWatchedOrderAdminUrl(item.id);
+
+        return `
+            <article class="watched-order-row" data-order-id="${escapeHtml(item.id)}">
+                <div class="watched-order-header">
+                    <div class="watched-order-main">
+                        <div class="watched-order-title-row">
+                            <span class="watched-orders-title">${escapeHtml(item.id)}</span>
+                            ${renderBadge(getWatchedOrderStatusLabel(item.status), getWatchedOrderStatusBadgeClass(item.status))}
+                            ${item.reminder?.status === 'pending' ? renderBadge('есть напоминание', 'badge-warning') : ''}
+                        </div>
+                        ${item.lastError ? `<div class="watched-order-meta">Ошибка: ${escapeHtml(item.lastError)}</div>` : ''}
+                    </div>
+                    <div class="watched-order-actions">
+                        ${adminUrl ? `<a class="button-link" href="${escapeHtml(adminUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>` : ''}
+                        <button type="button" data-watch-action="remove" data-order-id="${escapeHtml(item.id)}">Удалить</button>
+                    </div>
                 </div>
+                ${renderWatchedOrderMetaGrid(item)}
                 ${renderWatchedOrderNote(item)}
                 ${renderWatchedOrderReminder(item)}
-            </div>
-            <div class="watched-order-actions">
-                <button type="button" data-watch-action="open" data-order-id="${escapeHtml(item.id)}">Показать</button>
-                <button type="button" data-watch-action="remove" data-order-id="${escapeHtml(item.id)}">Удалить</button>
-            </div>
-        </article>
-    `).join(''));
+            </article>
+        `;
+    }).join(''));
 }
 
 function loadOrdersConfig() {
@@ -800,6 +859,93 @@ function saveWatchedOrderFollowUpIntervalFromUI() {
     saveOrdersConfig(nextConfig, `Интервал прямой проверки сохранён: ${getOrdersWatchedOrderFollowUpIntervalLabel(nextConfig)}.`);
 }
 
+
+function getOrdersWatchedOrderItem(config = {}, orderId = '') {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+
+    return getOrdersWatchedOrdersConfig(config).items.find(item => item.id === id) || null;
+}
+
+function getOrdersWatchedOrderAddError(status = {}, orderId = '') {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+    const addState = status?.watchedOrderAddState || null;
+    let error = '';
+
+    if (addState?.lastResult?.orderId === id && addState.lastResult.ok === false) {
+        error = addState.lastResult.error || '';
+    } else if (status?.directFollowUpState?.lastError) {
+        error = status.directFollowUpState.lastError;
+    }
+
+    if (error === 'direct order parse failed') {
+        return `Заказ №${id} не найден в админке или страница заказа не распознана. В список отслеживания не добавлен.`;
+    }
+
+    return error || 'Заказ не найден или его не удалось проверить.';
+}
+
+function pollOrdersWatchedOrderAddResult(orderId, source = 'orders-page', attempt = 0) {
+    if (typeof setTimeout !== 'function') {
+        return;
+    }
+
+    const id = normalizeOrdersWatchedOrderId(orderId);
+
+    setTimeout(() => {
+        sendMessage({ type: 'GET_CONFIG' }, (configResponse) => {
+            if (configResponse?.ok && getOrdersWatchedOrderItem(configResponse.userConfig, id)) {
+                currentOrdersConfig = configResponse.userConfig || currentOrdersConfig;
+                renderWatchedOrders(currentOrdersConfig);
+
+                if (source !== 'summary') {
+                    const input = document.getElementById('ordersWatchedOrderInput');
+                    const noteInput = document.getElementById('ordersWatchedOrderNoteInput');
+
+                    if (input && normalizeOrdersWatchedOrderId(input.value) === id) {
+                        input.value = '';
+                    }
+
+                    if (noteInput) {
+                        noteInput.value = '';
+                    }
+                }
+
+                setInnerText('ordersWatchedStatus', source === 'summary'
+                    ? `Заказ №${id} проверен и добавлен в прямую проверку.`
+                    : `Заказ №${id} проверен и добавлен. Baseline снят сразу без уведомления.`);
+                return;
+            }
+
+            sendMessage({ type: 'GET_MONITOR_STATUS' }, (statusResponse) => {
+                const status = statusResponse?.status || {};
+                const addState = status.watchedOrderAddState || null;
+                const isStillPending = addState?.pending === true && addState.orderId === id;
+                const isDirectCheckStillRunning = status.directFollowUpState?.currentOrderId === id;
+
+                const hasMatchingFailure = addState?.lastResult?.orderId === id && addState.lastResult.ok === false;
+
+                if (hasMatchingFailure) {
+                    renderWatchedOrders(currentOrdersConfig);
+                    setInnerText('ordersWatchedStatus', getOrdersWatchedOrderAddError(status, id));
+                    return;
+                }
+
+                if (isStillPending || isDirectCheckStillRunning || attempt + 1 < ORDERS_WATCHED_ORDER_ADD_MAX_POLLS) {
+                    if (attempt + 1 < ORDERS_WATCHED_ORDER_ADD_MAX_POLLS) {
+                        pollOrdersWatchedOrderAddResult(id, source, attempt + 1);
+                    } else {
+                        setInnerText('ordersWatchedStatus', `Проверка заказа №${id} заняла слишком много времени. Попробуйте ещё раз.`);
+                    }
+                    return;
+                }
+
+                renderWatchedOrders(currentOrdersConfig);
+                setInnerText('ordersWatchedStatus', getOrdersWatchedOrderAddError(status, id));
+            });
+        });
+    }, ORDERS_WATCHED_ORDER_ADD_POLL_INTERVAL_MS);
+}
+
 function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
     const id = normalizeOrdersWatchedOrderId(orderId);
     const note = normalizeOrdersWatchedOrderNote(noteValue);
@@ -836,12 +982,52 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
 
         currentOrdersConfig = response.userConfig || currentOrdersConfig;
         renderWatchedOrders(currentOrdersConfig);
+
+        if (response.validating === true) {
+            setInnerText('ordersWatchedStatus', `Проверяем заказ №${id} перед добавлением...`);
+            pollOrdersWatchedOrderAddResult(id, source);
+            return;
+        }
+
+        if (source !== 'summary') {
+            const input = document.getElementById('ordersWatchedOrderInput');
+            const noteInput = document.getElementById('ordersWatchedOrderNoteInput');
+
+            if (input && normalizeOrdersWatchedOrderId(input.value) === id) {
+                input.value = '';
+            }
+
+            if (noteInput) {
+                noteInput.value = '';
+            }
+        }
+
         setInnerText('ordersWatchedStatus', source === 'summary'
             ? `Заказ №${id} проверен и добавлен в прямую проверку.`
             : `Заказ №${id} проверен и добавлен. Baseline снят сразу без уведомления.`);
     });
 }
 
+
+function removeWatchedOrder(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+    const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
+    const nextItems = watchedOrders.items.filter(item => item.id !== id);
+
+    if (nextItems.length === watchedOrders.items.length) {
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке отслеживания.`);
+        return;
+    }
+
+    const nextConfig = {
+        ...currentOrdersConfig,
+        watchedOrders: {
+            items: nextItems
+        }
+    };
+
+    saveOrdersConfig(nextConfig, `Заказ №${id} удалён из отслеживаемых.`);
+}
 
 function setWatchedOrderNoteFromForm(orderId) {
     const id = normalizeOrdersWatchedOrderId(orderId);
@@ -944,14 +1130,6 @@ function addWatchedOrderFromInput() {
     const note = normalizeOrdersWatchedOrderNote(noteInput?.value);
 
     addWatchedOrder(id, 'orders-page', note);
-
-    if (isValidOrdersWatchedOrderId(id) && input) {
-        input.value = '';
-    }
-
-    if (isValidOrdersWatchedOrderId(id) && noteInput) {
-        noteInput.value = '';
-    }
 }
 
 function loadOrderHistory(queryOverride) {
@@ -1031,10 +1209,7 @@ function bindHistoryControls() {
             const action = event?.target?.dataset?.watchAction;
             const orderId = event?.target?.dataset?.orderId;
 
-            if (action === 'open') {
-                setElementValue('historyOrderQuery', orderId);
-                loadOrderHistory(orderId);
-            } else if (action === 'remove') {
+            if (action === 'remove') {
                 removeWatchedOrder(orderId);
             } else if (action === 'save-note') {
                 setWatchedOrderNoteFromForm(orderId);

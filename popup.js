@@ -26,11 +26,19 @@ const POPUP_SUPPRESSOR_CONTROLS = [
 
 const POPUP_WATCHED_ORDER_LIMIT = 100;
 const POPUP_WATCHED_ORDER_NOTE_LIMIT = 300;
+const POPUP_WATCHED_ORDER_ADD_POLL_INTERVAL_MS = 1000;
+const POPUP_WATCHED_ORDER_ADD_MAX_POLLS = 60;
+
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
-        console.log('[POPUP]', msg.type, res);
-        if (cb) cb(res);
+        const runtimeError = chrome.runtime.lastError;
+        const response = runtimeError
+            ? { ok: false, error: runtimeError.message || 'Ошибка связи с background.' }
+            : res;
+
+        console.log('[POPUP]', msg.type, response);
+        if (cb) cb(response);
     });
 }
 
@@ -193,6 +201,86 @@ function getPopupWatchedOrdersConfig(config = {}) {
     return { items };
 }
 
+
+function getPopupWatchedOrderItem(config = {}, orderId = '') {
+    const id = normalizePopupWatchedOrderId(orderId);
+
+    return getPopupWatchedOrdersConfig(config).items.find(item => item.id === id) || null;
+}
+
+function getPopupWatchedOrderAddError(status = {}, orderId = '') {
+    const id = normalizePopupWatchedOrderId(orderId);
+    const addState = status?.watchedOrderAddState || null;
+    let error = '';
+
+    if (addState?.lastResult?.orderId === id && addState.lastResult.ok === false) {
+        error = addState.lastResult.error || '';
+    } else if (status?.directFollowUpState?.lastError) {
+        error = status.directFollowUpState.lastError;
+    }
+
+    if (error === 'direct order parse failed') {
+        return `Заказ №${id} не найден в админке или страница заказа не распознана. В список отслеживания не добавлен.`;
+    }
+
+    return error || 'Заказ не найден или его не удалось проверить.';
+}
+
+function pollPopupWatchedOrderAddResult(orderId, attempt = 0) {
+    if (typeof setTimeout !== 'function') {
+        return;
+    }
+
+    const id = normalizePopupWatchedOrderId(orderId);
+
+    setTimeout(() => {
+        send({ type: 'GET_CONFIG' }, (configResponse) => {
+            if (configResponse?.ok && getPopupWatchedOrderItem(configResponse.userConfig, id)) {
+                currentPopupConfig = configResponse.userConfig || currentPopupConfig;
+
+                const input = document.getElementById('popupWatchedOrderInput');
+                const noteInput = document.getElementById('popupWatchedOrderNote');
+
+                if (input && normalizePopupWatchedOrderId(input.value) === id) {
+                    input.value = '';
+                }
+
+                if (noteInput) {
+                    noteInput.value = '';
+                }
+
+                setText('popupWatchedOrderStatus', `Заказ №${id} проверен и добавлен. Список — на странице “Отслеживаемые заказы”.`);
+                return;
+            }
+
+            send({ type: 'GET_MONITOR_STATUS' }, (statusResponse) => {
+                const status = statusResponse?.status || {};
+                const addState = status.watchedOrderAddState || null;
+                const isStillPending = addState?.pending === true && addState.orderId === id;
+                const isDirectCheckStillRunning = status.directFollowUpState?.currentOrderId === id;
+
+                const hasMatchingFailure = addState?.lastResult?.orderId === id && addState.lastResult.ok === false;
+
+                if (hasMatchingFailure) {
+                    setText('popupWatchedOrderStatus', getPopupWatchedOrderAddError(status, id));
+                    return;
+                }
+
+                if (isStillPending || isDirectCheckStillRunning || attempt + 1 < POPUP_WATCHED_ORDER_ADD_MAX_POLLS) {
+                    if (attempt + 1 < POPUP_WATCHED_ORDER_ADD_MAX_POLLS) {
+                        pollPopupWatchedOrderAddResult(id, attempt + 1);
+                    } else {
+                        setText('popupWatchedOrderStatus', 'Проверка заказа заняла слишком много времени. Попробуйте ещё раз или откройте страницу отслеживаемых заказов.');
+                    }
+                    return;
+                }
+
+                setText('popupWatchedOrderStatus', getPopupWatchedOrderAddError(status, id));
+            });
+        });
+    }, POPUP_WATCHED_ORDER_ADD_POLL_INTERVAL_MS);
+}
+
 function addWatchedOrderFromPopup() {
     const input = document.getElementById('popupWatchedOrderInput');
     const noteInput = document.getElementById('popupWatchedOrderNote');
@@ -229,6 +317,12 @@ function addWatchedOrderFromPopup() {
         }
 
         currentPopupConfig = res.userConfig || currentPopupConfig;
+
+        if (res.validating === true) {
+            setText('popupWatchedOrderStatus', `Проверяем заказ №${id} перед добавлением...`);
+            pollPopupWatchedOrderAddResult(id);
+            return;
+        }
 
         if (input) {
             input.value = '';

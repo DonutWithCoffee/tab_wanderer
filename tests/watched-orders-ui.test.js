@@ -192,7 +192,7 @@ function getDefaultOrderLookupResponse() {
     };
 }
 
-function loadWatchedOrdersContext(responseOverride, setupDocument, configOverride) {
+function loadWatchedOrdersContext(responseOverride, setupDocument, configOverride, runtimeOverride = {}) {
     const source = fs.readFileSync(
         path.join(__dirname, '..', 'watched-orders.js'),
         'utf8'
@@ -230,6 +230,7 @@ function loadWatchedOrdersContext(responseOverride, setupDocument, configOverrid
         },
         document,
         Date,
+        setTimeout: runtimeOverride.immediateTimers ? ((callback) => callback()) : undefined,
         chrome: {
             runtime: {
                 sendMessage: (message, callback) => {
@@ -246,19 +247,30 @@ function loadWatchedOrdersContext(responseOverride, setupDocument, configOverrid
                         response = { ok: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
                     }
 
+                    if (message.type === 'GET_MONITOR_STATUS') {
+                        response = {
+                            ok: true,
+                            status: JSON.parse(JSON.stringify(runtimeOverride.monitorStatus || {}))
+                        };
+                    }
+
                     if (message.type === 'ADD_WATCHED_ORDER') {
-                        userConfig.watchedOrders = userConfig.watchedOrders || { items: [] };
-                        userConfig.watchedOrders.items.push({
-                            id: String(message.orderId || '').trim(),
-                            status: 'active',
-                            note: String(message.note || '').trim(),
-                            addedAt: 1700000000000,
-                            lastCheckedAt: 1700000001000,
-                            lastBaselineAt: 1700000001000,
-                            lastEventAt: null,
-                            lastError: null
-                        });
-                        response = { ok: true, added: true, validated: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
+                        if (runtimeOverride.addWatchedOrderResponse) {
+                            response = JSON.parse(JSON.stringify(runtimeOverride.addWatchedOrderResponse));
+                        } else {
+                            userConfig.watchedOrders = userConfig.watchedOrders || { items: [] };
+                            userConfig.watchedOrders.items.push({
+                                id: String(message.orderId || '').trim(),
+                                status: 'active',
+                                note: String(message.note || '').trim(),
+                                addedAt: 1700000000000,
+                                lastCheckedAt: 1700000001000,
+                                lastBaselineAt: 1700000001000,
+                                lastEventAt: null,
+                                lastError: null
+                            });
+                            response = { ok: true, added: true, validated: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
+                        }
                     }
 
                     if (message.type === 'SET_WATCHED_ORDER_REMINDER') {
@@ -351,6 +363,8 @@ test('orders page exposes watched orders and hides user-facing order lookup', ()
     assert.match(html, /Прямая проверка открывает конкретные карточки заказов/);
     assert.match(html, /одно активное напоминание/);
     assert.match(html, /Проверяется один заказ за тик/);
+    assert.match(html, /Проверить и добавить/);
+    assert.match(html, /Заказ сначала проверяется в админке/);
     assert.doesNotMatch(html, /Найти заказ/);
     assert.doesNotMatch(html, /id="historyOrderQuery"/);
     assert.doesNotMatch(html, /id="searchHistory"/);
@@ -517,6 +531,10 @@ test('orders page renders and manages watched orders', () => {
     const document = context.__test.document;
 
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /watched-order-meta-grid/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Открыть в админке/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /https:\/\/amperkot\.ru\/admin\/orders\/1001-300326\//);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Отслеживается: 1; активных: 1/);
     assert.equal(document.getElementById('ordersWatchedOrderFollowUpIntervalSelect').value, '2');
 
     document.getElementById('ordersWatchedOrderInput').value = '2222-110626';
@@ -538,6 +556,81 @@ test('orders page renders and manages watched orders', () => {
     assert.match(document.getElementById('ordersWatchedStatus').innerText, /Baseline снят сразу/);
 });
 
+
+
+test('orders page keeps validating message for async watched order add', () => {
+    const context = loadWatchedOrdersContext(null, null, {
+        watchedOrderFollowUpIntervalMinutes: 2,
+        watchedOrders: { items: [] }
+    }, {
+        addWatchedOrderResponse: {
+            ok: true,
+            accepted: true,
+            validating: true,
+            orderId: '3214-000000',
+            userConfig: {
+                watchedOrderFollowUpIntervalMinutes: 2,
+                watchedOrders: { items: [] }
+            }
+        }
+    });
+    const document = context.__test.document;
+
+    document.getElementById('ordersWatchedOrderInput').value = '3214-000000';
+    document.getElementById('ordersAddWatchedOrder').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('ordersAddWatchedOrder')
+    });
+
+    assert.equal(document.getElementById('ordersWatchedStatus').innerText, 'Проверяем заказ №3214-000000 перед добавлением...');
+    assert.equal(document.getElementById('ordersWatchedOrderInput').value, '3214-000000');
+});
+
+
+
+test('orders page shows rejected watched order result from first polling response', () => {
+    const context = loadWatchedOrdersContext(null, null, {
+        watchedOrderFollowUpIntervalMinutes: 2,
+        watchedOrders: { items: [] }
+    }, {
+        immediateTimers: true,
+        addWatchedOrderResponse: {
+            ok: true,
+            accepted: true,
+            validating: true,
+            orderId: '0000-000000',
+            userConfig: {
+                watchedOrderFollowUpIntervalMinutes: 2,
+                watchedOrders: { items: [] }
+            }
+        },
+        monitorStatus: {
+            watchedOrderAddState: {
+                pending: false,
+                orderId: null,
+                lastResult: {
+                    ok: false,
+                    orderId: '0000-000000',
+                    error: 'direct order parse failed'
+                }
+            },
+            directFollowUpState: {
+                currentOrderId: null,
+                lastError: 'direct order parse failed'
+            }
+        }
+    });
+    const document = context.__test.document;
+
+    document.getElementById('ordersWatchedOrderInput').value = '0000-000000';
+    document.getElementById('ordersAddWatchedOrder').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('ordersAddWatchedOrder')
+    });
+
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /не найден/);
+    assert.equal(document.getElementById('ordersWatchedOrderInput').value, '0000-000000');
+});
 
 test('orders page autosaves watched order follow-up interval', () => {
     const context = loadWatchedOrdersContext();
@@ -601,6 +694,30 @@ test('hidden order lookup shows order lookup load failure', () => {
 });
 
 
+
+test('orders page removes watched order from list', () => {
+    const context = loadWatchedOrdersContext();
+    const document = context.__test.document;
+
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {
+                watchAction: 'remove',
+                orderId: '1001-300326'
+            }
+        }
+    });
+
+    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items)), []);
+    assert.doesNotMatch(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /удалён из отслеживаемых/);
+});
 
 test('orders page saves watched order comment from row editor', () => {
     const context = loadWatchedOrdersContext();

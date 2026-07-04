@@ -635,9 +635,15 @@ function hasMeaningfulOrderDetails(order = {}) {
 }
 
 function parseOrderDetails(expectedOrderId = '') {
-    const id = normalizeCellText(expectedOrderId || getOrderIdFromLocation());
+    const expectedId = normalizeCellText(expectedOrderId);
+    const locationId = normalizeCellText(getOrderIdFromLocation());
+    const id = expectedId || locationId;
 
     if (!id) {
+        return null;
+    }
+
+    if (expectedId && locationId !== expectedId) {
         return null;
     }
 

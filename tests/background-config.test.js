@@ -9,6 +9,11 @@ const {
     sendRuntimeMessage
 } = require('./helpers/load-extension-context');
 
+
+function getLastWatchedOrderAddResult(context) {
+    return JSON.parse(runExpression(context, 'JSON.stringify(lastWatchedOrderAddResult)'));
+}
+
 function createOrder(overrides = {}) {
     return {
         id: '1000-300326',
@@ -2678,6 +2683,44 @@ test('UPDATE_CONFIG starts immediate direct baseline for newly added watched ord
 });
 
 
+
+test('CHECK_DIRECT_WORKER trusts assigned direct tab after marker is lost', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        directWorkerTabId: 1,
+        directFollowUpState: {
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: Date.now()
+        },
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: []
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        { type: 'CHECK_DIRECT_WORKER' },
+        {
+            tab: {
+                id: 1,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/'
+            }
+        }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(response.isDirectWorker, true);
+    assert.equal(response.isRunning, true);
+    assert.equal(response.orderId, '1000-300326');
+});
+
 test('ADD_WATCHED_ORDER validates order before persisting watched order', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
@@ -2694,11 +2737,15 @@ test('ADD_WATCHED_ORDER validates order before persisting watched order', async 
         })
     });
 
-    const addPromise = sendRuntimeMessage(context, {
+    const response = await sendRuntimeMessage(context, {
         type: 'ADD_WATCHED_ORDER',
         orderId: '1000-300326',
         note: 'Проверить оплату'
     });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.accepted, true);
+    assert.equal(response.validating, true);
 
     await settleBackgroundContext();
     await settleBackgroundContext();
@@ -2725,16 +2772,125 @@ test('ADD_WATCHED_ORDER validates order before persisting watched order', async 
         }
     );
 
-    const response = await addPromise;
     state = getBackgroundState(context);
 
-    assert.equal(response.ok, true);
-    assert.equal(response.added, true);
-    assert.equal(response.validated, true);
+    const addResult = getLastWatchedOrderAddResult(context);
+
+    assert.equal(addResult.ok, true);
+    assert.equal(addResult.orderId, '1000-300326');
     assert.equal(state.userConfig.watchedOrders.items.length, 1);
     assert.equal(state.userConfig.watchedOrders.items[0].id, '1000-300326');
     assert.equal(state.userConfig.watchedOrders.items[0].note, 'Проверить оплату');
     assert.ok(state.userConfig.watchedOrders.items[0].lastBaselineAt > 0);
+});
+
+
+test('ADD_WATCHED_ORDER clears stale direct state before validation', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        directWorkerTabId: null,
+        directFollowUpState: {
+            currentOrderId: '9048-020726',
+            nextIndex: 0,
+            lastStartedAt: Date.now() - 120000,
+            lastError: null
+        },
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: []
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'ADD_WATCHED_ORDER',
+        orderId: '1000-300326'
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.accepted, true);
+    assert.equal(response.validating, true);
+
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+
+    let state = getBackgroundState(context);
+
+    assert.equal(context.__test.createdTabs.length, 1);
+    assert.equal(state.directFollowUpState.currentOrderId, '1000-300326');
+    assert.equal(state.directWorkerTabId, 1);
+
+    await sendRuntimeMessage(
+        context,
+        {
+            type: 'DIRECT_ORDER',
+            orderId: '1000-300326',
+            data: createOrder({ id: '1000-300326', status: 'Комплектуется' })
+        },
+        {
+            tab: {
+                id: 1,
+                url: 'https://amperkot.ru/admin/orders/1000-300326/#tab_wanderer_direct_worker=1'
+            }
+        }
+    );
+
+    state = getBackgroundState(context);
+
+    const addResult = getLastWatchedOrderAddResult(context);
+
+    assert.equal(addResult.ok, true);
+    assert.equal(addResult.orderId, '1000-300326');
+    assert.equal(state.userConfig.watchedOrders.items.length, 1);
+    assert.equal(state.userConfig.watchedOrders.items[0].id, '1000-300326');
+});
+
+test('ADD_WATCHED_ORDER rejects pending add when direct worker tab closes', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        directWorkerTabId: null,
+        directFollowUpState: null,
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: []
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'ADD_WATCHED_ORDER',
+        orderId: '1000-300326'
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.accepted, true);
+    assert.equal(response.validating, true);
+
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+    context.__test.tabsOnRemovedListener(1);
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+
+    const state = getBackgroundState(context);
+
+    const addResult = getLastWatchedOrderAddResult(context);
+
+    assert.equal(addResult.ok, false);
+    assert.match(addResult.error, /direct worker tab closed/);
+    assert.equal(state.userConfig.watchedOrders.items.length, 0);
+    assert.equal(state.directWorkerTabId, null);
+    assert.equal(state.directFollowUpState.currentOrderId, null);
 });
 
 test('ADD_WATCHED_ORDER rejects nonexistent order after direct parse failure', async () => {
@@ -2753,11 +2909,15 @@ test('ADD_WATCHED_ORDER rejects nonexistent order after direct parse failure', a
         })
     });
 
-    const addPromise = sendRuntimeMessage(context, {
+    const response = await sendRuntimeMessage(context, {
         type: 'ADD_WATCHED_ORDER',
         orderId: '9999-010101',
         note: 'Нет такого заказа'
     });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.accepted, true);
+    assert.equal(response.validating, true);
 
     await settleBackgroundContext();
     await settleBackgroundContext();
@@ -2779,11 +2939,12 @@ test('ADD_WATCHED_ORDER rejects nonexistent order after direct parse failure', a
         }
     );
 
-    const response = await addPromise;
     const state = getBackgroundState(context);
 
-    assert.equal(response.ok, false);
-    assert.match(response.error, /direct order parse failed/);
+    const addResult = getLastWatchedOrderAddResult(context);
+
+    assert.equal(addResult.ok, false);
+    assert.match(addResult.error, /direct order parse failed/);
     assert.equal(state.userConfig.watchedOrders.items.length, 0);
     assert.equal(state.directWorkerTabId, null);
 });

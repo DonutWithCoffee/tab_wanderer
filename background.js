@@ -32,6 +32,7 @@ let diagnosticLogDroppedEntries = 0;
 let diagnosticLogFlushTimer = null;
 let isDiagnosticLogReady = false;
 let pendingWatchedOrderAdd = null;
+let lastWatchedOrderAddResult = null;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -160,6 +161,27 @@ function getPendingWatchedOrderAddForOrder(orderId) {
     return pendingWatchedOrderAdd;
 }
 
+function clearStaleDirectFollowUpState(reason = 'stale-direct-state-cleared') {
+    const staleOrderId = directFollowUpState?.currentOrderId || null;
+
+    if (directWorkerTabId || !staleOrderId) {
+        return false;
+    }
+
+    directFollowUpState = normalizeDirectFollowUpState({
+        nextIndex: directFollowUpState?.nextIndex,
+        lastCompletedAt: directFollowUpState?.lastCompletedAt,
+        lastError: reason
+    });
+
+    log('WARN', 'DIRECT_FOLLOW_UP', 'stale direct state cleared', {
+        orderId: staleOrderId,
+        reason
+    });
+
+    return true;
+}
+
 function completePendingWatchedOrderAdd(orderId, response) {
     const pending = getPendingWatchedOrderAddForOrder(orderId);
 
@@ -167,16 +189,17 @@ function completePendingWatchedOrderAdd(orderId, response) {
         return false;
     }
 
-    pendingWatchedOrderAdd = null;
+    const safeResponse = response && typeof response === 'object' ? response : createRuntimeFailureResponse();
 
-    try {
-        pending.send(response);
-    } catch (err) {
-        log('WARN', 'WATCHED_ORDERS', 'cannot send watched order add response', {
-            orderId: pending.orderId,
-            error: String(err?.message || err)
-        });
-    }
+    pendingWatchedOrderAdd = null;
+    lastWatchedOrderAddResult = {
+        ok: safeResponse.ok === true,
+        orderId: pending.orderId,
+        error: safeResponse.ok === true ? null : (safeResponse.error || 'Не удалось проверить заказ.'),
+        completedAt: Date.now()
+    };
+
+    log(lastWatchedOrderAddResult.ok ? 'INFO' : 'WARN', 'WATCHED_ORDERS', lastWatchedOrderAddResult.ok ? 'add validation completed' : 'add validation failed', lastWatchedOrderAddResult);
 
     return true;
 }
@@ -263,7 +286,8 @@ async function startDirectFollowUpCheck(orderId, nextIndex = 0) {
 
     log('INFO', 'DIRECT_FOLLOW_UP', 'worker created', {
         orderId: normalizeWatchedOrderId(orderId),
-        tabId: directWorkerTabId
+        tabId: directWorkerTabId,
+        pendingAdd: Boolean(getPendingWatchedOrderAddForOrder(orderId))
     });
 
     await save();
@@ -1046,7 +1070,9 @@ function getMonitorStatusSnapshot() {
         eventJournal,
         eventJournalDroppedEntries,
         diagnosticLog,
-        diagnosticLogDroppedEntries
+        diagnosticLogDroppedEntries,
+        pendingWatchedOrderAdd,
+        lastWatchedOrderAddResult
     });
 }
 
@@ -1154,7 +1180,8 @@ async function save() {
         eventJournal,
         eventJournalDroppedEntries,
         diagnosticLog,
-        diagnosticLogDroppedEntries
+        diagnosticLogDroppedEntries,
+        lastWatchedOrderAddResult
     });
 
     logState('SAVE');
@@ -1184,7 +1211,8 @@ async function load() {
         'eventJournal',
         'eventJournalDroppedEntries',
         'diagnosticLog',
-        'diagnosticLogDroppedEntries'
+        'diagnosticLogDroppedEntries',
+        'lastWatchedOrderAddResult'
     ]);
 
     knownOrdersDB = d.knownOrdersDB || {};
@@ -1210,10 +1238,14 @@ async function load() {
 
     diagnosticLog = diagnosticLogRetention.entries;
     diagnosticLogDroppedEntries = normalizeDiagnosticLogDroppedEntries(d.diagnosticLogDroppedEntries) + diagnosticLogRetention.dropped;
+    lastWatchedOrderAddResult = d.lastWatchedOrderAddResult && typeof d.lastWatchedOrderAddResult === 'object'
+        ? d.lastWatchedOrderAddResult
+        : null;
     isDiagnosticLogReady = true;
 
     directWorkerTabId = null;
     directFollowUpState = normalizeDirectFollowUpState(d.directFollowUpState);
+    clearStaleDirectFollowUpState('direct follow-up reset on service worker load');
     directFollowUpOrdersDB = d.directFollowUpOrdersDB && typeof d.directFollowUpOrdersDB === 'object'
         ? d.directFollowUpOrdersDB
         : {};
@@ -1385,14 +1417,14 @@ async function ensureWorkerTab() {
 // ---------- TAB EVENTS ----------
 chrome.tabs.onRemoved.addListener((tabId) => {
     if (tabId === directWorkerTabId) {
+        const currentOrderId = directFollowUpState?.currentOrderId;
+
         directWorkerTabId = null;
 
-        if (directFollowUpState?.currentOrderId) {
-            directFollowUpState = normalizeDirectFollowUpState({
-                nextIndex: directFollowUpState.nextIndex,
-                lastStartedAt: directFollowUpState.lastStartedAt,
-                lastCompletedAt: directFollowUpState.lastCompletedAt,
-                lastError: 'direct worker tab closed'
+        if (currentOrderId) {
+            completeDirectFollowUpCheck(currentOrderId, {
+                ok: false,
+                error: 'direct worker tab closed'
             });
         }
     }
@@ -2383,67 +2415,100 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
 }
 
 
-async function startWatchedOrderAddValidation(orderId, options = {}, sendResponse) {
+async function startWatchedOrderAddValidation(orderId, options = {}) {
     const normalizedId = normalizeWatchedOrderId(orderId);
     const note = normalizeWatchedOrderNote(options?.note);
     const now = Date.now();
     const result = addWatchedOrderToConfig(userConfig?.watchedOrders, normalizedId, now, { note });
 
+    log('INFO', 'WATCHED_ORDERS', 'add validation requested', {
+        orderId: normalizedId || String(orderId || '').trim(),
+        hasNote: Boolean(note)
+    });
+
+    clearStaleDirectFollowUpState('stale direct follow-up cleared before watched order add');
+
     if (result.invalid) {
-        sendResponse(createRuntimeFailureResponse({ error: 'Введите полный номер заказа в формате 1234-110626.' }));
-        return false;
+        const response = createRuntimeFailureResponse({ error: 'Введите полный номер заказа в формате 1234-110626.' });
+        lastWatchedOrderAddResult = {
+            ok: false,
+            orderId: normalizedId || String(orderId || '').trim(),
+            error: response.error,
+            completedAt: Date.now()
+        };
+        log('WARN', 'WATCHED_ORDERS', 'add validation rejected', lastWatchedOrderAddResult);
+        return response;
     }
 
     if (result.duplicate) {
-        sendResponse(createRuntimeFailureResponse({
+        return createRuntimeFailureResponse({
             error: `Заказ №${normalizedId} уже отслеживается.`,
             duplicate: true,
             orderId: normalizedId,
             userConfig
-        }));
-        return false;
+        });
     }
 
     if (result.limitReached) {
-        sendResponse(createRuntimeFailureResponse({
+        return createRuntimeFailureResponse({
             error: 'Достигнут лимит отслеживаемых заказов.',
             limitReached: true,
             orderId: normalizedId,
             userConfig
-        }));
-        return false;
+        });
     }
 
     if (pendingWatchedOrderAdd || directWorkerTabId || directFollowUpState?.currentOrderId) {
-        sendResponse(createRuntimeFailureResponse({
+        log('WARN', 'WATCHED_ORDERS', 'add validation busy', {
+            orderId: normalizedId,
+            hasPendingAdd: Boolean(pendingWatchedOrderAdd),
+            directWorkerTabId,
+            currentOrderId: directFollowUpState?.currentOrderId || null
+        });
+        return createRuntimeFailureResponse({
             error: 'Сейчас уже выполняется проверка заказа. Повторите добавление позже.',
             busy: true,
             orderId: normalizedId,
             userConfig
-        }));
-        return false;
+        });
     }
 
     pendingWatchedOrderAdd = {
         orderId: normalizedId,
         note,
         startedAt: now,
-        send: sendResponse
+        accepted: true
     };
+    lastWatchedOrderAddResult = null;
+
+    log('INFO', 'WATCHED_ORDERS', 'add validation starting direct check', {
+        orderId: normalizedId
+    });
 
     const started = await startDirectFollowUpCheck(normalizedId, directFollowUpState?.nextIndex || 0);
 
     if (!started) {
         pendingWatchedOrderAdd = null;
-        sendResponse(createRuntimeFailureResponse({
+        lastWatchedOrderAddResult = {
+            ok: false,
+            orderId: normalizedId,
+            error: 'Не удалось запустить проверку заказа.',
+            completedAt: Date.now()
+        };
+        log('WARN', 'WATCHED_ORDERS', 'add validation failed', lastWatchedOrderAddResult);
+        return createRuntimeFailureResponse({
             error: 'Не удалось запустить проверку заказа.',
             orderId: normalizedId,
             userConfig
-        }));
-        return false;
+        });
     }
 
-    return true;
+    return createRuntimeOkResponse({
+        accepted: true,
+        validating: true,
+        orderId: normalizedId,
+        userConfig
+    });
 }
 
 // ---------- MESSAGES ----------
@@ -2482,7 +2547,14 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 const currentOrderId = directFollowUpState?.currentOrderId || null;
                 const canProcessDirectOrder = isRunning || Boolean(currentOrderId);
 
-                if (senderTabId === directWorkerTabId && isCorrectUrl) {
+                if (senderTabId === directWorkerTabId) {
+                    if (!isCorrectUrl) {
+                        log('WARN', 'DIRECT_FOLLOW_UP', 'direct worker marker missing, trusting assigned tab id', {
+                            orderId: currentOrderId,
+                            tabId: senderTabId
+                        });
+                    }
+
                     send(createRuntimeOkResponse({
                         isDirectWorker: true,
                         isRunning: canProcessDirectOrder,
@@ -2605,7 +2677,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'ADD_WATCHED_ORDER') {
-                await startWatchedOrderAddValidation(msg.orderId, { note: msg.note }, send);
+                send(await startWatchedOrderAddValidation(msg.orderId, { note: msg.note }));
                 return;
             }
 

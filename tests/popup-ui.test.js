@@ -174,6 +174,7 @@ function loadPopupContext(overrides = {}) {
         },
         document,
         window: {},
+        setTimeout: overrides.immediateTimers ? ((callback) => callback()) : undefined,
         chrome: {
             tabs: {
                 createdTabs: [],
@@ -207,18 +208,22 @@ function loadPopupContext(overrides = {}) {
                     }
 
                     if (msg.type === 'ADD_WATCHED_ORDER') {
-                        popupConfig.watchedOrders = popupConfig.watchedOrders || { items: [] };
-                        popupConfig.watchedOrders.items.push({
-                            id: String(msg.orderId || '').trim(),
-                            status: 'active',
-                            note: String(msg.note || '').trim(),
-                            addedAt: 1700000000000,
-                            lastCheckedAt: 1700000001000,
-                            lastBaselineAt: 1700000001000,
-                            lastEventAt: null,
-                            lastError: null
-                        });
-                        response = { ok: true, added: true, validated: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
+                        if (overrides.addWatchedOrderResponse) {
+                            response = JSON.parse(JSON.stringify(overrides.addWatchedOrderResponse));
+                        } else {
+                            popupConfig.watchedOrders = popupConfig.watchedOrders || { items: [] };
+                            popupConfig.watchedOrders.items.push({
+                                id: String(msg.orderId || '').trim(),
+                                status: 'active',
+                                note: String(msg.note || '').trim(),
+                                addedAt: 1700000000000,
+                                lastCheckedAt: 1700000001000,
+                                lastBaselineAt: 1700000001000,
+                                lastEventAt: null,
+                                lastError: null
+                            });
+                            response = { ok: true, added: true, validated: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
+                        }
                     }
 
                     if (msg.type === 'GET_DIAGNOSTIC_LOG') {
@@ -403,6 +408,74 @@ test('popup adds watched order by full order id only', () => {
     assert.equal(input.value, '');
     assert.equal(noteInput.value, '');
     assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 проверен и добавлен. Список — на странице “Отслеживаемые заказы”.');
+});
+
+
+test('popup keeps validating watched order message until polling resolves', () => {
+    const context = loadPopupContext({
+        addWatchedOrderResponse: {
+            ok: true,
+            accepted: true,
+            validating: true,
+            orderId: '3214-000000',
+            userConfig: {
+                watchedOrders: { items: [] }
+            }
+        }
+    });
+    const document = context.__test.document;
+    const input = document.getElementById('popupWatchedOrderInput');
+    const addButton = document.getElementById('popupAddWatchedOrder');
+
+    input.value = '3214-000000';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Проверяем заказ №3214-000000 перед добавлением...');
+    assert.equal(input.value, '3214-000000');
+});
+
+
+
+test('popup shows rejected watched order result from first polling response', () => {
+    const context = loadPopupContext({
+        immediateTimers: true,
+        addWatchedOrderResponse: {
+            ok: true,
+            accepted: true,
+            validating: true,
+            orderId: '0000-000000',
+            userConfig: {
+                watchedOrders: { items: [] }
+            }
+        },
+        monitorStatus: {
+            watchedOrderAddState: {
+                pending: false,
+                orderId: null,
+                lastResult: {
+                    ok: false,
+                    orderId: '0000-000000',
+                    error: 'direct order parse failed'
+                }
+            },
+            directFollowUpState: {
+                currentOrderId: null,
+                lastError: 'direct order parse failed'
+            }
+        },
+        userConfig: {
+            watchedOrders: { items: [] }
+        }
+    });
+    const document = context.__test.document;
+    const input = document.getElementById('popupWatchedOrderInput');
+    const addButton = document.getElementById('popupAddWatchedOrder');
+
+    input.value = '0000-000000';
+    addButton.dispatchEvent({ type: 'click', target: addButton });
+
+    assert.match(document.getElementById('popupWatchedOrderStatus').innerText, /не найден/);
+    assert.equal(input.value, '0000-000000');
 });
 
 test('popup downloads diagnostic log from quick action', () => {
