@@ -288,6 +288,7 @@ test('getEffectiveConfig normalizes watched orders config', () => {
             {
                 id: '1000-300326',
                 status: 'active',
+                note: '',
                 addedAt: config.watchedOrders.items[0].addedAt,
                 lastCheckedAt: null,
                 lastBaselineAt: null,
@@ -298,6 +299,7 @@ test('getEffectiveConfig normalizes watched orders config', () => {
             {
                 id: '2000-300326',
                 status: 'unresolved',
+                note: '',
                 addedAt: config.watchedOrders.items[1].addedAt,
                 lastCheckedAt: null,
                 lastBaselineAt: null,

@@ -1185,7 +1185,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
 
     const normalized = context.normalizeWatchedOrdersConfig({
         items: [
-            { id: ' 1000-300326 ', status: 'active', addedAt: 1700000000000 },
+            { id: ' 1000-300326 ', status: 'active', note: '  Срочно   проверить  ', addedAt: 1700000000000 },
             { id: '1000-300326', status: 'unresolved' },
             { id: 'bad-order-id' },
             '2000-300326'
@@ -1197,6 +1197,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
             {
                 id: '1000-300326',
                 status: 'active',
+                note: 'Срочно проверить',
                 addedAt: 1700000000000,
                 lastCheckedAt: null,
                 lastBaselineAt: null,
@@ -1207,6 +1208,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
             {
                 id: '2000-300326',
                 status: 'active',
+                note: '',
                 addedAt: 1700000001000,
                 lastCheckedAt: null,
                 lastBaselineAt: null,
@@ -1407,6 +1409,15 @@ test('direct follow-up helpers select watched orders and update check status', (
     assert.equal(failed.items[0].status, 'unresolved');
     assert.equal(failed.items[0].lastCheckedAt, 1700000005000);
     assert.equal(failed.items[0].lastError, 'parse failed');
+
+    const skippedUnresolvedWithoutBaseline = context.selectNextDirectFollowUpItem(failed, { nextIndex: 0 });
+
+    assert.equal(skippedUnresolvedWithoutBaseline.item.id, '2000-300326');
+
+    const failedWithBaseline = context.markWatchedOrderDirectBaseline(failed, '1000-300326', 1700000005500);
+    const retriedUnresolvedWithBaseline = context.selectNextDirectFollowUpItem(failedWithBaseline, { nextIndex: 0 });
+
+    assert.equal(retriedUnresolvedWithBaseline.item.id, '1000-300326');
 
     const recovered = context.markWatchedOrderCheckResult(failed, '1000-300326', {
         ok: true

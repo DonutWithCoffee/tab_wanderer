@@ -62,7 +62,7 @@ class FakeDocument extends FakeEventTarget {
     }
 }
 
-function createHistoryDom() {
+function createWatchedOrdersDom() {
     const document = new FakeDocument();
 
     [
@@ -74,9 +74,11 @@ function createHistoryDom() {
         'orderSummary',
         'historyList',
         'ordersWatchedOrderInput',
+        'ordersWatchedOrderNoteInput',
         'ordersAddWatchedOrder',
         'ordersWatchedStatus',
-        'ordersWatchedList'
+        'ordersWatchedList',
+        'ordersWatchedOrderFollowUpIntervalSelect'
     ].forEach((id) => document.registerElement(id));
 
     return document;
@@ -190,15 +192,16 @@ function getDefaultOrderLookupResponse() {
     };
 }
 
-function loadHistoryContext(responseOverride, setupDocument, configOverride) {
+function loadWatchedOrdersContext(responseOverride, setupDocument, configOverride) {
     const source = fs.readFileSync(
-        path.join(__dirname, '..', 'history.js'),
+        path.join(__dirname, '..', 'watched-orders.js'),
         'utf8'
     );
 
     const sentMessages = [];
-    const document = createHistoryDom();
+    const document = createWatchedOrdersDom();
     const userConfig = configOverride || {
+        watchedOrderFollowUpIntervalMinutes: 2,
         watchedOrders: {
             items: [
                 {
@@ -208,7 +211,8 @@ function loadHistoryContext(responseOverride, setupDocument, configOverride) {
                     lastCheckedAt: 1700000060000,
                     lastBaselineAt: 1700000000000,
                     lastEventAt: 1700000060000,
-                    lastError: null
+                    lastError: null,
+                    note: 'Важный заказ'
                 }
             ]
         }
@@ -240,6 +244,21 @@ function loadHistoryContext(responseOverride, setupDocument, configOverride) {
                     if (message.type === 'UPDATE_CONFIG') {
                         Object.assign(userConfig, JSON.parse(JSON.stringify(message.userConfig || {})));
                         response = { ok: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
+                    }
+
+                    if (message.type === 'ADD_WATCHED_ORDER') {
+                        userConfig.watchedOrders = userConfig.watchedOrders || { items: [] };
+                        userConfig.watchedOrders.items.push({
+                            id: String(message.orderId || '').trim(),
+                            status: 'active',
+                            note: String(message.note || '').trim(),
+                            addedAt: 1700000000000,
+                            lastCheckedAt: 1700000001000,
+                            lastBaselineAt: 1700000001000,
+                            lastEventAt: null,
+                            lastError: null
+                        });
+                        response = { ok: true, added: true, validated: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
                     }
 
                     if (message.type === 'SET_WATCHED_ORDER_REMINDER') {
@@ -303,16 +322,16 @@ function loadHistoryContext(responseOverride, setupDocument, configOverride) {
     context.window = context;
 
     vm.createContext(context);
-    vm.runInContext(source, context, { filename: 'history.js' });
+    vm.runInContext(source, context, { filename: 'watched-orders.js' });
 
     document.dispatchEvent({ type: 'DOMContentLoaded' });
 
     return context;
 }
 
-function readHistoryHtml() {
+function readWatchedOrdersHtml() {
     return fs.readFileSync(
-        path.join(__dirname, '..', 'history.html'),
+        path.join(__dirname, '..', 'watched-orders.html'),
         'utf8'
     );
 }
@@ -322,13 +341,16 @@ function getMessagesByType(context, type) {
 }
 
 test('orders page exposes watched orders and hides user-facing order lookup', () => {
-    const html = readHistoryHtml();
+    const html = readWatchedOrdersHtml();
 
     assert.match(html, /Отслеживаемые заказы/);
     assert.match(html, /id="ordersWatchedOrderInput"/);
+    assert.match(html, /id="ordersWatchedOrderNoteInput"/);
     assert.match(html, /id="ordersWatchedList"/);
+    assert.match(html, /id="ordersWatchedOrderFollowUpIntervalSelect"/);
     assert.match(html, /Прямая проверка открывает конкретные карточки заказов/);
     assert.match(html, /одно активное напоминание/);
+    assert.match(html, /Проверяется один заказ за тик/);
     assert.doesNotMatch(html, /Найти заказ/);
     assert.doesNotMatch(html, /id="historyOrderQuery"/);
     assert.doesNotMatch(html, /id="searchHistory"/);
@@ -345,7 +367,7 @@ test('orders page exposes watched orders and hides user-facing order lookup', ()
 });
 
 test('hidden order lookup starts idle without loading broad event journal', () => {
-    const context = loadHistoryContext();
+    const context = loadWatchedOrdersContext();
     const document = context.__test.document;
 
     assert.equal(getMessagesByType(context, 'GET_ORDER_LOOKUP').length, 0);
@@ -355,7 +377,7 @@ test('hidden order lookup starts idle without loading broad event journal', () =
 });
 
 test('hidden order lookup requests order data and renders selected order changes', () => {
-    const context = loadHistoryContext(undefined, (document) => {
+    const context = loadWatchedOrdersContext(undefined, (document) => {
         document.getElementById('historyOrderQuery').value = '1001';
     });
     const document = context.__test.document;
@@ -388,7 +410,7 @@ test('hidden order lookup requests order data and renders selected order changes
 });
 
 test('hidden order lookup renders multiple short-number candidates without showing global events', () => {
-    const context = loadHistoryContext({
+    const context = loadWatchedOrdersContext({
         ok: true,
         query: '1001',
         queryType: 'short',
@@ -427,7 +449,7 @@ test('hidden order lookup renders multiple short-number candidates without showi
 });
 
 test('hidden order lookup shows not-found and invalid states', () => {
-    const notFound = loadHistoryContext({
+    const notFound = loadWatchedOrdersContext({
         ok: true,
         query: '9999',
         queryType: 'short',
@@ -448,7 +470,7 @@ test('hidden order lookup shows not-found and invalid states', () => {
     assert.match(notFound.__test.document.getElementById('historyStatus').innerText, /не найден/);
     assert.match(notFound.__test.document.getElementById('historyList').innerHTML, /Плагин показывает только заказы/);
 
-    const invalid = loadHistoryContext({
+    const invalid = loadWatchedOrdersContext({
         ok: true,
         query: 'abc',
         queryType: 'invalid',
@@ -473,7 +495,7 @@ test('hidden order lookup shows not-found and invalid states', () => {
 });
 
 test('hidden order lookup reset clears current lookup without backend request', () => {
-    const context = loadHistoryContext(undefined, (document) => {
+    const context = loadWatchedOrdersContext(undefined, (document) => {
         document.getElementById('historyOrderQuery').value = '1001';
     });
     const document = context.__test.document;
@@ -491,25 +513,46 @@ test('hidden order lookup reset clears current lookup without backend request', 
 });
 
 test('orders page renders and manages watched orders', () => {
-    const context = loadHistoryContext();
+    const context = loadWatchedOrdersContext();
     const document = context.__test.document;
 
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
+    assert.equal(document.getElementById('ordersWatchedOrderFollowUpIntervalSelect').value, '2');
 
     document.getElementById('ordersWatchedOrderInput').value = '2222-110626';
+    document.getElementById('ordersWatchedOrderNoteInput').value = 'Связаться с клиентом';
     document.getElementById('ordersAddWatchedOrder').dispatchEvent({
         type: 'click',
         target: document.getElementById('ordersAddWatchedOrder')
     });
 
+    const addMessages = getMessagesByType(context, 'ADD_WATCHED_ORDER');
+
+    assert.equal(addMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(addMessages[0])), {
+        type: 'ADD_WATCHED_ORDER',
+        orderId: '2222-110626',
+        note: 'Связаться с клиентом'
+    });
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /2222-110626/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Baseline снят сразу/);
+});
+
+
+test('orders page autosaves watched order follow-up interval', () => {
+    const context = loadWatchedOrdersContext();
+    const document = context.__test.document;
+    const select = document.getElementById('ordersWatchedOrderFollowUpIntervalSelect');
+
+    select.value = '15';
+    select.dispatchEvent({ type: 'change', target: select });
+
     const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
 
     assert.equal(updateMessages.length, 1);
-    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items.map(item => item.id))), [
-        '1001-300326',
-        '2222-110626'
-    ]);
-    assert.match(document.getElementById('ordersWatchedStatus').innerText, /2222-110626/);
+    assert.equal(updateMessages[0].userConfig.watchedOrderFollowUpIntervalMinutes, 15);
+    assert.equal(document.getElementById('ordersWatchedOrderFollowUpIntervalSelect').value, '15');
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /каждые 15 мин/);
 });
 
 test('orders page toggles selected order watch state from summary', () => {
@@ -517,7 +560,7 @@ test('orders page toggles selected order watch state from summary', () => {
     response.order.isWatched = false;
     response.candidates[0].isWatched = false;
 
-    const context = loadHistoryContext(response, (document) => {
+    const context = loadWatchedOrdersContext(response, (document) => {
         document.getElementById('historyOrderQuery').value = '1001';
     }, {
         watchedOrders: { items: [] }
@@ -536,14 +579,14 @@ test('orders page toggles selected order watch state from summary', () => {
 
     document.getElementById('orderSummary').dispatchEvent({ type: 'click', target: summaryButtonTarget });
 
-    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+    const addMessages = getMessagesByType(context, 'ADD_WATCHED_ORDER');
 
-    assert.equal(updateMessages.length, 1);
-    assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].id, '1001-300326');
+    assert.equal(addMessages.length, 1);
+    assert.equal(addMessages[0].orderId, '1001-300326');
 });
 
 test('hidden order lookup shows order lookup load failure', () => {
-    const context = loadHistoryContext({
+    const context = loadWatchedOrdersContext({
         ok: false,
         error: 'failed'
     }, (document) => {
@@ -558,11 +601,40 @@ test('hidden order lookup shows order lookup load failure', () => {
 });
 
 
+
+test('orders page saves watched order comment from row editor', () => {
+    const context = loadWatchedOrdersContext();
+    const document = context.__test.document;
+    const noteInput = document.registerElement('ordersWatchedOrderNote_1001_300326');
+
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Важный заказ/);
+
+    noteInput.value = '  Нужно проверить документы  ';
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {
+                watchAction: 'save-note',
+                orderId: '1001-300326'
+            }
+        }
+    });
+
+    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].note, 'Нужно проверить документы');
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Комментарий/);
+});
+
 test('orders page sets and clears watched order reminder through runtime API', () => {
-    const context = loadHistoryContext();
+    const context = loadWatchedOrdersContext();
     const document = context.__test.document;
     const remindAtInput = document.registerElement('ordersReminderAt_1001_300326');
     const noteInput = document.registerElement('ordersReminderNote_1001_300326');
+
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /<summary>Поставить напоминание<\/summary>/);
 
     remindAtInput.value = '2100-01-01T12:00';
     noteInput.value = 'Проверить оплату';
@@ -615,7 +687,7 @@ test('orders page sets and clears watched order reminder through runtime API', (
 });
 
 test('orders page renders pending reminder and prevents duplicate reminder setup', () => {
-    const context = loadHistoryContext(undefined, null, {
+    const context = loadWatchedOrdersContext(undefined, null, {
         watchedOrders: {
             items: [
                 {

@@ -564,7 +564,6 @@ function renderSettings(config = {}) {
 
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
-    setValue('optionsWatchedOrderFollowUpIntervalSelect', normalizeWatchedOrderFollowUpIntervalMinutes(config.watchedOrderFollowUpIntervalMinutes));
     renderScopeControls(config, currentDictionaries);
     renderWatchedOrders(config);
 
@@ -618,15 +617,6 @@ function saveDeepSyncMaxPagesFromUI() {
     };
 
     saveConfig(nextConfig, 'Глубина синхронизации сохранена.');
-}
-
-function saveWatchedOrderFollowUpIntervalFromUI() {
-    const nextConfig = {
-        ...currentConfig,
-        watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(getValue('optionsWatchedOrderFollowUpIntervalSelect'))
-    };
-
-    saveConfig(nextConfig, 'Интервал проверки отслеживаемых заказов сохранён.');
 }
 
 function collectMonitorScopeFromUI(baseConfig = {}) {
@@ -882,7 +872,6 @@ function saveNotificationSuppressorsFromUI(successMessage = 'Подавлени�
 function bindSettingsAutosave() {
     const monitorMode = document.getElementById('optionsMonitorModeSelect');
     const deepSyncMaxPages = document.getElementById('optionsDeepSyncMaxPages');
-    const watchedOrderFollowUpInterval = document.getElementById('optionsWatchedOrderFollowUpIntervalSelect');
 
     if (monitorMode) {
         monitorMode.addEventListener('change', () => {
@@ -893,12 +882,6 @@ function bindSettingsAutosave() {
     if (deepSyncMaxPages) {
         deepSyncMaxPages.addEventListener('change', () => {
             saveDeepSyncMaxPagesFromUI();
-        });
-    }
-
-    if (watchedOrderFollowUpInterval) {
-        watchedOrderFollowUpInterval.addEventListener('change', () => {
-            saveWatchedOrderFollowUpIntervalFromUI();
         });
     }
 
@@ -915,7 +898,7 @@ function bindSettingsAutosave() {
         optionsOpenOrdersPage.addEventListener('click', () => {
             if (chrome?.tabs?.create && chrome?.runtime?.getURL) {
                 chrome.tabs.create({
-                    url: chrome.runtime.getURL('history.html'),
+                    url: chrome.runtime.getURL('watched-orders.html'),
                     active: true
                 });
             }

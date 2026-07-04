@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>tab_wanderer orders</title>
+    <title>tab_wanderer watched orders</title>
     <style>
         body {
             max-width: 960px;
@@ -68,11 +68,16 @@
         }
 
         .lookup-row input,
-        .inline-form input {
+        .inline-form input,
+        .inline-form select {
             min-width: 240px;
             flex: 1;
             padding: 9px;
             font-size: 14px;
+        }
+
+        .inline-form label {
+            font-weight: bold;
         }
 
         .lookup-row button,
@@ -222,12 +227,34 @@
             font-weight: bold;
         }
 
+        .watched-order-note,
         .reminder-note,
         .reminder-previous {
             color: #555;
             font-size: 13px;
             line-height: 1.45;
             margin-top: 6px;
+        }
+
+        .watched-order-note {
+            margin-top: 8px;
+        }
+
+        .watched-order-note-editor,
+        .reminder-panel details,
+        details.reminder-panel {
+            margin-top: 10px;
+        }
+
+        .watched-order-note-editor summary,
+        details.reminder-panel summary {
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .watched-order-note-editor .inline-form,
+        details.reminder-panel .reminder-form {
+            margin-top: 8px;
         }
 
         .reminder-actions {
@@ -260,7 +287,19 @@
     <h3>Список заказов</h3>
     <div class="inline-form">
         <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
+        <input id="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий (опционально)" autocomplete="off">
         <button id="ordersAddWatchedOrder" type="button">Добавить</button>
+    </div>
+    <div class="inline-form" aria-label="Интервал прямой проверки отслеживаемых заказов">
+        <label for="ordersWatchedOrderFollowUpIntervalSelect">Интервал проверки</label>
+        <select id="ordersWatchedOrderFollowUpIntervalSelect">
+            <option value="2">Каждые 2 минуты</option>
+            <option value="5">Каждые 5 минут</option>
+            <option value="10">Каждые 10 минут</option>
+            <option value="15">Каждые 15 минут</option>
+            <option value="30">Каждые 30 минут</option>
+        </select>
+        <span class="hint">Проверяется один заказ за тик. Полный круг зависит от количества заказов.</span>
     </div>
     <div class="status-panel">
         <div id="ordersWatchedStatus">Загрузка списка...</div>
@@ -268,6 +307,6 @@
     <div id="ordersWatchedList"></div>
 </section>
 
-<script src="history.js"></script>
+<script src="watched-orders.js"></script>
 </body>
 </html>

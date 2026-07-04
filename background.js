@@ -31,6 +31,7 @@ let diagnosticLog = [];
 let diagnosticLogDroppedEntries = 0;
 let diagnosticLogFlushTimer = null;
 let isDiagnosticLogReady = false;
+let pendingWatchedOrderAdd = null;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -143,6 +144,94 @@ function getDirectFollowUpSelection() {
     return selectNextDirectFollowUpItem(userConfig?.watchedOrders, directFollowUpState);
 }
 
+function getAddedWatchedOrderIds(prevWatchedOrders = {}, nextWatchedOrders = {}) {
+    const prevIds = new Set(getWatchedOrderIds(prevWatchedOrders));
+
+    return getWatchedOrderIds(nextWatchedOrders).filter(orderId => !prevIds.has(orderId));
+}
+
+function getPendingWatchedOrderAddForOrder(orderId) {
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    if (!pendingWatchedOrderAdd || pendingWatchedOrderAdd.orderId !== normalizedId) {
+        return null;
+    }
+
+    return pendingWatchedOrderAdd;
+}
+
+function completePendingWatchedOrderAdd(orderId, response) {
+    const pending = getPendingWatchedOrderAddForOrder(orderId);
+
+    if (!pending) {
+        return false;
+    }
+
+    pendingWatchedOrderAdd = null;
+
+    try {
+        pending.send(response);
+    } catch (err) {
+        log('WARN', 'WATCHED_ORDERS', 'cannot send watched order add response', {
+            orderId: pending.orderId,
+            error: String(err?.message || err)
+        });
+    }
+
+    return true;
+}
+
+function failPendingWatchedOrderAdd(orderId, error) {
+    return completePendingWatchedOrderAdd(orderId, createRuntimeFailureResponse({
+        error: String(error || 'Не удалось проверить заказ.'),
+        orderId: normalizeWatchedOrderId(orderId),
+        userConfig
+    }));
+}
+
+function getNextDirectFollowUpIndexAfterOrder(orderId) {
+    const normalizedId = normalizeWatchedOrderId(orderId);
+    const items = getActiveWatchedOrderItems(userConfig?.watchedOrders);
+    const itemIndex = items.findIndex(item => item.id === normalizedId);
+
+    if (itemIndex === -1 || !items.length) {
+        return directFollowUpState?.nextIndex || 0;
+    }
+
+    return (itemIndex + 1) % items.length;
+}
+
+async function startImmediateDirectFollowUpBaselineForAddedOrder(orderIds = []) {
+    if (!Array.isArray(orderIds) || !orderIds.length) {
+        return false;
+    }
+
+    if (directWorkerTabId || directFollowUpState?.currentOrderId) {
+        log('INFO', 'DIRECT_FOLLOW_UP', 'immediate baseline skipped, direct worker is busy', {
+            orderIds
+        });
+        return false;
+    }
+
+    const orderId = orderIds.find(candidate => {
+        const normalizedId = normalizeWatchedOrderId(candidate);
+
+        return normalizedId && !hasWatchedOrderDirectBaseline(userConfig?.watchedOrders, normalizedId);
+    });
+
+    if (!orderId) {
+        return false;
+    }
+
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    log('INFO', 'DIRECT_FOLLOW_UP', 'immediate baseline requested', {
+        orderId: normalizedId
+    });
+
+    return startDirectFollowUpCheck(normalizedId, getNextDirectFollowUpIndexAfterOrder(normalizedId));
+}
+
 async function startDirectFollowUpCheck(orderId, nextIndex = 0) {
     const url = buildDirectFollowUpOrderUrl(orderId);
 
@@ -192,30 +281,91 @@ async function completeDirectFollowUpCheck(orderId, result = {}) {
     const now = Date.now();
     const ok = result?.ok === true;
     const error = result?.error ? String(result.error) : null;
+    const pendingAdd = getPendingWatchedOrderAddForOrder(normalizedId);
+
+    if (pendingAdd && !ok) {
+        userConfig = {
+            ...userConfig,
+            watchedOrders: removeWatchedOrderFromConfig(userConfig?.watchedOrders, normalizedId)
+        };
+    }
+
+    if (pendingAdd && ok && result?.order) {
+        const addResult = addWatchedOrderToConfig(userConfig?.watchedOrders, normalizedId, now, {
+            note: pendingAdd.note
+        });
+
+        if (!addResult.added && !addResult.duplicate) {
+            const addError = addResult.invalid
+                ? 'Некорректный номер заказа.'
+                : addResult.limitReached
+                    ? 'Достигнут лимит отслеживаемых заказов.'
+                    : 'Не удалось добавить заказ.';
+
+            failPendingWatchedOrderAdd(normalizedId, addError);
+            return completeDirectFollowUpCheck(normalizedId, {
+                ok: false,
+                error: addError
+            });
+        }
+
+        userConfig = {
+            ...userConfig,
+            watchedOrders: addResult.config
+        };
+    }
+
     const directResult = ok && result?.order
         ? processDirectFollowUpOrder(result.order, normalizedId, now)
         : null;
+    const hasValidatedPendingAdd = pendingAdd && directResult?.ok === true && directResult?.baseline === true;
 
     userConfig = {
         ...userConfig,
         watchedOrders: markWatchedOrderCheckResult(userConfig?.watchedOrders, normalizedId, {
-            ok,
-            error
+            ok: ok && directResult?.ok !== false,
+            error: error || directResult?.reason
         }, now)
     };
+
+    if (pendingAdd) {
+        if (hasValidatedPendingAdd) {
+            completePendingWatchedOrderAdd(normalizedId, createRuntimeOkResponse({
+                added: true,
+                validated: true,
+                orderId: normalizedId,
+                userConfig
+            }));
+        } else {
+            userConfig = {
+                ...userConfig,
+                watchedOrders: removeWatchedOrderFromConfig(userConfig?.watchedOrders, normalizedId)
+            };
+            failPendingWatchedOrderAdd(
+                normalizedId,
+                error || 'Заказ не найден или страница заказа не распознана.'
+            );
+        }
+    } else if (!ok && !hasWatchedOrderDirectBaseline(userConfig?.watchedOrders, normalizedId)) {
+        userConfig = {
+            ...userConfig,
+            watchedOrders: removeWatchedOrderFromConfig(userConfig?.watchedOrders, normalizedId)
+        };
+    }
 
     directFollowUpState = normalizeDirectFollowUpState({
         nextIndex: directFollowUpState?.nextIndex,
         lastCompletedAt: now,
-        lastError: ok ? null : (error || 'Direct follow-up failed')
+        lastError: ok && directResult?.ok !== false ? null : (error || directResult?.reason || 'Direct follow-up failed')
     });
 
-    log(ok ? 'INFO' : 'WARN', 'DIRECT_FOLLOW_UP', ok ? 'checked' : 'failed', {
+    log(ok && directResult?.ok !== false ? 'INFO' : 'WARN', 'DIRECT_FOLLOW_UP', ok && directResult?.ok !== false ? 'checked' : 'failed', {
         orderId: normalizedId,
-        error: ok ? null : directFollowUpState.lastError,
+        error: ok && directResult?.ok !== false ? null : directFollowUpState.lastError,
         result: directResult?.reason || null,
         eventCreated: directResult?.eventCreated === true,
-        notified: directResult?.notified === true
+        notified: directResult?.notified === true,
+        pendingAdd: Boolean(pendingAdd)
     });
 
     const tabId = directWorkerTabId;
@@ -2232,6 +2382,70 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
     return createRuntimeOkResponse({ accepted: true });
 }
 
+
+async function startWatchedOrderAddValidation(orderId, options = {}, sendResponse) {
+    const normalizedId = normalizeWatchedOrderId(orderId);
+    const note = normalizeWatchedOrderNote(options?.note);
+    const now = Date.now();
+    const result = addWatchedOrderToConfig(userConfig?.watchedOrders, normalizedId, now, { note });
+
+    if (result.invalid) {
+        sendResponse(createRuntimeFailureResponse({ error: 'Введите полный номер заказа в формате 1234-110626.' }));
+        return false;
+    }
+
+    if (result.duplicate) {
+        sendResponse(createRuntimeFailureResponse({
+            error: `Заказ №${normalizedId} уже отслеживается.`,
+            duplicate: true,
+            orderId: normalizedId,
+            userConfig
+        }));
+        return false;
+    }
+
+    if (result.limitReached) {
+        sendResponse(createRuntimeFailureResponse({
+            error: 'Достигнут лимит отслеживаемых заказов.',
+            limitReached: true,
+            orderId: normalizedId,
+            userConfig
+        }));
+        return false;
+    }
+
+    if (pendingWatchedOrderAdd || directWorkerTabId || directFollowUpState?.currentOrderId) {
+        sendResponse(createRuntimeFailureResponse({
+            error: 'Сейчас уже выполняется проверка заказа. Повторите добавление позже.',
+            busy: true,
+            orderId: normalizedId,
+            userConfig
+        }));
+        return false;
+    }
+
+    pendingWatchedOrderAdd = {
+        orderId: normalizedId,
+        note,
+        startedAt: now,
+        send: sendResponse
+    };
+
+    const started = await startDirectFollowUpCheck(normalizedId, directFollowUpState?.nextIndex || 0);
+
+    if (!started) {
+        pendingWatchedOrderAdd = null;
+        sendResponse(createRuntimeFailureResponse({
+            error: 'Не удалось запустить проверку заказа.',
+            orderId: normalizedId,
+            userConfig
+        }));
+        return false;
+    }
+
+    return true;
+}
+
 // ---------- MESSAGES ----------
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
     (async () => {
@@ -2266,11 +2480,12 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             if (msg.type === 'CHECK_DIRECT_WORKER') {
                 const isCorrectUrl = senderTab?.url?.includes(DIRECT_WORKER_MARK);
                 const currentOrderId = directFollowUpState?.currentOrderId || null;
+                const canProcessDirectOrder = isRunning || Boolean(currentOrderId);
 
                 if (senderTabId === directWorkerTabId && isCorrectUrl) {
                     send(createRuntimeOkResponse({
                         isDirectWorker: true,
-                        isRunning,
+                        isRunning: canProcessDirectOrder,
                         orderId: currentOrderId
                     }));
                     return;
@@ -2389,6 +2604,11 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+            if (msg.type === 'ADD_WATCHED_ORDER') {
+                await startWatchedOrderAddValidation(msg.orderId, { note: msg.note }, send);
+                return;
+            }
+
             if (msg.type === 'SET_WATCHED_ORDER_REMINDER') {
                 send(await setWatchedOrderReminderFromRuntime(msg.orderId, msg.reminder || {}));
                 return;
@@ -2434,6 +2654,7 @@ if (msg.type === 'UPDATE_CONFIG') {
     const prevConfig = userConfig;
 
     userConfig = getEffectiveUserConfig(msg.userConfig || {});
+    const addedWatchedOrderIds = getAddedWatchedOrderIds(prevConfig?.watchedOrders, userConfig?.watchedOrders);
 
     const prevScope = JSON.stringify(prevConfig?.monitorScope || {});
     const nextScope = JSON.stringify(userConfig?.monitorScope || {});
@@ -2483,6 +2704,7 @@ if (msg.type === 'UPDATE_CONFIG') {
     }
 
     await syncWatchedOrderReminderAlarms();
+    await startImmediateDirectFollowUpBaselineForAddedOrder(addedWatchedOrderIds);
     await save();
 
     send(createRuntimeUpdateConfigResponse(userConfig));

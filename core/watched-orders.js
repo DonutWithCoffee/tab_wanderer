@@ -1,4 +1,5 @@
 const WATCHED_ORDER_LIMIT = 100;
+const WATCHED_ORDER_NOTE_LIMIT = 300;
 const WATCHED_ORDER_REMINDER_NOTE_LIMIT = 200;
 
 const WATCHED_ORDER_STATUSES = {
@@ -41,6 +42,12 @@ function normalizeWatchedOrderTimestamp(value) {
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
+function normalizeWatchedOrderNote(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, WATCHED_ORDER_NOTE_LIMIT);
+}
 
 function normalizeWatchedOrderReminderStatus(value) {
     const status = String(value || '').trim();
@@ -116,6 +123,7 @@ function normalizeWatchedOrderItem(value, now = Date.now()) {
     return {
         id,
         status: normalizeWatchedOrderStatus(source.status),
+        note: normalizeWatchedOrderNote(source.note),
         addedAt: normalizeWatchedOrderTimestamp(source.addedAt) || now,
         lastCheckedAt: normalizeWatchedOrderTimestamp(source.lastCheckedAt),
         lastBaselineAt: normalizeWatchedOrderTimestamp(source.lastBaselineAt),
@@ -164,17 +172,22 @@ function normalizeWatchedOrdersConfig(value = {}, now = Date.now()) {
     return { items };
 }
 
-function createWatchedOrderItem(orderId, now = Date.now()) {
-    return normalizeWatchedOrderItem({ id: orderId, status: WATCHED_ORDER_STATUSES.ACTIVE, addedAt: now }, now);
+function createWatchedOrderItem(orderId, now = Date.now(), options = {}) {
+    return normalizeWatchedOrderItem({
+        id: orderId,
+        status: WATCHED_ORDER_STATUSES.ACTIVE,
+        note: options?.note,
+        addedAt: now
+    }, now);
 }
 
 function getWatchedOrderIds(watchedOrders = {}) {
     return normalizeWatchedOrdersConfig(watchedOrders).items.map(item => item.id);
 }
 
-function addWatchedOrderToConfig(watchedOrders = {}, orderId, now = Date.now()) {
+function addWatchedOrderToConfig(watchedOrders = {}, orderId, now = Date.now(), options = {}) {
     const normalizedConfig = normalizeWatchedOrdersConfig(watchedOrders, now);
-    const item = createWatchedOrderItem(orderId, now);
+    const item = createWatchedOrderItem(orderId, now, options);
 
     if (!item) {
         return {
@@ -404,6 +417,7 @@ function createWatchedEventJournalOptions(options = {}, watchedOrders = {}) {
 }
 
 globalThis.WATCHED_ORDER_LIMIT = WATCHED_ORDER_LIMIT;
+globalThis.WATCHED_ORDER_NOTE_LIMIT = WATCHED_ORDER_NOTE_LIMIT;
 globalThis.WATCHED_ORDER_STATUSES = WATCHED_ORDER_STATUSES;
 globalThis.WATCHED_ORDER_REMINDER_STATUSES = WATCHED_ORDER_REMINDER_STATUSES;
 globalThis.WATCHED_ORDER_REMINDER_NOTE_LIMIT = WATCHED_ORDER_REMINDER_NOTE_LIMIT;
@@ -411,6 +425,7 @@ globalThis.normalizeWatchedOrderId = normalizeWatchedOrderId;
 globalThis.isValidWatchedOrderId = isValidWatchedOrderId;
 globalThis.normalizeWatchedOrderStatus = normalizeWatchedOrderStatus;
 globalThis.normalizeWatchedOrderTimestamp = normalizeWatchedOrderTimestamp;
+globalThis.normalizeWatchedOrderNote = normalizeWatchedOrderNote;
 globalThis.normalizeWatchedOrderReminderStatus = normalizeWatchedOrderReminderStatus;
 globalThis.normalizeWatchedOrderReminderNote = normalizeWatchedOrderReminderNote;
 globalThis.normalizeWatchedOrderReminder = normalizeWatchedOrderReminder;

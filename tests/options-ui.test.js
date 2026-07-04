@@ -103,7 +103,6 @@ function createOptionsDom() {
         'optionsNotificationSummary',
         'optionsMonitorModeSelect',
         'optionsDeepSyncMaxPages',
-        'optionsWatchedOrderFollowUpIntervalSelect',
         'optionsNotifyNewOrders',
         'optionsNotifyChangedOrders',
         'optionsNotifyFieldStatus',
@@ -421,7 +420,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsSettingsSaveStatus"/);
     assert.match(html, /id="optionsMonitorModeSelect"/);
     assert.match(html, /id="optionsDeepSyncMaxPages"/);
-    assert.match(html, /id="optionsWatchedOrderFollowUpIntervalSelect"/);
+    assert.doesNotMatch(html, /id="optionsWatchedOrderFollowUpIntervalSelect"/);
     assert.match(html, /id="optionsNotifyNewOrders"/);
     assert.match(html, /id="optionsNotifyChangedOrders"/);
     assert.match(html, /id="optionsSuppressLegalEntityPayment"/);
@@ -491,7 +490,7 @@ test('options page links watched orders management to watched orders page', () =
 
     assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs)), [
         {
-            url: 'chrome-extension://tab-wanderer/history.html',
+            url: 'chrome-extension://tab-wanderer/watched-orders.html',
             active: true
         }
     ]);
@@ -550,23 +549,6 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     assert.equal(Object.prototype.hasOwnProperty.call(updateMessages[0].userConfig.monitorScope, 'orderFlags'), false);
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Склад: все');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
-});
-
-test('options page autosaves watched order follow-up interval', () => {
-    const context = loadOptionsContext();
-    const document = context.__test.document;
-    const select = document.getElementById('optionsWatchedOrderFollowUpIntervalSelect');
-
-    select.value = '15';
-    select.dispatchEvent({ type: 'change', target: select });
-
-    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
-
-    assert.equal(updateMessages.length, 1);
-    assert.equal(updateMessages[0].userConfig.watchedOrderFollowUpIntervalMinutes, 15);
-    assert.equal(document.getElementById('optionsWatchedOrderFollowUpIntervalSelect').value, '15');
-    assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ; проверка: каждые 15 мин.');
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Интервал проверки отслеживаемых заказов сохранён.');
 });
 
 test('options page autosaves and clamps deep sync max pages', () => {

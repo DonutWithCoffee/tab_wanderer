@@ -43,7 +43,14 @@ function createDirectFollowUpUrl(orderId, options = {}) {
 
 function getActiveWatchedOrderItems(watchedOrders = {}) {
     return normalizeWatchedOrdersConfig(watchedOrders).items
-        .filter(item => item.status === WATCHED_ORDER_STATUSES.ACTIVE || item.status === WATCHED_ORDER_STATUSES.UNRESOLVED);
+        .filter(item => {
+            if (item.status === WATCHED_ORDER_STATUSES.ACTIVE) {
+                return true;
+            }
+
+            return item.status === WATCHED_ORDER_STATUSES.UNRESOLVED
+                && Number(item.lastBaselineAt) > 0;
+        });
 }
 
 function selectNextDirectFollowUpItem(watchedOrders = {}, state = {}) {

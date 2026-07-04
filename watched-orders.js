@@ -1,9 +1,15 @@
 const HISTORY_DEFAULT_LIMIT = 100;
 const ORDERS_WATCHED_ORDER_LIMIT = 100;
+const ORDERS_WATCHED_ORDER_NOTE_LIMIT = 300;
 const ORDERS_WATCHED_ORDER_REMINDER_NOTE_LIMIT = 200;
+const ORDERS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const ORDERS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const ORDERS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 30;
+const ORDERS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS = [2, 5, 10, 15, 30];
 
 
 let currentOrdersConfig = {
+    watchedOrderFollowUpIntervalMinutes: ORDERS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES,
     watchedOrders: {
         items: []
     }
@@ -160,6 +166,13 @@ function normalizeOrdersTimestamp(value) {
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
+function normalizeOrdersWatchedOrderNote(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, ORDERS_WATCHED_ORDER_NOTE_LIMIT);
+}
+
 function normalizeOrdersWatchedOrderReminderStatus(value) {
     const status = String(value || '').trim();
 
@@ -203,6 +216,37 @@ function normalizeOrdersWatchedOrderReminder(value) {
     };
 }
 
+function normalizeOrdersWatchedOrderFollowUpIntervalMinutes(value) {
+    const numeric = Number(value);
+
+    if (!Number.isFinite(numeric)) {
+        return ORDERS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    const integer = Math.floor(numeric);
+
+    if (integer <= ORDERS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES) {
+        return ORDERS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    if (integer >= ORDERS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES) {
+        return ORDERS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+    }
+
+    const exact = ORDERS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS.find((item) => item === integer);
+
+    if (exact) {
+        return exact;
+    }
+
+    return ORDERS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS.find((item) => item >= integer)
+        || ORDERS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES;
+}
+
+function getOrdersWatchedOrderFollowUpIntervalLabel(config = {}) {
+    return `каждые ${normalizeOrdersWatchedOrderFollowUpIntervalMinutes(config.watchedOrderFollowUpIntervalMinutes)} мин.`;
+}
+
 function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
     const source = value && typeof value === 'object'
         ? value
@@ -216,6 +260,7 @@ function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
     return {
         id,
         status: source.status === 'unresolved' ? 'unresolved' : 'active',
+        note: normalizeOrdersWatchedOrderNote(source.note),
         addedAt: normalizeOrdersTimestamp(source.addedAt) || now,
         lastCheckedAt: normalizeOrdersTimestamp(source.lastCheckedAt),
         lastBaselineAt: normalizeOrdersTimestamp(source.lastBaselineAt),
@@ -256,6 +301,13 @@ function normalizeOrdersWatchedOrdersConfig(value = {}, now = Date.now()) {
 
 function getOrdersWatchedOrdersConfig(config = {}) {
     return normalizeOrdersWatchedOrdersConfig(config?.watchedOrders);
+}
+
+function renderOrdersWatchedOrderFollowUpInterval(config = currentOrdersConfig) {
+    setElementValue(
+        'ordersWatchedOrderFollowUpIntervalSelect',
+        normalizeOrdersWatchedOrderFollowUpIntervalMinutes(config?.watchedOrderFollowUpIntervalMinutes)
+    );
 }
 
 function isOrderWatched(orderId) {
@@ -300,6 +352,12 @@ function getWatchedOrderReminderInputId(kind, orderId) {
     const safeId = normalizeOrdersWatchedOrderId(orderId).replace(/[^A-Z0-9]+/g, '_');
 
     return `ordersReminder${kind}_${safeId}`;
+}
+
+function getWatchedOrderNoteInputId(orderId) {
+    const safeId = normalizeOrdersWatchedOrderId(orderId).replace(/[^A-Z0-9]+/g, '_');
+
+    return `ordersWatchedOrderNote_${safeId}`;
 }
 
 function parseOrdersReminderDateTime(value) {
@@ -631,21 +689,50 @@ function renderWatchedOrderReminder(item) {
         : '';
 
     return `
-        <div class="reminder-panel">
+        <details class="reminder-panel">
+            <summary>Поставить напоминание</summary>
             ${previousReminder}
             ${renderWatchedOrderReminderForm(item)}
+        </details>
+    `;
+}
+
+
+function renderWatchedOrderNote(item) {
+    const note = normalizeOrdersWatchedOrderNote(item?.note);
+    const inputId = getWatchedOrderNoteInputId(item.id);
+
+    return `
+        <div class="watched-order-note">
+            Комментарий: ${note ? escapeHtml(note) : '—'}
         </div>
+        <details class="watched-order-note-editor">
+            <summary>Изменить комментарий</summary>
+            <div class="inline-form">
+                <input
+                    id="${escapeHtml(inputId)}"
+                    type="text"
+                    maxlength="${ORDERS_WATCHED_ORDER_NOTE_LIMIT}"
+                    value="${escapeHtml(note)}"
+                    placeholder="Комментарий к заказу"
+                    aria-label="Комментарий к заказу ${escapeHtml(item.id)}"
+                >
+                <button type="button" data-watch-action="save-note" data-order-id="${escapeHtml(item.id)}">Сохранить</button>
+            </div>
+        </details>
     `;
 }
 
 function renderWatchedOrders(config = currentOrdersConfig) {
     const watchedOrders = getOrdersWatchedOrdersConfig(config);
+    const intervalLabel = getOrdersWatchedOrderFollowUpIntervalLabel(config);
 
+    renderOrdersWatchedOrderFollowUpInterval(config);
     setInnerText(
         'ordersWatchedStatus',
         watchedOrders.items.length
-            ? `В прямой проверке: ${watchedOrders.items.length}`
-            : 'Список отслеживаемых заказов пуст.'
+            ? `В прямой проверке: ${watchedOrders.items.length}; интервал: ${intervalLabel}`
+            : `Список отслеживаемых заказов пуст. Интервал проверки: ${intervalLabel}`
     );
 
     if (!watchedOrders.items.length) {
@@ -665,6 +752,7 @@ function renderWatchedOrders(config = currentOrdersConfig) {
                     Последнее изменение: ${escapeHtml(formatTimestamp(item.lastEventAt))}
                     ${item.lastError ? `<br>Ошибка: ${escapeHtml(item.lastError)}` : ''}
                 </div>
+                ${renderWatchedOrderNote(item)}
                 ${renderWatchedOrderReminder(item)}
             </div>
             <div class="watched-order-actions">
@@ -701,8 +789,20 @@ function saveOrdersConfig(nextConfig, successMessage) {
     });
 }
 
-function addWatchedOrder(orderId, source = 'orders-page') {
+function saveWatchedOrderFollowUpIntervalFromUI() {
+    const nextConfig = {
+        ...currentOrdersConfig,
+        watchedOrderFollowUpIntervalMinutes: normalizeOrdersWatchedOrderFollowUpIntervalMinutes(
+            getElementValue('ordersWatchedOrderFollowUpIntervalSelect')
+        )
+    };
+
+    saveOrdersConfig(nextConfig, `Интервал прямой проверки сохранён: ${getOrdersWatchedOrderFollowUpIntervalLabel(nextConfig)}.`);
+}
+
+function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
     const id = normalizeOrdersWatchedOrderId(orderId);
+    const note = normalizeOrdersWatchedOrderNote(noteValue);
 
     if (!isValidOrdersWatchedOrderId(id)) {
         setInnerText('ordersWatchedStatus', 'Введите полный номер заказа в формате 1234-110626.');
@@ -721,41 +821,58 @@ function addWatchedOrder(orderId, source = 'orders-page') {
         return;
     }
 
-    const nextConfig = {
-        ...currentOrdersConfig,
-        watchedOrders: {
-            items: [
-                ...watchedOrders.items,
-                {
-                    id,
-                    status: 'active',
-                    addedAt: Date.now(),
-                    lastCheckedAt: null,
-                    lastBaselineAt: null,
-                    lastEventAt: null,
-                    lastError: null
-                }
-            ]
-        }
-    };
+    setInnerText('ordersWatchedStatus', `Проверяем заказ №${id} перед добавлением...`);
 
-    saveOrdersConfig(nextConfig, source === 'summary'
-        ? `Для заказа №${id} включена прямая проверка.`
-        : `Заказ №${id} добавлен. Первая прямая проверка станет baseline без уведомления.`);
+    sendMessage({
+        type: 'ADD_WATCHED_ORDER',
+        orderId: id,
+        note
+    }, (response) => {
+        if (!response?.ok) {
+            setInnerText('ordersWatchedStatus', response?.error || 'Заказ не найден или его не удалось проверить.');
+            renderWatchedOrders(currentOrdersConfig);
+            return;
+        }
+
+        currentOrdersConfig = response.userConfig || currentOrdersConfig;
+        renderWatchedOrders(currentOrdersConfig);
+        setInnerText('ordersWatchedStatus', source === 'summary'
+            ? `Заказ №${id} проверен и добавлен в прямую проверку.`
+            : `Заказ №${id} проверен и добавлен. Baseline снят сразу без уведомления.`);
+    });
 }
 
-function removeWatchedOrder(orderId) {
+
+function setWatchedOrderNoteFromForm(orderId) {
     const id = normalizeOrdersWatchedOrderId(orderId);
     const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
+    const note = normalizeOrdersWatchedOrderNote(getElementValue(getWatchedOrderNoteInputId(id)));
+    let found = false;
 
     const nextConfig = {
         ...currentOrdersConfig,
         watchedOrders: {
-            items: watchedOrders.items.filter(item => item.id !== id)
+            items: watchedOrders.items.map((item) => {
+                if (item.id !== id) {
+                    return item;
+                }
+
+                found = true;
+
+                return {
+                    ...item,
+                    note
+                };
+            })
         }
     };
 
-    saveOrdersConfig(nextConfig, `Для заказа №${id} прямая проверка отключена.`);
+    if (!found) {
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке отслеживания.`);
+        return;
+    }
+
+    saveOrdersConfig(nextConfig, note ? `Комментарий для заказа №${id} сохранён.` : `Комментарий для заказа №${id} очищен.`);
 }
 
 function setWatchedOrderReminderFromForm(orderId) {
@@ -822,12 +939,18 @@ function clearWatchedOrderReminderFromButton(orderId) {
 
 function addWatchedOrderFromInput() {
     const input = document.getElementById('ordersWatchedOrderInput');
+    const noteInput = document.getElementById('ordersWatchedOrderNoteInput');
     const id = normalizeOrdersWatchedOrderId(input?.value);
+    const note = normalizeOrdersWatchedOrderNote(noteInput?.value);
 
-    addWatchedOrder(id);
+    addWatchedOrder(id, 'orders-page', note);
 
     if (isValidOrdersWatchedOrderId(id) && input) {
         input.value = '';
+    }
+
+    if (isValidOrdersWatchedOrderId(id) && noteInput) {
+        noteInput.value = '';
     }
 }
 
@@ -858,6 +981,8 @@ function bindHistoryControls() {
     const watchedListEl = document.getElementById('ordersWatchedList');
     const addWatchedBtn = document.getElementById('ordersAddWatchedOrder');
     const watchedInput = document.getElementById('ordersWatchedOrderInput');
+    const watchedNoteInput = document.getElementById('ordersWatchedOrderNoteInput');
+    const followUpIntervalSelect = document.getElementById('ordersWatchedOrderFollowUpIntervalSelect');
 
     if (searchBtn) {
         searchBtn.addEventListener('click', () => loadOrderHistory());
@@ -911,6 +1036,8 @@ function bindHistoryControls() {
                 loadOrderHistory(orderId);
             } else if (action === 'remove') {
                 removeWatchedOrder(orderId);
+            } else if (action === 'save-note') {
+                setWatchedOrderNoteFromForm(orderId);
             } else if (action === 'set-reminder') {
                 setWatchedOrderReminderFromForm(orderId);
             } else if (action === 'clear-reminder') {
@@ -923,8 +1050,20 @@ function bindHistoryControls() {
         addWatchedBtn.addEventListener('click', addWatchedOrderFromInput);
     }
 
+    if (followUpIntervalSelect) {
+        followUpIntervalSelect.addEventListener('change', saveWatchedOrderFollowUpIntervalFromUI);
+    }
+
     if (watchedInput) {
         watchedInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                addWatchedOrderFromInput();
+            }
+        });
+    }
+
+    if (watchedNoteInput) {
+        watchedNoteInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 addWatchedOrderFromInput();
             }

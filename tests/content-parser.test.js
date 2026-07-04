@@ -719,6 +719,20 @@ test('parseOrderDetails reads real admin order page layout without table total n
 });
 
 
+test('parseOrderDetails returns null when order page has no recognizable order details', () => {
+    const context = loadContentContext(
+        createDocumentStub({
+            bodyText: [
+                'Страница не найдена',
+                'Вернуться к списку заказов'
+            ].join('\n')
+        })
+    );
+
+    assert.equal(context.parseOrderDetails('9999-010101'), null);
+});
+
+
 test('content runtime messaging ignores extension context invalidated throws', () => {
     let sendCalls = 0;
     let timeoutCalls = 0;

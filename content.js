@@ -619,6 +619,21 @@ function findOrderTagValues() {
     return Array.from(new Set(result));
 }
 
+function hasMeaningfulOrderDetails(order = {}) {
+    return Boolean(
+        order.status
+        || order.delivery
+        || order.payment
+        || order.date
+        || order.phoneNormalized
+        || order.totalAmount
+        || order.productsTotal
+        || order.manager
+        || order.city
+        || order.contractor
+    );
+}
+
 function parseOrderDetails(expectedOrderId = '') {
     const id = normalizeCellText(expectedOrderId || getOrderIdFromLocation());
 
@@ -642,7 +657,7 @@ function parseOrderDetails(expectedOrderId = '') {
 
     const tags = findOrderTagValues();
 
-    return {
+    const order = {
         id,
         internalId: id,
         status: normalizeDetailValue(
@@ -688,6 +703,8 @@ function parseOrderDetails(expectedOrderId = '') {
         hasAutoreserve: !!document.querySelector('.fa-lock'),
         tags
     };
+
+    return hasMeaningfulOrderDetails(order) ? order : null;
 }
 
 function sendDirectOrder(expectedOrderId = '') {

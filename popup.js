@@ -25,6 +25,7 @@ const POPUP_SUPPRESSOR_CONTROLS = [
 ];
 
 const POPUP_WATCHED_ORDER_LIMIT = 100;
+const POPUP_WATCHED_ORDER_NOTE_LIMIT = 300;
 
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
@@ -147,6 +148,13 @@ function isValidPopupWatchedOrderId(value) {
     return /^\d{4}-\d{4,10}$/.test(normalizePopupWatchedOrderId(value));
 }
 
+function normalizePopupWatchedOrderNote(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, POPUP_WATCHED_ORDER_NOTE_LIMIT);
+}
+
 function getPopupWatchedOrdersConfig(config = {}) {
     const rawItems = Array.isArray(config?.watchedOrders?.items)
         ? config.watchedOrders.items
@@ -168,11 +176,13 @@ function getPopupWatchedOrdersConfig(config = {}) {
         items.push({
             id,
             status: source.status === 'unresolved' ? 'unresolved' : 'active',
+            note: normalizePopupWatchedOrderNote(source.note),
             addedAt: Number(source.addedAt) > 0 ? Number(source.addedAt) : Date.now(),
             lastCheckedAt: Number(source.lastCheckedAt) > 0 ? Number(source.lastCheckedAt) : null,
             lastBaselineAt: Number(source.lastBaselineAt) > 0 ? Number(source.lastBaselineAt) : null,
             lastEventAt: Number(source.lastEventAt) > 0 ? Number(source.lastEventAt) : null,
-            lastError: source.lastError ? String(source.lastError) : null
+            lastError: source.lastError ? String(source.lastError) : null,
+            reminder: source.reminder && typeof source.reminder === 'object' ? source.reminder : null
         });
 
         if (items.length >= POPUP_WATCHED_ORDER_LIMIT) {
@@ -185,7 +195,9 @@ function getPopupWatchedOrdersConfig(config = {}) {
 
 function addWatchedOrderFromPopup() {
     const input = document.getElementById('popupWatchedOrderInput');
+    const noteInput = document.getElementById('popupWatchedOrderNote');
     const id = normalizePopupWatchedOrderId(input?.value);
+    const note = normalizePopupWatchedOrderNote(noteInput?.value);
 
     if (!isValidPopupWatchedOrderId(id)) {
         setText('popupWatchedOrderStatus', 'Введите полный номер заказа в формате 1234-110626.');
@@ -204,39 +216,29 @@ function addWatchedOrderFromPopup() {
         return;
     }
 
-    const nextConfig = {
-        ...currentPopupConfig,
-        watchedOrders: {
-            items: [
-                ...watchedOrders.items,
-                {
-                    id,
-                    status: 'active',
-                    addedAt: Date.now(),
-                    lastCheckedAt: null,
-                    lastBaselineAt: null,
-                    lastEventAt: null,
-                    lastError: null
-                }
-            ]
-        }
-    };
+    setText('popupWatchedOrderStatus', 'Проверяем заказ перед добавлением...');
 
-    setText('popupWatchedOrderStatus', 'Добавляем заказ в отслеживаемые...');
-
-    send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
+    send({
+        type: 'ADD_WATCHED_ORDER',
+        orderId: id,
+        note
+    }, (res) => {
         if (!res?.ok) {
-            setText('popupWatchedOrderStatus', 'Ошибка добавления заказа.');
+            setText('popupWatchedOrderStatus', res?.error || 'Заказ не найден или его не удалось проверить.');
             return;
         }
 
-        currentPopupConfig = res.userConfig || nextConfig;
+        currentPopupConfig = res.userConfig || currentPopupConfig;
 
         if (input) {
             input.value = '';
         }
 
-        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен. Список — на странице “Отслеживание”.`);
+        if (noteInput) {
+            noteInput.value = '';
+        }
+
+        setText('popupWatchedOrderStatus', `Заказ №${id} проверен и добавлен. Список — на странице “Отслеживаемые заказы”.`);
     });
 }
 
@@ -578,12 +580,13 @@ function downloadDiagnosticLogFromPopup() {
 function bindNavigationActions() {
     const toggleMonitorBtn = document.getElementById('toggleMonitor');
     const openOptionsBtn = document.getElementById('openOptions');
-    const openHistoryBtn = document.getElementById('openHistory');
+    const openWatchedOrdersBtn = document.getElementById('openWatchedOrders');
     const downloadDiagnosticLogBtn = document.getElementById('downloadDiagnosticLog');
     const popupIgnoreLegalEntityPayment = document.getElementById('popupIgnoreLegalEntityPayment');
     const popupIgnoreOzon = document.getElementById('popupIgnoreOzon');
     const popupAddWatchedOrder = document.getElementById('popupAddWatchedOrder');
     const popupWatchedOrderInput = document.getElementById('popupWatchedOrderInput');
+    const popupWatchedOrderNote = document.getElementById('popupWatchedOrderNote');
 
     if (toggleMonitorBtn) {
         toggleMonitorBtn.addEventListener('click', () => {
@@ -597,10 +600,10 @@ function bindNavigationActions() {
         });
     }
 
-    if (openHistoryBtn) {
-        openHistoryBtn.addEventListener('click', () => {
+    if (openWatchedOrdersBtn) {
+        openWatchedOrdersBtn.addEventListener('click', () => {
             chrome.tabs.create({
-                url: chrome.runtime.getURL('history.html'),
+                url: chrome.runtime.getURL('watched-orders.html'),
                 active: true
             });
         });
@@ -630,6 +633,14 @@ function bindNavigationActions() {
 
     if (popupWatchedOrderInput) {
         popupWatchedOrderInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                addWatchedOrderFromPopup();
+            }
+        });
+    }
+
+    if (popupWatchedOrderNote) {
+        popupWatchedOrderNote.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 addWatchedOrderFromPopup();
             }

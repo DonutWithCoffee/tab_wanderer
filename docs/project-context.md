@@ -526,7 +526,7 @@ warehouse-barcode-bridge.js
 ozon-product-bridge.js
 popup.js
 options.js
-history.js
+watched-orders.js
 notification-rules.js
 ```
 
@@ -548,7 +548,7 @@ content.js still owns DOM rendering and runtime messaging
 Baseline:
 
 ```text
-npm test → 225 pass / 0 fail
+npm test → 227 pass / 0 fail
 ```
 
 Important suites:
@@ -564,7 +564,7 @@ tests/ozon-barcode-binding.test.js
 tests/ozon-product-bridge.test.js
 tests/popup-ui.test.js
 tests/options-ui.test.js
-tests/history-ui.test.js
+tests/watched-orders-ui.test.js
 ```
 
 ---

@@ -107,7 +107,7 @@ function createPopupDom() {
         'statusDetails',
         'toggleMonitor',
         'openOptions',
-        'openHistory',
+        'openWatchedOrders',
         'downloadDiagnosticLog',
         'popupIgnoreLegalEntityPayment',
         'popupIgnoreOzon',
@@ -115,6 +115,7 @@ function createPopupDom() {
         'popupWatchedOrderInput',
         'popupAddWatchedOrder',
         'popupWatchedOrderStatus',
+        'popupWatchedOrderNote',
         'diagnosticLogStatus'
     ]) {
         document.registerElement(id);
@@ -205,6 +206,21 @@ function loadPopupContext(overrides = {}) {
                         response = { ok: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
                     }
 
+                    if (msg.type === 'ADD_WATCHED_ORDER') {
+                        popupConfig.watchedOrders = popupConfig.watchedOrders || { items: [] };
+                        popupConfig.watchedOrders.items.push({
+                            id: String(msg.orderId || '').trim(),
+                            status: 'active',
+                            note: String(msg.note || '').trim(),
+                            addedAt: 1700000000000,
+                            lastCheckedAt: 1700000001000,
+                            lastBaselineAt: 1700000001000,
+                            lastEventAt: null,
+                            lastError: null
+                        });
+                        response = { ok: true, added: true, validated: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
+                    }
+
                     if (msg.type === 'GET_DIAGNOSTIC_LOG') {
                         response = JSON.parse(JSON.stringify(diagnosticLog));
 
@@ -255,8 +271,8 @@ test('popup is quick-control only and contains no settings form controls', () =>
 
     assert.match(html, /id="toggleMonitor"/);
     assert.match(html, /id="openOptions"/);
-    assert.match(html, /id="openHistory"/);
-    assert.match(html, /Отслеживание/);
+    assert.match(html, /id="openWatchedOrders"/);
+    assert.match(html, /Отслеживаемые заказы/);
     assert.match(html, /id="downloadDiagnosticLog"/);
     assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
@@ -323,15 +339,15 @@ test('popup opens options and watched orders page', () => {
         target: document.getElementById('openOptions')
     });
 
-    document.getElementById('openHistory').dispatchEvent({
+    document.getElementById('openWatchedOrders').dispatchEvent({
         type: 'click',
-        target: document.getElementById('openHistory')
+        target: document.getElementById('openWatchedOrders')
     });
 
     assert.equal(context.chrome.runtime.openOptionsPageCalled, true);
     assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs)), [
         {
-            url: 'chrome-extension://tab-wanderer/history.html',
+            url: 'chrome-extension://tab-wanderer/watched-orders.html',
             active: true
         }
     ]);
@@ -363,25 +379,30 @@ test('popup adds watched order by full order id only', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
     const input = document.getElementById('popupWatchedOrderInput');
+    const noteInput = document.getElementById('popupWatchedOrderNote');
     const addButton = document.getElementById('popupAddWatchedOrder');
 
     input.value = '1234';
     addButton.dispatchEvent({ type: 'click', target: addButton });
 
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
+    assert.equal(getSentMessagesByType(context, 'ADD_WATCHED_ORDER').length, 0);
     assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Введите полный номер заказа в формате 1234-110626.');
 
     input.value = ' 1234-110626 ';
+    noteInput.value = 'Проверить оплату';
     addButton.dispatchEvent({ type: 'click', target: addButton });
 
-    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+    const addMessages = getSentMessagesByType(context, 'ADD_WATCHED_ORDER');
 
-    assert.equal(updateMessages.length, 1);
-    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items.map(item => item.id))), [
-        '1234-110626'
-    ]);
+    assert.equal(addMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(addMessages[0])), {
+        type: 'ADD_WATCHED_ORDER',
+        orderId: '1234-110626',
+        note: 'Проверить оплату'
+    });
     assert.equal(input.value, '');
-    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен. Список — на странице “Отслеживание”.');
+    assert.equal(noteInput.value, '');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 проверен и добавлен. Список — на странице “Отслеживаемые заказы”.');
 });
 
 test('popup downloads diagnostic log from quick action', () => {

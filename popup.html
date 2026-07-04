@@ -133,6 +133,20 @@
             font-size: 13px;
         }
 
+        .stack-form {
+            display: grid;
+            gap: 6px;
+        }
+
+        .stack-form input[type="text"] {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #cfcfcf;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
         .inline-form button {
             flex: 0 0 auto;
             width: auto;
@@ -180,15 +194,18 @@
 
     <div class="section">
         <p class="section-title">Добавить в отслеживание</p>
-        <div class="inline-form">
-            <input id="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
-            <button id="popupAddWatchedOrder" type="button">Добавить</button>
+        <div class="stack-form">
+            <div class="inline-form">
+                <input id="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
+                <button id="popupAddWatchedOrder" type="button">Добавить</button>
+            </div>
+            <input id="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий к заказу (опционально)" autocomplete="off">
         </div>
-        <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа. Список — на странице “Отслеживание”.</div>
+        <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа. Список — на странице “Отслеживаемые заказы”.</div>
     </div>
 
     <div class="actions-grid">
-        <button id="openHistory">Отслеживание</button>
+        <button id="openWatchedOrders">Отслеживаемые заказы</button>
         <button id="openOptions">Настройки</button>
         <button id="downloadDiagnosticLog" class="wide">Скачать диагностический лог</button>
     </div>
