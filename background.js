@@ -49,6 +49,7 @@ const OZON_UI_APPLY_TIMEOUT_MS = 60000;
 const OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT = false;
 const DIRECT_FOLLOW_UP_INTERVAL_MS = 2 * 60 * 1000;
 const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
+const WATCHED_ORDER_REMINDER_ALARM_PREFIX = 'tab_wanderer_watched_order_reminder:';
 const FAST_POLL_INTERVAL_MS = 15000;
 const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const COLLECTION_TIMEOUT_MS = 60000;
@@ -1064,6 +1065,10 @@ async function load() {
     log('INFO', 'INIT', 'state loaded');
     logState('LOAD');
 
+    syncWatchedOrderReminderAlarms(userConfig?.watchedOrders).catch((err) => {
+        log('ERROR', 'REMINDER', err?.message || err);
+    });
+
     if (isRunning) {
         log('INFO', 'INIT', 'delayed worker init');
 
@@ -1237,6 +1242,254 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
 });
 
+// ---------- WATCHED ORDER REMINDERS ----------
+function buildWatchedOrderReminderAlarmName(orderId) {
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    if (!isValidWatchedOrderId(normalizedId)) {
+        return null;
+    }
+
+    return `${WATCHED_ORDER_REMINDER_ALARM_PREFIX}${normalizedId}`;
+}
+
+function parseWatchedOrderReminderAlarmName(name) {
+    const rawName = String(name || '');
+
+    if (!rawName.startsWith(WATCHED_ORDER_REMINDER_ALARM_PREFIX)) {
+        return null;
+    }
+
+    const orderId = normalizeWatchedOrderId(rawName.slice(WATCHED_ORDER_REMINDER_ALARM_PREFIX.length));
+
+    return isValidWatchedOrderId(orderId) ? orderId : null;
+}
+
+function buildWatchedOrderReminderOrderUrl(orderId) {
+    const normalizedId = normalizeWatchedOrderId(orderId);
+
+    if (!isValidWatchedOrderId(normalizedId)) {
+        return '';
+    }
+
+    return `${TARGET_URL}${normalizedId}/`;
+}
+
+function hasWatchedOrderReminderAlarmsApi() {
+    return Boolean(chrome?.alarms?.create && chrome?.alarms?.clear);
+}
+
+async function clearWatchedOrderReminderAlarm(orderId) {
+    const alarmName = buildWatchedOrderReminderAlarmName(orderId);
+
+    if (!alarmName || !hasWatchedOrderReminderAlarmsApi()) {
+        return false;
+    }
+
+    await chrome.alarms.clear(alarmName);
+
+    return true;
+}
+
+async function scheduleWatchedOrderReminderAlarmForItem(item) {
+    if (!item?.id || item.reminder?.status !== WATCHED_ORDER_REMINDER_STATUSES.PENDING) {
+        return false;
+    }
+
+    const alarmName = buildWatchedOrderReminderAlarmName(item.id);
+    const when = Number(item.reminder.remindAt);
+
+    if (!alarmName || !Number.isFinite(when) || when <= 0 || !hasWatchedOrderReminderAlarmsApi()) {
+        return false;
+    }
+
+    await chrome.alarms.create(alarmName, { when });
+
+    log('INFO', 'REMINDER', 'alarm scheduled', {
+        orderId: item.id,
+        remindAt: when
+    });
+
+    return true;
+}
+
+async function syncWatchedOrderReminderAlarms(watchedOrders = userConfig?.watchedOrders) {
+    if (!hasWatchedOrderReminderAlarmsApi()) {
+        return { scheduled: 0, cleared: 0 };
+    }
+
+    const pendingItems = getPendingWatchedOrderReminderItems(watchedOrders);
+    const pendingAlarmNames = new Set(
+        pendingItems
+            .map(item => buildWatchedOrderReminderAlarmName(item.id))
+            .filter(Boolean)
+    );
+    let cleared = 0;
+    let scheduled = 0;
+
+    if (typeof chrome.alarms.getAll === 'function') {
+        const existingAlarms = await chrome.alarms.getAll();
+
+        for (const alarm of existingAlarms || []) {
+            const name = String(alarm?.name || '');
+
+            if (!name.startsWith(WATCHED_ORDER_REMINDER_ALARM_PREFIX) || pendingAlarmNames.has(name)) {
+                continue;
+            }
+
+            await chrome.alarms.clear(name);
+            cleared += 1;
+        }
+    }
+
+    for (const item of pendingItems) {
+        if (await scheduleWatchedOrderReminderAlarmForItem(item)) {
+            scheduled += 1;
+        }
+    }
+
+    if (scheduled || cleared) {
+        log('INFO', 'REMINDER', 'alarms synced', { scheduled, cleared });
+    }
+
+    return { scheduled, cleared };
+}
+
+async function setWatchedOrderReminderFromRuntime(orderId, reminderInput = {}) {
+    const result = setWatchedOrderReminder(userConfig?.watchedOrders, orderId, reminderInput, Date.now());
+
+    if (!result.updated) {
+        return createRuntimeFailureResponse({
+            invalid: result.invalid === true,
+            notFound: result.notFound === true
+        });
+    }
+
+    userConfig = {
+        ...userConfig,
+        watchedOrders: result.config
+    };
+
+    await scheduleWatchedOrderReminderAlarmForItem(result.item);
+    await save();
+
+    return createRuntimeOkResponse({
+        userConfig,
+        item: result.item,
+        reminder: result.reminder
+    });
+}
+
+async function clearWatchedOrderReminderFromRuntime(orderId) {
+    const result = clearWatchedOrderReminder(userConfig?.watchedOrders, orderId, Date.now());
+
+    if (!result.updated) {
+        return createRuntimeFailureResponse({
+            invalid: result.invalid === true,
+            notFound: result.notFound === true
+        });
+    }
+
+    userConfig = {
+        ...userConfig,
+        watchedOrders: result.config
+    };
+
+    await clearWatchedOrderReminderAlarm(orderId);
+    await save();
+
+    return createRuntimeOkResponse({
+        userConfig,
+        item: result.item,
+        reminder: null
+    });
+}
+
+function createWatchedOrderReminderNotificationContent(item) {
+    const orderId = normalizeWatchedOrderId(item?.id);
+    const note = normalizeWatchedOrderReminderNote(item?.reminder?.note);
+
+    return {
+        title: `Напоминание по заказу ${orderId}`,
+        message: note || 'Проверьте отслеживаемый заказ.'
+    };
+}
+
+function notifyWatchedOrderReminder(item) {
+    const content = createWatchedOrderReminderNotificationContent(item);
+    const orderUrl = buildWatchedOrderReminderOrderUrl(item?.id);
+
+    chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icon.png',
+        title: content.title,
+        message: content.message
+    }, async (notificationId) => {
+        if (chrome.runtime.lastError) {
+            log('ERROR', 'REMINDER', chrome.runtime.lastError.message);
+            return;
+        }
+
+        if (orderUrl) {
+            notificationTargets[notificationId] = {
+                orderId: item.id,
+                orderUrl,
+                reminder: true
+            };
+
+            await save();
+        }
+
+        log('INFO', 'REMINDER', 'notification created', {
+            notificationId,
+            orderId: item.id
+        });
+    });
+}
+
+async function handleWatchedOrderReminderAlarm(alarm = {}) {
+    const orderId = parseWatchedOrderReminderAlarmName(alarm?.name);
+
+    if (!orderId) {
+        return false;
+    }
+
+    const item = getWatchedOrderItem(userConfig?.watchedOrders, orderId);
+
+    if (!item?.reminder || item.reminder.status !== WATCHED_ORDER_REMINDER_STATUSES.PENDING) {
+        log('DEBUG', 'REMINDER', 'ignored stale alarm', { orderId });
+        return false;
+    }
+
+    const now = Date.now();
+
+    if (item.reminder.remindAt > now) {
+        await scheduleWatchedOrderReminderAlarmForItem(item);
+        log('WARN', 'REMINDER', 'alarm fired early, rescheduled', {
+            orderId,
+            remindAt: item.reminder.remindAt,
+            now
+        });
+        return false;
+    }
+
+    const result = markWatchedOrderReminderDone(userConfig?.watchedOrders, orderId, now);
+
+    if (!result.updated) {
+        return false;
+    }
+
+    userConfig = {
+        ...userConfig,
+        watchedOrders: result.config
+    };
+
+    notifyWatchedOrderReminder(result.item);
+    await save();
+
+    return true;
+}
+
 // ---------- NOTIFY ----------
 function notifyOrder(o, eventContext = {}) {
     const content = createOrderNotificationContent(o, eventContext);
@@ -1317,6 +1570,14 @@ chrome.notifications.onClosed.addListener(async (notificationId) => {
 
     log('DEBUG', 'NOTIFY', 'cleared target on close', notificationId);
 });
+
+if (chrome?.alarms?.onAlarm?.addListener) {
+    chrome.alarms.onAlarm.addListener((alarm) => {
+        handleWatchedOrderReminderAlarm(alarm).catch((err) => {
+            log('ERROR', 'REMINDER', err?.message || err);
+        });
+    });
+}
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
@@ -2103,6 +2364,16 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+            if (msg.type === 'SET_WATCHED_ORDER_REMINDER') {
+                send(await setWatchedOrderReminderFromRuntime(msg.orderId, msg.reminder || {}));
+                return;
+            }
+
+            if (msg.type === 'CLEAR_WATCHED_ORDER_REMINDER') {
+                send(await clearWatchedOrderReminderFromRuntime(msg.orderId));
+                return;
+            }
+
             if (msg.type === 'DICTIONARIES') {
                 if (senderTabId !== workerTabId) {
                     send(createRuntimeIgnoredResponse());
@@ -2186,6 +2457,7 @@ if (msg.type === 'UPDATE_CONFIG') {
         log('DEBUG', 'CONFIG', 'no changes');
     }
 
+    await syncWatchedOrderReminderAlarms();
     await save();
 
     send(createRuntimeUpdateConfigResponse(userConfig));

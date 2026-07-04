@@ -58,6 +58,24 @@ function createChromeStub(testState) {
                 }
             }
         },
+        alarms: {
+            create: async (name, alarmInfo) => {
+                testState.alarmCreateCalls.push({ name, alarmInfo });
+                testState.alarms[name] = { name, ...alarmInfo };
+            },
+            clear: async (name) => {
+                testState.alarmClearCalls.push(name);
+                const existed = Object.prototype.hasOwnProperty.call(testState.alarms, name);
+                delete testState.alarms[name];
+                return existed;
+            },
+            getAll: async () => Object.values(testState.alarms),
+            onAlarm: {
+                addListener: (listener) => {
+                    testState.alarmListener = listener;
+                }
+            }
+        },
         runtime: {
             lastError: null,
             onMessage: {
@@ -93,7 +111,11 @@ function createBaseContext(overrides = {}) {
         runtimeMessageListener: null,
         tabsOnRemovedListener: null,
         notificationClickListener: null,
-        notificationCloseListener: null
+        notificationCloseListener: null,
+        alarmListener: null,
+        alarmCreateCalls: [],
+        alarmClearCalls: [],
+        alarms: {}
     };
 
     const activeTimeouts = [];

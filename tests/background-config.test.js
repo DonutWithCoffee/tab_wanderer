@@ -3112,3 +3112,160 @@ test('GET_ORDER_LOOKUP resolves short order candidates without returning broad h
     ]);
     assert.equal(response.entries.length, 0);
 });
+
+test('SET_WATCHED_ORDER_REMINDER stores pending reminder and schedules alarm', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+    const remindAt = Date.now() + 60 * 60 * 1000;
+
+    setBackgroundState(context, {
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326' }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'SET_WATCHED_ORDER_REMINDER',
+        orderId: '1000-300326',
+        reminder: {
+            remindAt,
+            note: 'Проверить оплату'
+        }
+    });
+
+    const state = getBackgroundState(context);
+    const item = state.userConfig.watchedOrders.items[0];
+
+    assert.equal(response.ok, true);
+    assert.equal(item.reminder.status, 'pending');
+    assert.equal(item.reminder.remindAt, remindAt);
+    assert.equal(item.reminder.note, 'Проверить оплату');
+    assert.equal(context.__test.alarmCreateCalls.length, 1);
+    assert.equal(context.__test.alarmCreateCalls[0].name, 'tab_wanderer_watched_order_reminder:1000-300326');
+    assert.equal(context.__test.alarmCreateCalls[0].alarmInfo.when, remindAt);
+});
+
+test('CLEAR_WATCHED_ORDER_REMINDER removes reminder and clears alarm', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+    const remindAt = Date.now() + 60 * 60 * 1000;
+
+    setBackgroundState(context, {
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    {
+                        id: '1000-300326',
+                        reminder: {
+                            status: 'pending',
+                            remindAt,
+                            note: 'Проверить оплату',
+                            createdAt: remindAt - 1000,
+                            updatedAt: remindAt - 1000
+                        }
+                    }
+                ]
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'CLEAR_WATCHED_ORDER_REMINDER',
+        orderId: '1000-300326'
+    });
+
+    const state = getBackgroundState(context);
+    const item = state.userConfig.watchedOrders.items[0];
+
+    assert.equal(response.ok, true);
+    assert.equal(item.reminder, null);
+    assert.deepEqual(context.__test.alarmClearCalls, ['tab_wanderer_watched_order_reminder:1000-300326']);
+});
+
+test('watched order reminder alarm marks reminder done and sends notification', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+    const remindAt = Date.now() - 1000;
+
+    setBackgroundState(context, {
+        notificationTargets: {},
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    {
+                        id: '1000-300326',
+                        reminder: {
+                            status: 'pending',
+                            remindAt,
+                            note: 'Проверить оплату',
+                            createdAt: remindAt - 1000,
+                            updatedAt: remindAt - 1000
+                        }
+                    }
+                ]
+            }
+        })
+    });
+
+    await runExpression(context, `handleWatchedOrderReminderAlarm({ name: 'tab_wanderer_watched_order_reminder:1000-300326' })`);
+    await settleBackgroundContext();
+
+    const state = getBackgroundState(context);
+    const item = state.userConfig.watchedOrders.items[0];
+
+    assert.equal(item.reminder.status, 'done');
+    assert.ok(item.reminder.completedAt > 0);
+    assert.equal(context.__test.notifications.length, 1);
+    assert.equal(context.__test.notifications[0].title, 'Напоминание по заказу 1000-300326');
+    assert.equal(context.__test.notifications[0].message, 'Проверить оплату');
+    assert.equal(state.notificationTargets['notification-1'].orderUrl, 'https://amperkot.ru/admin/orders/1000-300326/');
+});
+
+test('UPDATE_CONFIG syncs pending reminder alarms and clears stale reminder alarms', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+    const remindAt = Date.now() + 60 * 60 * 1000;
+
+    context.__test.alarms['tab_wanderer_watched_order_reminder:9999-300326'] = {
+        name: 'tab_wanderer_watched_order_reminder:9999-300326',
+        scheduledTime: Date.now() + 1000
+    };
+
+    setBackgroundState(context, {
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: []
+            }
+        })
+    });
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    {
+                        id: '1000-300326',
+                        reminder: {
+                            status: 'pending',
+                            remindAt,
+                            note: 'Проверить оплату',
+                            createdAt: remindAt - 1000,
+                            updatedAt: remindAt - 1000
+                        }
+                    }
+                ]
+            }
+        })
+    });
+
+    assert.equal(response.ok, true);
+    assert.deepEqual(context.__test.alarmClearCalls, ['tab_wanderer_watched_order_reminder:9999-300326']);
+    assert.equal(context.__test.alarmCreateCalls.length, 1);
+    assert.equal(context.__test.alarmCreateCalls[0].name, 'tab_wanderer_watched_order_reminder:1000-300326');
+    assert.equal(context.__test.alarmCreateCalls[0].alarmInfo.when, remindAt);
+});

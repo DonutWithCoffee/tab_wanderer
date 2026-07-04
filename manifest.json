@@ -5,7 +5,8 @@
   "permissions": [
     "tabs",
     "storage",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "https://amperkot.ru/*",
