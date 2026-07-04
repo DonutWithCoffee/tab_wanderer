@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js');
+importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -1564,38 +1564,6 @@ setInterval(() => {
 
 
 // ---------- OZON BARCODE RESOLVE PREVIEW ----------
-function normalizeOzonResolveId(value) {
-    return String(value || '')
-        .replace(/\s+/g, '')
-        .trim();
-}
-
-function isWarehouseOzonResolveSender(senderTab = {}) {
-    return String(senderTab?.url || '').startsWith('https://amperkot.ru/web-apps/wh3/');
-}
-
-function getOzonResolveProductGroups(warehouseExtraction = {}) {
-    if (typeof getOzonBindingProductGroups === 'function') {
-        return getOzonBindingProductGroups(warehouseExtraction);
-    }
-
-    return Object.values(warehouseExtraction?.productsById || {})
-        .filter(group => group && group.productId && group.productId !== '__unknown__');
-}
-
-function getOzonResolveProductIds(warehouseExtraction = {}) {
-    return getOzonResolveProductGroups(warehouseExtraction)
-        .filter(group => Array.isArray(group.eligibleBarcodes) && group.eligibleBarcodes.length > 0)
-        .map(group => normalizeOzonResolveId(group.productId))
-        .filter(Boolean);
-}
-
-function buildOzonResolveWorkerUrl(productId) {
-    const url = new URL(buildOzonProductSearchUrl(productId, OZON_PRODUCTS_URL));
-    url.hash = OZON_WORKER_MARK.replace('#', '');
-    return url.toString();
-}
-
 function clearOzonResolveTimeout() {
     if (ozonResolveTimeoutTimer && typeof clearTimeout === 'function') {
         clearTimeout(ozonResolveTimeoutTimer);
@@ -1725,14 +1693,11 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}) {
 
     await cleanupOzonResolveWorker();
 
-    ozonResolveSession = {
+    ozonResolveSession = createOzonResolveSessionState({
         warehouseTabId: senderTabId,
         warehouseExtraction,
-        productIds,
-        index: 0,
-        ozonProductsByProductId: {},
-        startedAt: Date.now()
-    };
+        productIds
+    });
 
     if (!productIds.length) {
         const plan = createOzonResolvePreviewPlanForSession(ozonResolveSession);
@@ -1778,14 +1743,6 @@ async function handleOzonProductResolveResult(senderTabId, msg = {}) {
 
 
 // ---------- OZON UI BARCODE APPLY ----------
-function getCurrentOzonUiApplyProductRequest(session = ozonUiApplySession) {
-    return session?.productRequests?.[session.index] || null;
-}
-
-function buildOzonUiApplyWorkerUrl(productId) {
-    return buildOzonProductSearchUrl(productId, OZON_PRODUCTS_URL);
-}
-
 function clearOzonUiApplyTimeout() {
     if (ozonUiApplyTimeoutTimer && typeof clearTimeout === 'function') {
         clearTimeout(ozonUiApplyTimeoutTimer);
@@ -1940,14 +1897,10 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}) {
     await cleanupOzonResolveWorker({ closeTab: false });
     await cleanupOzonUiApply({ closeTab: true });
 
-    ozonUiApplySession = {
+    ozonUiApplySession = createOzonUiApplySessionState({
         warehouseTabId: senderTabId,
-        productRequests: request.productRequests,
-        index: 0,
-        results: [],
-        status: 'opening',
-        startedAt: Date.now()
-    };
+        productRequests: request.productRequests
+    });
 
     await openCurrentOzonUiApplyProduct();
 
