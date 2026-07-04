@@ -242,6 +242,46 @@ function loadHistoryContext(responseOverride, setupDocument, configOverride) {
                         response = { ok: true, userConfig: JSON.parse(JSON.stringify(userConfig)) };
                     }
 
+                    if (message.type === 'SET_WATCHED_ORDER_REMINDER') {
+                        const orderId = String(message.orderId || '').trim();
+                        const item = userConfig.watchedOrders.items.find(candidate => candidate.id === orderId);
+
+                        if (item) {
+                            item.reminder = {
+                                status: 'pending',
+                                remindAt: Number(message.reminder?.remindAt),
+                                note: String(message.reminder?.note || '').trim(),
+                                createdAt: 1700001000000,
+                                updatedAt: 1700001000000,
+                                completedAt: null,
+                                cancelledAt: null
+                            };
+                        }
+
+                        response = {
+                            ok: Boolean(item),
+                            userConfig: JSON.parse(JSON.stringify(userConfig)),
+                            item: item ? JSON.parse(JSON.stringify(item)) : null,
+                            reminder: item?.reminder ? JSON.parse(JSON.stringify(item.reminder)) : null
+                        };
+                    }
+
+                    if (message.type === 'CLEAR_WATCHED_ORDER_REMINDER') {
+                        const orderId = String(message.orderId || '').trim();
+                        const item = userConfig.watchedOrders.items.find(candidate => candidate.id === orderId);
+
+                        if (item) {
+                            item.reminder = null;
+                        }
+
+                        response = {
+                            ok: Boolean(item),
+                            userConfig: JSON.parse(JSON.stringify(userConfig)),
+                            item: item ? JSON.parse(JSON.stringify(item)) : null,
+                            reminder: null
+                        };
+                    }
+
                     if (message.type === 'GET_ORDER_LOOKUP') {
                         response = responseOverride || getDefaultOrderLookupResponse();
                     }
@@ -288,6 +328,7 @@ test('orders page exposes watched orders and hides user-facing order lookup', ()
     assert.match(html, /id="ordersWatchedOrderInput"/);
     assert.match(html, /id="ordersWatchedList"/);
     assert.match(html, /Прямая проверка открывает конкретные карточки заказов/);
+    assert.match(html, /одно активное напоминание/);
     assert.doesNotMatch(html, /Найти заказ/);
     assert.doesNotMatch(html, /id="historyOrderQuery"/);
     assert.doesNotMatch(html, /id="searchHistory"/);
@@ -514,4 +555,107 @@ test('hidden order lookup shows order lookup load failure', () => {
 
     assert.equal(document.getElementById('historyStatus').innerText, 'Не удалось загрузить данные по заказу');
     assert.equal(document.getElementById('historyList').innerHTML, '');
+});
+
+
+test('orders page sets and clears watched order reminder through runtime API', () => {
+    const context = loadHistoryContext();
+    const document = context.__test.document;
+    const remindAtInput = document.registerElement('ordersReminderAt_1001_300326');
+    const noteInput = document.registerElement('ordersReminderNote_1001_300326');
+
+    remindAtInput.value = '2100-01-01T12:00';
+    noteInput.value = 'Проверить оплату';
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {
+                watchAction: 'set-reminder',
+                orderId: '1001-300326'
+            }
+        }
+    });
+
+    const setMessages = getMessagesByType(context, 'SET_WATCHED_ORDER_REMINDER');
+
+    assert.equal(setMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(setMessages[0])), {
+        type: 'SET_WATCHED_ORDER_REMINDER',
+        orderId: '1001-300326',
+        reminder: {
+            remindAt: new Date('2100-01-01T12:00').getTime(),
+            note: 'Проверить оплату'
+        }
+    });
+    assert.equal(context.__test.userConfig.watchedOrders.items[0].reminder.status, 'pending');
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Напоминание/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Проверить оплату/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /сохранено/);
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {
+                watchAction: 'clear-reminder',
+                orderId: '1001-300326'
+            }
+        }
+    });
+
+    const clearMessages = getMessagesByType(context, 'CLEAR_WATCHED_ORDER_REMINDER');
+
+    assert.equal(clearMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(clearMessages[0])), {
+        type: 'CLEAR_WATCHED_ORDER_REMINDER',
+        orderId: '1001-300326'
+    });
+    assert.equal(context.__test.userConfig.watchedOrders.items[0].reminder, null);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /удалено/);
+});
+
+test('orders page renders pending reminder and prevents duplicate reminder setup', () => {
+    const context = loadHistoryContext(undefined, null, {
+        watchedOrders: {
+            items: [
+                {
+                    id: '1001-300326',
+                    status: 'active',
+                    addedAt: 1700000000000,
+                    lastCheckedAt: 1700000060000,
+                    lastBaselineAt: 1700000000000,
+                    lastEventAt: 1700000060000,
+                    lastError: null,
+                    reminder: {
+                        status: 'pending',
+                        remindAt: 4102444800000,
+                        note: 'Позвонить клиенту',
+                        createdAt: 1700000000000,
+                        updatedAt: 1700000000000,
+                        completedAt: null,
+                        cancelledAt: null
+                    }
+                }
+            ]
+        }
+    });
+    const document = context.__test.document;
+
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Напоминание/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Позвонить клиенту/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Удалить напоминание/);
+    assert.doesNotMatch(document.getElementById('ordersWatchedList').innerHTML, /data-watch-action="set-reminder"/);
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {
+                watchAction: 'set-reminder',
+                orderId: '1001-300326'
+            }
+        }
+    });
+
+    assert.equal(getMessagesByType(context, 'SET_WATCHED_ORDER_REMINDER').length, 0);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /уже есть активное напоминание/);
 });

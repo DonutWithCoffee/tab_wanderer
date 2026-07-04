@@ -178,11 +178,61 @@
             background: #fff8e6;
         }
 
-        .watched-order-actions {
+        .watched-order-main {
+            flex: 1;
+            min-width: 280px;
+        }
+
+        .watched-order-actions,
+        .reminder-actions {
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
             justify-content: flex-end;
+        }
+
+        .reminder-panel {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
+
+        .reminder-panel-active {
+            background: #fffdf6;
+            border: 1px solid #eee0a8;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .reminder-form {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .reminder-form input {
+            min-width: 210px;
+            flex: 1;
+            padding: 8px;
+            font-size: 13px;
+        }
+
+        .reminder-title {
+            font-weight: bold;
+        }
+
+        .reminder-note,
+        .reminder-previous {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.45;
+            margin-top: 6px;
+        }
+
+        .reminder-actions {
+            justify-content: flex-start;
+            margin-top: 8px;
         }
 
         .support-note {
@@ -202,6 +252,7 @@
     <p class="hint">
         Прямая проверка открывает конкретные карточки заказов при активном мониторинге.
         Первая проверка нового заказа становится baseline и не создаёт уведомление.
+        Для каждого заказа можно поставить одно активное напоминание.
     </p>
 </header>
 

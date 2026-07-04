@@ -1,5 +1,7 @@
 const HISTORY_DEFAULT_LIMIT = 100;
 const ORDERS_WATCHED_ORDER_LIMIT = 100;
+const ORDERS_WATCHED_ORDER_REMINDER_NOTE_LIMIT = 200;
+
 
 let currentOrdersConfig = {
     watchedOrders: {
@@ -158,6 +160,49 @@ function normalizeOrdersTimestamp(value) {
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
+function normalizeOrdersWatchedOrderReminderStatus(value) {
+    const status = String(value || '').trim();
+
+    if (status === 'done') {
+        return 'done';
+    }
+
+    if (status === 'cancelled') {
+        return 'cancelled';
+    }
+
+    return 'pending';
+}
+
+function normalizeOrdersWatchedOrderReminderNote(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, ORDERS_WATCHED_ORDER_REMINDER_NOTE_LIMIT);
+}
+
+function normalizeOrdersWatchedOrderReminder(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const remindAt = normalizeOrdersTimestamp(value.remindAt);
+
+    if (!remindAt) {
+        return null;
+    }
+
+    return {
+        status: normalizeOrdersWatchedOrderReminderStatus(value.status),
+        remindAt,
+        note: normalizeOrdersWatchedOrderReminderNote(value.note),
+        createdAt: normalizeOrdersTimestamp(value.createdAt),
+        updatedAt: normalizeOrdersTimestamp(value.updatedAt),
+        completedAt: normalizeOrdersTimestamp(value.completedAt),
+        cancelledAt: normalizeOrdersTimestamp(value.cancelledAt)
+    };
+}
+
 function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
     const source = value && typeof value === 'object'
         ? value
@@ -175,7 +220,8 @@ function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
         lastCheckedAt: normalizeOrdersTimestamp(source.lastCheckedAt),
         lastBaselineAt: normalizeOrdersTimestamp(source.lastBaselineAt),
         lastEventAt: normalizeOrdersTimestamp(source.lastEventAt),
-        lastError: source.lastError ? String(source.lastError) : null
+        lastError: source.lastError ? String(source.lastError) : null,
+        reminder: normalizeOrdersWatchedOrderReminder(source.reminder)
     };
 }
 
@@ -228,6 +274,44 @@ function getWatchedOrderStatusLabel(status) {
 
 function getWatchedOrderStatusBadgeClass(status) {
     return status === 'unresolved' ? 'badge-warning' : 'badge-positive';
+}
+
+function getWatchedOrderReminderStatusLabel(status) {
+    if (status === 'done') {
+        return 'сработало';
+    }
+
+    if (status === 'cancelled') {
+        return 'отменено';
+    }
+
+    return 'запланировано';
+}
+
+function getWatchedOrderReminderBadgeClass(status) {
+    if (status === 'pending') {
+        return 'badge-warning';
+    }
+
+    return 'badge-muted';
+}
+
+function getWatchedOrderReminderInputId(kind, orderId) {
+    const safeId = normalizeOrdersWatchedOrderId(orderId).replace(/[^A-Z0-9]+/g, '_');
+
+    return `ordersReminder${kind}_${safeId}`;
+}
+
+function parseOrdersReminderDateTime(value) {
+    const text = String(value || '').trim();
+
+    if (!text) {
+        return null;
+    }
+
+    const timestamp = new Date(text).getTime();
+
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
 }
 
 function renderBadge(value, className = '') {
@@ -495,6 +579,65 @@ function renderHistory(response) {
 }
 
 
+function renderWatchedOrderReminderForm(item) {
+    const reminderAtInputId = getWatchedOrderReminderInputId('At', item.id);
+    const reminderNoteInputId = getWatchedOrderReminderInputId('Note', item.id);
+
+    return `
+        <div class="reminder-form" aria-label="Новое напоминание для заказа ${escapeHtml(item.id)}">
+            <input
+                id="${escapeHtml(reminderAtInputId)}"
+                type="datetime-local"
+                aria-label="Дата и время напоминания"
+                required
+            >
+            <input
+                id="${escapeHtml(reminderNoteInputId)}"
+                type="text"
+                maxlength="${ORDERS_WATCHED_ORDER_REMINDER_NOTE_LIMIT}"
+                placeholder="Комментарий (опционально)"
+                aria-label="Комментарий к напоминанию"
+            >
+            <button type="button" data-watch-action="set-reminder" data-order-id="${escapeHtml(item.id)}">Напомнить</button>
+        </div>
+    `;
+}
+
+function renderWatchedOrderReminder(item) {
+    const reminder = item.reminder || null;
+
+    if (reminder?.status === 'pending') {
+        return `
+            <div class="reminder-panel reminder-panel-active">
+                <div>
+                    ${renderBadge(getWatchedOrderReminderStatusLabel(reminder.status), getWatchedOrderReminderBadgeClass(reminder.status))}
+                    <span class="reminder-title">Напоминание: ${escapeHtml(formatTimestamp(reminder.remindAt))}</span>
+                </div>
+                ${reminder.note ? `<div class="reminder-note">${escapeHtml(reminder.note)}</div>` : ''}
+                <div class="reminder-actions">
+                    <button type="button" data-watch-action="clear-reminder" data-order-id="${escapeHtml(item.id)}">Удалить напоминание</button>
+                </div>
+            </div>
+        `;
+    }
+
+    const previousReminder = reminder
+        ? `
+            <div class="reminder-previous">
+                ${renderBadge(getWatchedOrderReminderStatusLabel(reminder.status), getWatchedOrderReminderBadgeClass(reminder.status))}
+                <span>${escapeHtml(formatTimestamp(reminder.remindAt))}</span>
+            </div>
+        `
+        : '';
+
+    return `
+        <div class="reminder-panel">
+            ${previousReminder}
+            ${renderWatchedOrderReminderForm(item)}
+        </div>
+    `;
+}
+
 function renderWatchedOrders(config = currentOrdersConfig) {
     const watchedOrders = getOrdersWatchedOrdersConfig(config);
 
@@ -512,7 +655,7 @@ function renderWatchedOrders(config = currentOrdersConfig) {
 
     setInnerHtml('ordersWatchedList', watchedOrders.items.map((item) => `
         <article class="watched-order-row" data-order-id="${escapeHtml(item.id)}">
-            <div>
+            <div class="watched-order-main">
                 <div class="watched-orders-title">${escapeHtml(item.id)}</div>
                 ${renderBadge(getWatchedOrderStatusLabel(item.status), getWatchedOrderStatusBadgeClass(item.status))}
                 <div class="watched-order-meta">
@@ -522,6 +665,7 @@ function renderWatchedOrders(config = currentOrdersConfig) {
                     Последнее изменение: ${escapeHtml(formatTimestamp(item.lastEventAt))}
                     ${item.lastError ? `<br>Ошибка: ${escapeHtml(item.lastError)}` : ''}
                 </div>
+                ${renderWatchedOrderReminder(item)}
             </div>
             <div class="watched-order-actions">
                 <button type="button" data-watch-action="open" data-order-id="${escapeHtml(item.id)}">Показать</button>
@@ -612,6 +756,68 @@ function removeWatchedOrder(orderId) {
     };
 
     saveOrdersConfig(nextConfig, `Для заказа №${id} прямая проверка отключена.`);
+}
+
+function setWatchedOrderReminderFromForm(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+    const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
+    const item = watchedOrders.items.find(candidate => candidate.id === id);
+
+    if (!item) {
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке отслеживания.`);
+        return;
+    }
+
+    if (item.reminder?.status === 'pending') {
+        setInnerText('ordersWatchedStatus', `У заказа №${id} уже есть активное напоминание.`);
+        return;
+    }
+
+    const remindAt = parseOrdersReminderDateTime(getElementValue(getWatchedOrderReminderInputId('At', id)));
+    const note = getElementValue(getWatchedOrderReminderInputId('Note', id));
+
+    if (!remindAt || remindAt <= Date.now()) {
+        setInnerText('ordersWatchedStatus', 'Выберите дату и время напоминания в будущем.');
+        return;
+    }
+
+    sendMessage({
+        type: 'SET_WATCHED_ORDER_REMINDER',
+        orderId: id,
+        reminder: {
+            remindAt,
+            note
+        }
+    }, (response) => {
+        if (!response?.ok) {
+            setInnerText('ordersWatchedStatus', 'Не удалось сохранить напоминание.');
+            renderWatchedOrders(currentOrdersConfig);
+            return;
+        }
+
+        currentOrdersConfig = response.userConfig || currentOrdersConfig;
+        renderWatchedOrders(currentOrdersConfig);
+        setInnerText('ordersWatchedStatus', `Напоминание для заказа №${id} сохранено.`);
+    });
+}
+
+function clearWatchedOrderReminderFromButton(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+
+    sendMessage({
+        type: 'CLEAR_WATCHED_ORDER_REMINDER',
+        orderId: id
+    }, (response) => {
+        if (!response?.ok) {
+            setInnerText('ordersWatchedStatus', 'Не удалось удалить напоминание.');
+            renderWatchedOrders(currentOrdersConfig);
+            return;
+        }
+
+        currentOrdersConfig = response.userConfig || currentOrdersConfig;
+        renderWatchedOrders(currentOrdersConfig);
+        setInnerText('ordersWatchedStatus', `Напоминание для заказа №${id} удалено.`);
+    });
 }
 
 function addWatchedOrderFromInput() {
@@ -705,6 +911,10 @@ function bindHistoryControls() {
                 loadOrderHistory(orderId);
             } else if (action === 'remove') {
                 removeWatchedOrder(orderId);
+            } else if (action === 'set-reminder') {
+                setWatchedOrderReminderFromForm(orderId);
+            } else if (action === 'clear-reminder') {
+                clearWatchedOrderReminderFromButton(orderId);
             }
         });
     }
