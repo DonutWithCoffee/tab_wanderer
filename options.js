@@ -41,10 +41,7 @@ const OPTIONS_SCOPE_GROUPS = [
     { key: 'status', title: 'Статус', dictionaryId: 'optionsScopeDictionaryStatus', containerId: 'optionsScopeStatusList' },
     { key: 'delivery', title: 'Доставка', dictionaryId: 'optionsScopeDictionaryDelivery', containerId: 'optionsScopeDeliveryList' },
     { key: 'payment', title: 'Оплата', dictionaryId: 'optionsScopeDictionaryPayment', containerId: 'optionsScopePaymentList' },
-    { key: 'orderFlags', title: 'Флаги', dictionaryId: 'optionsScopeDictionaryOrderFlags', containerId: 'optionsScopeOrderFlagsList' },
-    { key: 'store', title: 'Склад', dictionaryId: 'optionsScopeDictionaryStore', containerId: 'optionsScopeStoreList' },
-    { key: 'reserve', title: 'Резерв', dictionaryId: 'optionsScopeDictionaryReserve', containerId: 'optionsScopeReserveList' },
-    { key: 'assemblyStatus', title: 'Комплектация', dictionaryId: 'optionsScopeDictionaryAssemblyStatus', containerId: 'optionsScopeAssemblyStatusList' }
+    { key: 'store', title: 'Склад', dictionaryId: 'optionsScopeDictionaryStore', containerId: 'optionsScopeStoreList' }
 ];
 
 let currentConfig = {};

@@ -114,17 +114,11 @@ function createOptionsDom() {
         'optionsScopeDictionaryStatus',
         'optionsScopeDictionaryDelivery',
         'optionsScopeDictionaryPayment',
-        'optionsScopeDictionaryOrderFlags',
         'optionsScopeDictionaryStore',
-        'optionsScopeDictionaryReserve',
-        'optionsScopeDictionaryAssemblyStatus',
         'optionsScopeStatusList',
         'optionsScopeDeliveryList',
         'optionsScopePaymentList',
-        'optionsScopeOrderFlagsList',
         'optionsScopeStoreList',
-        'optionsScopeReserveList',
-        'optionsScopeAssemblyStatusList',
         'optionsScopeHint',
         'optionsOpenOrdersPage',
         'optionsWatchedOrdersSummary',
@@ -431,7 +425,12 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsScopeStatusList"/);
     assert.match(html, /id="optionsScopeDeliveryList"/);
     assert.match(html, /id="optionsScopePaymentList"/);
-    assert.match(html, /id="optionsScopeOrderFlagsList"/);
+    assert.doesNotMatch(html, /id="optionsScopeOrderFlagsList"/);
+    assert.doesNotMatch(html, /id="optionsScopeReserveList"/);
+    assert.doesNotMatch(html, /id="optionsScopeAssemblyStatusList"/);
+    assert.doesNotMatch(html, /Флаги заказа/);
+    assert.doesNotMatch(html, /<h3>Резерв<\/h3>/);
+    assert.doesNotMatch(html, /<h3>Комплектация<\/h3>/);
     assert.match(html, /id="optionsScopeHint"/);
     assert.match(html, /id="optionsOpenOrdersPage"/);
     assert.match(html, /Открыть страницу “Отслеживание”/);
@@ -469,8 +468,7 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Общий: первая страница + глубокая синхронизация');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
-    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
-    assert.equal(document.getElementById('optionsScopeDictionaryOrderFlags').innerText, 'Флаги: Срочный, Проблемный');
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Склад: все');
     assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ');
@@ -518,11 +516,9 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     const context = loadOptionsContext();
     const document = context.__test.document;
     const selectedStatus = findCreatedInput(context, 'optionsScope_status_0');
-    const selectedFlag = findCreatedInput(context, 'optionsScope_orderFlags_0');
     const initialSecondPayment = findCreatedInput(context, 'optionsScope_payment_1');
 
     assert.equal(selectedStatus.checked, true);
-    assert.equal(selectedFlag.checked, true);
     assert.equal(initialSecondPayment.checked, false);
 
     selectedStatus.checked = false;
@@ -538,7 +534,7 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     assert.equal(context.__test.pendingTimers[0].cleared, true);
     assert.equal(context.__test.pendingTimers[1].delay, 700);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга изменена. Сохраняем после завершения выбора...');
-    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Склад: все');
 
     context.__test.runPendingTimers();
 
@@ -547,8 +543,8 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     assert.equal(updateMessages.length, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), []);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.payment)), ['9791', '9793']);
-    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.orderFlags)), ['1']);
-    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Флаги: Срочный; Склад: все; Резерв: все; Комплектация: все');
+    assert.equal(Object.prototype.hasOwnProperty.call(updateMessages[0].userConfig.monitorScope, 'orderFlags'), false);
+    assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Склад: все');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
 });
 

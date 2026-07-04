@@ -14,17 +14,17 @@ function createOrder(overrides = {}) {
     };
 }
 
-test('normalizeMonitorScope sanitizes arrays and drops legacy predicates', () => {
+test('normalizeMonitorScope keeps visible filters and drops hidden UI filters', () => {
     const context = loadRulesContext();
 
     const normalized = context.normalizeMonitorScope({
         status: ['6806'],
         delivery: '9797',
         payment: null,
-        orderFlags: '1',
-        store: {},
-        reserve: 1,
-        assemblyStatus: 'partial',
+        orderFlags: ['1'],
+        store: ['4'],
+        reserve: ['1'],
+        assemblyStatus: ['partial'],
         predicates: {
             ozonOnly: 1,
             juridicalOnly: 0
@@ -36,7 +36,7 @@ test('normalizeMonitorScope sanitizes arrays and drops legacy predicates', () =>
         delivery: [],
         payment: [],
         orderFlags: [],
-        store: [],
+        store: ['4'],
         reserve: [],
         assemblyStatus: []
     });

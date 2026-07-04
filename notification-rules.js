@@ -65,10 +65,10 @@ function normalizeMonitorScope(scope = {}) {
         status: Array.isArray(safeScope.status) ? safeScope.status : [],
         delivery: Array.isArray(safeScope.delivery) ? safeScope.delivery : [],
         payment: Array.isArray(safeScope.payment) ? safeScope.payment : [],
-        orderFlags: Array.isArray(safeScope.orderFlags) ? safeScope.orderFlags : [],
+        orderFlags: [],
         store: Array.isArray(safeScope.store) ? safeScope.store : [],
-        reserve: Array.isArray(safeScope.reserve) ? safeScope.reserve : [],
-        assemblyStatus: Array.isArray(safeScope.assemblyStatus) ? safeScope.assemblyStatus : []
+        reserve: [],
+        assemblyStatus: []
     };
 }
 

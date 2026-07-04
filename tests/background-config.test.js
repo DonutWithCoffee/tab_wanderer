@@ -1266,7 +1266,7 @@ test('START creates worker tab with URL from current monitorScope and enters war
     assert.equal(context.__test.createdTabs.length, 1);
     assert.equal(
         context.__test.createdTabs[0].url,
-        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791&flag%5B%5D=1&store%5B%5D=4&reserve%5B%5D=1&assembly_status%5B%5D=yes#tab_wanderer_worker=1'
+        'https://amperkot.ru/admin/orders/?status%5B%5D=6806&delivery%5B%5D=9797&payment%5B%5D=9791&store%5B%5D=4#tab_wanderer_worker=1'
     );
 });
 
