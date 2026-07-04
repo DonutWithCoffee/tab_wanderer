@@ -279,7 +279,8 @@ test('getEffectiveConfig normalizes watched orders config', () => {
                 lastCheckedAt: null,
                 lastBaselineAt: null,
                 lastEventAt: null,
-                lastError: null
+                lastError: null,
+                reminder: null
             },
             {
                 id: '2000-300326',
@@ -288,7 +289,8 @@ test('getEffectiveConfig normalizes watched orders config', () => {
                 lastCheckedAt: null,
                 lastBaselineAt: null,
                 lastEventAt: null,
-                lastError: 'not found'
+                lastError: 'not found',
+                reminder: null
             }
         ]
     });

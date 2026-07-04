@@ -1201,7 +1201,8 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
                 lastCheckedAt: null,
                 lastBaselineAt: null,
                 lastEventAt: null,
-                lastError: null
+                lastError: null,
+                reminder: null
             },
             {
                 id: '2000-300326',
@@ -1210,7 +1211,8 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
                 lastCheckedAt: null,
                 lastBaselineAt: null,
                 lastEventAt: null,
-                lastError: null
+                lastError: null,
+                reminder: null
             }
         ]
     });
@@ -1225,6 +1227,108 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
     ]);
     assert.equal(context.addWatchedOrderToConfig(added.config, 'bad').invalid, true);
     assert.equal(context.addWatchedOrderToConfig(added.config, '1000-300326').duplicate, true);
+});
+
+
+test('watched order reminder helpers normalize, set and complete one-time reminders', () => {
+    const context = loadBackgroundContext();
+    const watchedOrders = context.normalizeWatchedOrdersConfig({
+        items: [
+            { id: '1000-300326', addedAt: 1700000000000 },
+            { id: '2000-300326', addedAt: 1700000001000 }
+        ]
+    }, 1700000000000);
+
+    const setResult = context.setWatchedOrderReminder(
+        watchedOrders,
+        '1000-300326',
+        {
+            remindAt: 1700003600000,
+            note: '  Позвонить    клиенту  '
+        },
+        1700000100000
+    );
+
+    assert.equal(setResult.updated, true);
+    assert.equal(setResult.invalid, false);
+    assert.equal(setResult.notFound, false);
+    assert.deepEqual(JSON.parse(JSON.stringify(setResult.reminder)), {
+        status: 'pending',
+        remindAt: 1700003600000,
+        note: 'Позвонить клиенту',
+        createdAt: 1700000100000,
+        updatedAt: 1700000100000,
+        completedAt: null,
+        cancelledAt: null
+    });
+
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getPendingWatchedOrderReminderItems(setResult.config).map(item => item.id))),
+        ['1000-300326']
+    );
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getDueWatchedOrderReminderItems(setResult.config, 1700003500000).map(item => item.id))),
+        []
+    );
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getDueWatchedOrderReminderItems(setResult.config, 1700003600000).map(item => item.id))),
+        ['1000-300326']
+    );
+
+    const doneResult = context.markWatchedOrderReminderDone(setResult.config, '1000-300326', 1700003700000);
+
+    assert.equal(doneResult.updated, true);
+    assert.equal(doneResult.item.reminder.status, 'done');
+    assert.equal(doneResult.item.reminder.completedAt, 1700003700000);
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(context.getPendingWatchedOrderReminderItems(doneResult.config).map(item => item.id))),
+        []
+    );
+
+    const clearedResult = context.clearWatchedOrderReminder(doneResult.config, '1000-300326', 1700003800000);
+
+    assert.equal(clearedResult.updated, true);
+    assert.equal(clearedResult.item.reminder, null);
+});
+
+test('watched order reminder helpers reject invalid reminder input without mutating config', () => {
+    const context = loadBackgroundContext();
+    const watchedOrders = context.normalizeWatchedOrdersConfig({
+        items: [
+            {
+                id: '1000-300326',
+                reminder: {
+                    status: 'pending',
+                    remindAt: 1700003600000,
+                    note: 'existing',
+                    createdAt: 1700000000000,
+                    updatedAt: 1700000000000
+                }
+            }
+        ]
+    }, 1700000000000);
+
+    const invalidReminder = context.setWatchedOrderReminder(
+        watchedOrders,
+        '1000-300326',
+        { remindAt: 0, note: 'bad' },
+        1700000100000
+    );
+
+    assert.equal(invalidReminder.updated, false);
+    assert.equal(invalidReminder.invalid, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(invalidReminder.config)), JSON.parse(JSON.stringify(watchedOrders)));
+
+    const missingOrder = context.setWatchedOrderReminder(
+        watchedOrders,
+        '9999-300326',
+        { remindAt: 1700007200000, note: 'missing' },
+        1700000100000
+    );
+
+    assert.equal(missingOrder.updated, false);
+    assert.equal(missingOrder.notFound, true);
+    assert.equal(missingOrder.invalid, false);
 });
 
 test('event journal watched-only filter returns only configured watched order entries', () => {
