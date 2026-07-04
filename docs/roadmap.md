@@ -21,8 +21,9 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 214 pass / 0 fail
-Latest pushed checkpoint: c854afe docs(project): sync workflow and current handoff context
+Tests: 220 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
+Distribution target: Chrome Web Store / Unlisted listing
 ```
 
 Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest остаётся `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
@@ -184,6 +185,11 @@ Orders page lookup/watchlist flow
 monitor diagnostics/log tools
 documentation synced for new ChatGPT sessions
 legacy handoff replaced with docs/chat-handoff.md
+user-facing order history/order lookup hidden for 1.0
+low-value Options filters hidden: Флаги / Резерв / Комплектация
+informative notification format restored
+watched-order reminder core model added
+background chrome.alarms + reminder runtime API added
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -220,72 +226,26 @@ content.js reduced but still owns DOM rendering/runtime messaging
 
 ### Pre-1.0 product cleanup tasks
 
-1. Упростить пользовательскую поверхность:
+Done:
 
 ```text
-hide user-facing order history / order lookup entry for 1.0
-keep eventJournal/order lookup code as internal diagnostic/foundation
-stop describing local order history as a user-facing 1.0 feature
-keep Orders page focused on watched orders and reminders
+hide user-facing history/order lookup entry while keeping eventJournal/order lookup as internal diagnostic/foundation
+simplify Options by removing Флаги / Резерв / Комплектация from user-facing controls
+restore informative notification message format
+add watched-order reminder core model
+add background chrome.alarms + runtime API for reminder scheduling/firing
 ```
 
-Причина:
+Reminder MVP still in progress:
 
 ```text
-локальная история не является серверной историей заказа
-она зависит от того, видел ли заказ конкретный экземпляр расширения
-как пользовательская функция 1.0 она может создать неправильные ожидания
+UI on watched orders page: date/time + optional note
+edit/clear reminder controls
+display active/completed reminder state
+manual smoke for fired reminder notification and order-page click-through
 ```
 
-2. Упростить Options UI:
-
-```text
-remove user-facing controls for:
-  - Флаги
-  - Резерв
-  - Комплектация
-```
-
-Не удалять сразу из parser/core:
-
-```text
-keep as context/diagnostic fields
-keep tests where they protect parser behavior
-remove from notification trigger controls / user settings surface
-```
-
-3. Вернуть информативный формат уведомлений:
-
-```text
-order number is always shown
-status is always shown
-payment type is always shown
-delivery type is always shown
-changed field shows было → стало
-unchanged fields show current value
-```
-
-Example:
-
-```text
-Заказ 1234-010726
-Статус: Новый → Собран
-Оплата: Банковская карта
-Доставка: СДЭК
-```
-
-4. Добавить reminders для watched orders:
-
-```text
-one-time reminder for watched order
-user selects date/time
-optional short note
-Chrome notification fires at selected time
-notification includes order number and reminder text
-triggered reminder becomes done/expired
-```
-
-MVP non-goals:
+Reminder MVP non-goals:
 
 ```text
 recurring reminders
@@ -294,7 +254,7 @@ complex reminder templates
 legal-department-specific workflow statuses
 ```
 
-5. Legal entity department:
+Legal entity department:
 
 ```text
 postpone design until QA session with legal entity department
@@ -302,25 +262,67 @@ collect real workflow first
 then decide whether they need filters, presets, reminders or separate views
 ```
 
-6. Release packaging:
-
-```text
-not the next priority
-return after product simplification, reminders and notification polish stabilize
-```
-
 Recommended next implementation order:
 
 ```text
-1. Hide user-facing history/order lookup entry and update tests/docs.
-2. Simplify Options by removing Flags / Reserve / Completion controls from UI.
-3. Restore informative notification message format.
-4. Add one-time watched order reminders.
-5. After legal department QA, design legal workflow if needed.
-6. Later, add release packaging script.
+1. Add UI for one-time watched-order reminders.
+2. Smoke reminder alarm firing and order-page click-through manually.
+3. Polish reminder texts/states if QA exposes confusion.
+4. Run docs/smoke sync after reminder UI is complete.
+5. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
+6. After legal department QA, design legal workflow if needed.
 ```
 
 ---
+
+## Release Readiness — Chrome Web Store ⏳ pre-RC
+
+Решение по каналу распространения:
+
+```text
+Primary distribution channel: Chrome Web Store
+Listing type: Unlisted
+Developer registration fee: paid
+Manual archive distribution remains dev/QA-only before 1.0
+```
+
+Цель:
+
+```text
+подготовить расширение к проверке Chrome Web Store
+сделать release package без dev/debug/private мусора
+обеспечить понятное описание single purpose
+обосновать permissions и host_permissions
+подготовить privacy policy и staff install/update flow
+```
+
+Обязательные задачи перед отправкой:
+
+```text
+release packaging script / checklist
+verify package excludes .git, docs/private, node_modules, temp archives, local samples
+minimal permissions audit
+minimal host_permissions audit
+privacy policy draft and final text
+permissions justification for Chrome Web Store dashboard
+single purpose listing description
+unlisted listing metadata
+screenshots for popup/options/orders/Ozon warehouse flow
+staff install/update instructions
+review notes: extension is not officially affiliated with Ozon or Amperkot unless separately approved
+check no remote code, eval, CDN scripts or dynamic code loading
+final smoke checklist before upload
+plan for Google review feedback / resubmission
+```
+
+Risk notes:
+
+```text
+order data and admin page access must be described honestly
+Ozon helper must be described as local workflow automation, not official Ozon endorsement
+broad host permissions increase review risk; keep them narrow
+notifications/alarms/tabs/storage permissions must be justified by visible user-facing features
+```
 
 ## 1.0 RC ⏳
 
@@ -335,6 +337,7 @@ verify deep sync and page return to page 1
 verify diagnostic log/export
 verify Ozon/warehouse flow after docs/refactor
 check release packaging does not include .git, docs/private, node_modules or temp archives
+complete Chrome Web Store readiness checklist
 ```
 
 Potential pre-RC cleanup candidates:
@@ -343,6 +346,7 @@ Potential pre-RC cleanup candidates:
 Ozon operation lock for simultaneous warehouse tabs
 compact Ozon debug payload policy
 release packaging script
+Chrome Web Store listing/privacy/permissions docs
 small UI text polish if user requests
 ```
 
@@ -384,5 +388,4 @@ Raspberry Pi / VPS deployment for collector
 Firefox fork feasibility
 Ozon operation hardening and queue/lock model
 configurable minimum/base product price threshold for barcode binding
-packaging/release automation
 ```

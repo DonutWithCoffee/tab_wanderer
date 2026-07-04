@@ -11,8 +11,9 @@ Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Manifest version: 0.9.9
 Stage: Pre-1.0 product simplification, reminders and notification polish
-Latest pushed checkpoint: c854afe docs(project): sync workflow and current handoff context
-Expected tests: 214 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
+Expected tests: 220 pass / 0 fail
+Distribution target: Chrome Web Store / Unlisted listing
 Working tree expected: clean
 ```
 
@@ -27,6 +28,11 @@ d9c38f9 refactor(ozon): extract UI apply result helpers
 d1eb0d3 refactor(ozon): extract session utility helpers
 1466ec1 refactor(ozon): extract warehouse result messaging
 c854afe docs(project): sync workflow and current handoff context
+ui(orders): hide user-facing order history lookup
+ui(options): hide low-value monitor scope filters
+feat(notifications): include full order context
+feat(watched-orders): add reminder core model
+feat(watched-orders): schedule reminder alarms
 ```
 
 ---
@@ -45,8 +51,8 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  c854afe docs(project): sync workflow and current handoff context
-npm test → 214 pass / 0 fail
+  feat(watched-orders): schedule reminder alarms
+npm test → 220 pass / 0 fail
 ```
 
 If dependencies are missing:
@@ -224,6 +230,7 @@ Current priority:
 Pre-1.0 product simplification, reminders and notification polish.
 Legal entity department work is postponed until QA with that department.
 Watched order reminders are required regardless of legal workflow.
+Chrome Web Store is the chosen distribution channel for 1.0+; listing should be Unlisted.
 ```
 
 ---
@@ -233,10 +240,10 @@ Watched order reminders are required regardless of legal workflow.
 Recommended order:
 
 ```text
-1. Hide user-facing history/order lookup entry while keeping eventJournal/order lookup as internal diagnostic/foundation.
-2. Simplify Options: remove user-facing controls for Флаги / Резерв / Комплектация.
-3. Restore informative notification format: order number + status + payment + delivery, with было → стало for changed fields.
-4. Add one-time reminders for watched orders.
+1. Add UI for one-time watched-order reminders: date/time + optional note + clear/edit state.
+2. Smoke reminder alarm firing and order-page click-through manually.
+3. Sync docs/smoke checklist after reminder UI is complete.
+4. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
 5. After legal department QA, design legal workflow from real process.
 6. Later, add release packaging script.
 ```
@@ -252,4 +259,38 @@ Legal workflow assumptions before QA.
 Recurring reminder complexity in the first reminder MVP.
 Storing Ozon auth/session data.
 Committing private admin samples or temporary archives.
+```
+
+
+---
+
+## 10. Chrome Web Store Release Readiness
+
+```text
+Distribution channel: Chrome Web Store
+Listing type: Unlisted
+Developer registration fee: paid
+Manual zip/archive distribution remains for dev/QA only before 1.0
+```
+
+Before 1.0 RC, prepare:
+
+```text
+release package without .git, docs/private, node_modules, temp archives or local samples
+privacy policy
+permissions justification
+host_permissions audit
+single purpose listing description
+screenshots
+staff install/update instructions
+final smoke checklist
+review-response plan for Google feedback
+```
+
+Policy-sensitive wording:
+
+```text
+Do not imply official Ozon or Amperkot endorsement unless separately approved.
+Describe Ozon support as local workflow automation/helper functionality.
+State honestly that order/admin data is processed locally for notifications, watched orders, reminders and barcode workflow.
 ```

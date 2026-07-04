@@ -12,8 +12,9 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Текущий фокус: product simplification, watched-order reminders и notification polish
-Tests: 214 pass / 0 fail
-Latest pushed checkpoint: c854afe docs(project): sync workflow and current handoff context
+Tests: 220 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): schedule reminder alarms
+Distribution target: Chrome Web Store / Unlisted listing
 ```
 
 Документы проекта:
@@ -24,6 +25,32 @@ docs/project-context.md
 docs/roadmap.md
 docs/smoke-checklist.md
 ```
+
+---
+
+## Distribution target
+
+Для стабильной `1.0+` версии выбран канал распространения:
+
+```text
+Chrome Web Store
+Listing type: Unlisted
+Manual archive installs: только dev/QA до 1.0
+```
+
+Перед отправкой в Chrome Web Store требуется отдельная release-readiness подготовка:
+
+```text
+release package без .git / docs/private / node_modules / временных архивов
+privacy policy
+permissions justification
+host_permissions audit
+listing description + screenshots
+staff install/update instructions
+финальный smoke checklist
+```
+
+Расширение не должно описываться как официальный продукт Ozon или Amperkot, если нет отдельного подтверждения/разрешения.
 
 ---
 
@@ -435,7 +462,7 @@ npm test
 Expected baseline:
 
 ```text
-214 pass / 0 fail
+220 pass / 0 fail
 ```
 
 Before commit:
