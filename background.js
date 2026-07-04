@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js');
+importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -1587,22 +1587,13 @@ async function cleanupOzonResolveWorker({ closeTab = true } = {}) {
 }
 
 async function sendOzonResolvePreviewToWarehouse(payload = {}) {
-    const warehouseTabId = ozonResolveSession?.warehouseTabId;
-
-    if (!warehouseTabId || typeof chrome.tabs.sendMessage !== 'function') {
-        return false;
-    }
-
-    try {
-        await chrome.tabs.sendMessage(warehouseTabId, {
-            type: 'OZON_RESOLVE_PREVIEW_RESULT',
-            ...payload
-        });
-        return true;
-    } catch (error) {
-        log('WARN', 'OZON_RESOLVE', 'failed to send preview to warehouse tab', error?.message || error);
-        return false;
-    }
+    return sendOzonWarehouseMessage({
+        session: ozonResolveSession,
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        payload,
+        logCategory: 'OZON_RESOLVE',
+        logMessage: 'failed to send preview to warehouse tab'
+    });
 }
 
 function createOzonResolvePreviewPlanForSession(session = ozonResolveSession) {
@@ -1769,22 +1760,13 @@ async function cleanupOzonUiApply({ closeTab = false } = {}) {
 }
 
 async function sendOzonUiApplyResultToWarehouse(payload = {}) {
-    const warehouseTabId = ozonUiApplySession?.warehouseTabId;
-
-    if (!warehouseTabId || typeof chrome.tabs.sendMessage !== 'function') {
-        return false;
-    }
-
-    try {
-        await chrome.tabs.sendMessage(warehouseTabId, {
-            type: 'OZON_UI_APPLY_RESULT',
-            ...payload
-        });
-        return true;
-    } catch (error) {
-        log('WARN', 'OZON_UI_APPLY', 'failed to send apply result to warehouse tab', error?.message || error);
-        return false;
-    }
+    return sendOzonWarehouseMessage({
+        session: ozonUiApplySession,
+        type: 'OZON_UI_APPLY_RESULT',
+        payload,
+        logCategory: 'OZON_UI_APPLY',
+        logMessage: 'failed to send apply result to warehouse tab'
+    });
 }
 
 async function failOzonUiApply(errorMessage = 'Ozon UI apply failed') {

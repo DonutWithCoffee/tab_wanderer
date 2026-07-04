@@ -189,6 +189,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/ozon-barcode-binding.js', context);
     runScript('core/ozon-ui-apply-result.js', context);
     runScript('core/ozon-session-utils.js', context);
+    runScript('core/ozon-session-messaging.js', context);
     runScript('background.js', context);
     return context;
 }
