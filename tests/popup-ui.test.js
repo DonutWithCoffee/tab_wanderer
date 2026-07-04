@@ -256,6 +256,7 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="toggleMonitor"/);
     assert.match(html, /id="openOptions"/);
     assert.match(html, /id="openHistory"/);
+    assert.match(html, /Отслеживание/);
     assert.match(html, /id="downloadDiagnosticLog"/);
     assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
@@ -313,7 +314,7 @@ test('popup starts monitoring when status is stopped', () => {
     assert.equal(getSentMessagesByType(context, 'START').length, 1);
 });
 
-test('popup opens options and history pages', () => {
+test('popup opens options and watched orders page', () => {
     const context = loadPopupContext();
     const document = context.__test.document;
 
@@ -380,7 +381,7 @@ test('popup adds watched order by full order id only', () => {
         '1234-110626'
     ]);
     assert.equal(input.value, '');
-    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен. Список и история — на странице “Заказы”.');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен. Список — на странице “Отслеживание”.');
 });
 
 test('popup downloads diagnostic log from quick action', () => {

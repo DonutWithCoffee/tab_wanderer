@@ -434,6 +434,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsScopeOrderFlagsList"/);
     assert.match(html, /id="optionsScopeHint"/);
     assert.match(html, /id="optionsOpenOrdersPage"/);
+    assert.match(html, /Открыть страницу “Отслеживание”/);
     assert.match(html, /id="optionsWatchedOrdersSummary"/);
     assert.doesNotMatch(html, /id="optionsWatchedOrderInput"/);
     assert.doesNotMatch(html, /id="optionsAddWatchedOrder"/);
@@ -443,6 +444,8 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /Общий: первая страница \+ глубокая синхронизация/);
     assert.match(html, /Не уведомлять о/);
     assert.match(html, /Обновить диагностику/);
+    assert.doesNotMatch(html, /Поиск заказа, список отслеживаемых заказов/);
+    assert.doesNotMatch(html, /локальной истории заказа/);
     assert.doesNotMatch(html, /id="optionsApplyMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsApplyNotificationTriggers"/);
@@ -475,7 +478,7 @@ test('options page loads current config and diagnostics without updating config'
 });
 
 
-test('options page links watched orders management to orders page', () => {
+test('options page links watched orders management to watched orders page', () => {
     const context = loadOptionsContext();
     const document = context.__test.document;
 

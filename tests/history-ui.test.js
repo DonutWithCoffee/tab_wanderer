@@ -281,29 +281,29 @@ function getMessagesByType(context, type) {
     return context.__test.sentMessages.filter((message) => message.type === type);
 }
 
-test('history page is order lookup, not full event timeline', () => {
+test('orders page exposes watched orders and hides user-facing order lookup', () => {
     const html = readHistoryHtml();
 
-    assert.match(html, /Заказы/);
-    assert.match(html, /Заказы и отслеживание/);
-    assert.match(html, /Найти заказ/);
-    assert.match(html, /id="historyOrderQuery"/);
-    assert.match(html, /id="searchHistory"/);
-    assert.match(html, /id="resetHistorySearch"/);
-    assert.match(html, /id="historyCandidates"/);
-    assert.match(html, /id="orderSummary"/);
-    assert.match(html, /id="historyList"/);
+    assert.match(html, /Отслеживаемые заказы/);
     assert.match(html, /id="ordersWatchedOrderInput"/);
     assert.match(html, /id="ordersWatchedList"/);
-    assert.match(html, /первым 4 цифрам|первые 4 цифры/);
-    assert.match(html, /Это не полная серверная история заказа/);
+    assert.match(html, /Прямая проверка открывает конкретные карточки заказов/);
+    assert.doesNotMatch(html, /Найти заказ/);
+    assert.doesNotMatch(html, /id="historyOrderQuery"/);
+    assert.doesNotMatch(html, /id="searchHistory"/);
+    assert.doesNotMatch(html, /id="resetHistorySearch"/);
+    assert.doesNotMatch(html, /id="historyCandidates"/);
+    assert.doesNotMatch(html, /id="orderSummary"/);
+    assert.doesNotMatch(html, /id="historyList"/);
+    assert.doesNotMatch(html, /первым 4 цифрам|первые 4 цифры/);
+    assert.doesNotMatch(html, /полная серверная история/);
     assert.doesNotMatch(html, /id="historyEventType"/);
     assert.doesNotMatch(html, /id="historyEventKind"/);
     assert.doesNotMatch(html, /id="historyChangedField"/);
     assert.doesNotMatch(html, /id="historyWatchedOnly"/);
 });
 
-test('history page starts idle without loading broad event journal', () => {
+test('hidden order lookup starts idle without loading broad event journal', () => {
     const context = loadHistoryContext();
     const document = context.__test.document;
 
@@ -313,7 +313,7 @@ test('history page starts idle without loading broad event journal', () => {
     assert.equal(document.getElementById('historyList').innerHTML, '');
 });
 
-test('history page requests order lookup and renders selected order changes', () => {
+test('hidden order lookup requests order data and renders selected order changes', () => {
     const context = loadHistoryContext(undefined, (document) => {
         document.getElementById('historyOrderQuery').value = '1001';
     });
@@ -346,7 +346,7 @@ test('history page requests order lookup and renders selected order changes', ()
     assert.match(document.getElementById('historyList').innerHTML, /Заказ впервые увиден/);
 });
 
-test('history page renders multiple short-number candidates without showing global events', () => {
+test('hidden order lookup renders multiple short-number candidates without showing global events', () => {
     const context = loadHistoryContext({
         ok: true,
         query: '1001',
@@ -385,7 +385,7 @@ test('history page renders multiple short-number candidates without showing glob
     assert.equal(document.getElementById('historyList').innerHTML, '');
 });
 
-test('history page shows not-found and invalid lookup states', () => {
+test('hidden order lookup shows not-found and invalid states', () => {
     const notFound = loadHistoryContext({
         ok: true,
         query: '9999',
@@ -431,7 +431,7 @@ test('history page shows not-found and invalid lookup states', () => {
     );
 });
 
-test('history page reset clears current lookup without backend request', () => {
+test('hidden order lookup reset clears current lookup without backend request', () => {
     const context = loadHistoryContext(undefined, (document) => {
         document.getElementById('historyOrderQuery').value = '1001';
     });
@@ -501,7 +501,7 @@ test('orders page toggles selected order watch state from summary', () => {
     assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].id, '1001-300326');
 });
 
-test('history page shows order lookup load failure', () => {
+test('hidden order lookup shows order lookup load failure', () => {
     const context = loadHistoryContext({
         ok: false,
         error: 'failed'

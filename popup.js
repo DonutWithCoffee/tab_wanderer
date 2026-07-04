@@ -236,7 +236,7 @@ function addWatchedOrderFromPopup() {
             input.value = '';
         }
 
-        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен. Список и история — на странице “Заказы”.`);
+        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен. Список — на странице “Отслеживание”.`);
     });
 }
 

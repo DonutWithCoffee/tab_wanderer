@@ -195,40 +195,18 @@
 <body>
 
 <header class="page-header">
-    <h2>Заказы и отслеживание</h2>
+    <h2>Отслеживаемые заказы</h2>
     <p class="section-subtitle">
-        Рабочий экран для поиска заказа в локальной базе плагина и управления прямой проверкой выбранных заказов.
+        Рабочий экран для управления прямой проверкой выбранных заказов.
     </p>
     <p class="hint">
-        Плагин показывает только заказы и изменения, которые сам обнаружил. Это не полная серверная история заказа в админке.
+        Прямая проверка открывает конкретные карточки заказов при активном мониторинге.
+        Первая проверка нового заказа становится baseline и не создаёт уведомление.
     </p>
 </header>
 
-<section class="lookup-panel" aria-label="Поиск заказа">
-    <h3>Найти заказ</h3>
-    <p class="hint">
-        Введите полный номер заказа или первые 4 цифры до дефиса. Если найдено несколько заказов с одинаковыми первыми цифрами, выберите полный номер из списка.
-    </p>
-    <div class="lookup-row">
-        <input id="historyOrderQuery" type="search" placeholder="Например: 1234 или 1234-110626" autocomplete="off">
-        <button id="searchHistory">Найти</button>
-        <button id="resetHistorySearch">Очистить</button>
-    </div>
-</section>
-
-<section class="status-panel" aria-live="polite">
-    <div id="historyStatus">Введите номер заказа для поиска</div>
-</section>
-
-<div id="historyCandidates"></div>
-<div id="orderSummary"></div>
-<div id="historyList"></div>
-
 <section class="watched-orders-panel" aria-label="Отслеживаемые заказы">
-    <h3>Отслеживаемые заказы</h3>
-    <p class="hint">
-        Прямая проверка открывает конкретные карточки заказов при активном мониторинге. Первая проверка нового заказа становится baseline и не создаёт уведомление.
-    </p>
+    <h3>Список заказов</h3>
     <div class="inline-form">
         <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
         <button id="ordersAddWatchedOrder" type="button">Добавить</button>
