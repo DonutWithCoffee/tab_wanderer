@@ -59,9 +59,14 @@ function loadContentContext(documentStub, overrides = {}) {
         path.join(__dirname, '..', 'core', 'warehouse-barcode-extractor.js'),
         'utf8'
     );
+    const warehouseOzonViewModelSource = fs.readFileSync(
+        path.join(__dirname, '..', 'core', 'warehouse-ozon-view-model.js'),
+        'utf8'
+    );
 
     vm.createContext(context);
     vm.runInContext(warehouseExtractorSource, context, { filename: 'core/warehouse-barcode-extractor.js' });
+    vm.runInContext(warehouseOzonViewModelSource, context, { filename: 'core/warehouse-ozon-view-model.js' });
     vm.runInContext(source, context, { filename: 'content.js' });
 
     return context;
