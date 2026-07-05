@@ -13,7 +13,7 @@ Chrome extension для мониторинга заказов в админке 
 Manifest version: 0.9.9
 Текущий фокус: Pre-RC UI visual polish
 Tests: 241 pass / 0 fail
-Latest checkpoint: ui(popup-options): refine pre-RC popup and settings hierarchy
+Latest checkpoint: ui(copy): simplify pre-RC user-facing text
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 

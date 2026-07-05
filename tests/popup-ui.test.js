@@ -279,16 +279,14 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /<div class="header-meta">/);
     assert.doesNotMatch(html, /class="navigation-grid"/);
     assert.match(html, /id="openWatchedOrders"/);
-    assert.match(html, /Отслеживаемые заказы/);
+    assert.match(html, /Добавить в отслеживаемое/);
     assert.match(html, /id="downloadDiagnosticLog"/);
     assert.match(html, /<details class="support-details quick-filter-details">/);
-    assert.match(html, /Поддержка и диагностика/);
-    assert.match(html, /быстрый пульт мониторинга/);
-    assert.match(html, /Отслеживаемые заказы/);
-    assert.match(html, /Быстрые фильтры уведомлений/);
-    assert.match(html, /Скрывают лишние desktop-уведомления, но не отключают сбор/);
-    assert.match(html, /Расширение сначала проверит страницу заказа/);
-    assert.match(html, /Добавьте заказ, чтобы расширение проверяло его отдельно от общего списка/);
+    assert.match(html, /Диагностика/);
+    assert.match(html, /мониторинг заказов/);
+    assert.match(html, /Добавить в отслеживаемое/);
+    assert.match(html, /Скрыть уведомления/);
+    assert.match(html, /Заказы всё равно собираются, история обновляется/);
     assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupIgnoreOzon"/);
@@ -297,9 +295,11 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off"/);
     assert.match(html, /id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off"/);
     assert.match(html, /id="popupAddWatchedOrder"/);
+    assert.doesNotMatch(html, /Добавьте заказ, который нужно проверять отдельно/);
+    assert.doesNotMatch(html, /Сначала проверим заказ в админке/);
 
-    const watchedOrderIndex = html.indexOf('Отслеживаемые заказы');
-    const quickFiltersIndex = html.indexOf('Быстрые фильтры уведомлений');
+    const watchedOrderIndex = html.indexOf('Добавить в отслеживаемое');
+    const quickFiltersIndex = html.indexOf('Скрыть уведомления');
     assert.ok(watchedOrderIndex >= 0);
     assert.ok(quickFiltersIndex >= 0);
     assert.ok(watchedOrderIndex < quickFiltersIndex);
@@ -344,7 +344,7 @@ test('popup starts monitoring when status is stopped', () => {
     const document = context.__test.document;
 
     assert.equal(document.getElementById('status').innerText, 'Статус: выключен');
-    assert.equal(document.getElementById('statusDetails').innerText, 'Мониторинг остановлен. Уведомления не отправляются.');
+    assert.equal(document.getElementById('statusDetails').innerText, 'Мониторинг выключен. Уведомлений не будет.');
     assert.equal(document.getElementById('toggleMonitor').innerText, 'Включить мониторинг');
 
     document.getElementById('toggleMonitor').dispatchEvent({
@@ -397,7 +397,7 @@ test('popup quick suppressor toggles update config only for notifications', () =
         ignoreLegalEntityPayment: true,
         ignoreOzon: false
     });
-    assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Фильтры уведомлений сохранены.');
+    assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Фильтры сохранены.');
 });
 
 test('popup adds watched order by full order id only', () => {
@@ -411,7 +411,7 @@ test('popup adds watched order by full order id only', () => {
     addButton.dispatchEvent({ type: 'click', target: addButton });
 
     assert.equal(getSentMessagesByType(context, 'ADD_WATCHED_ORDER').length, 0);
-    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Введите полный номер заказа в формате 1234-110626.');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Введите полный номер: 1234-110626.');
 
     input.value = ' 1234-110626 ';
     noteInput.value = 'Проверить оплату';
@@ -427,7 +427,7 @@ test('popup adds watched order by full order id only', () => {
     });
     assert.equal(input.value, '');
     assert.equal(noteInput.value, '');
-    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 проверен и добавлен. Список — на странице “Отслеживаемые заказы”.');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Заказ №1234-110626 добавлен в отслеживание.');
 });
 
 
@@ -450,7 +450,7 @@ test('popup keeps validating watched order message until polling resolves', () =
     input.value = '3214-000000';
     addButton.dispatchEvent({ type: 'click', target: addButton });
 
-    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Проверяем заказ №3214-000000 перед добавлением...');
+    assert.equal(document.getElementById('popupWatchedOrderStatus').innerText, 'Проверяем заказ №3214-000000...');
     assert.equal(input.value, '3214-000000');
 });
 
@@ -522,5 +522,5 @@ test('popup downloads diagnostic log from quick action', () => {
     assert.match(decodeURIComponent(createdLinks[0].href), /Диагностический лог tab_wanderer/);
     assert.match(decodeURIComponent(createdLinks[0].href), /Экспорт: режим=полный/);
     assert.match(decodeURIComponent(createdLinks[0].href), /CONTROL START/);
-    assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Диагностический лог готов.');
+    assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Лог готов.');
 });

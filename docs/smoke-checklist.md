@@ -1,6 +1,6 @@
 # tab_wanderer — final smoke checklist перед 1.0 RC
 
-Актуально для `0.9.9` / Pre-1.0 после watched-orders, Options layout, diagnostics polish и pre-RC popup/options visual hierarchy polish.
+Актуально для `0.9.9` / Pre-1.0 после watched-orders, Options layout, diagnostics polish и pre-RC popup/options visual hierarchy and copy polish.
 
 Цель: перед `1.0 RC` быстро проверить, что локальная сборка не создаёт ложные уведомления, не мешает рабочим вкладкам менеджера/склада, корректно ведёт watched orders и даёт достаточную диагностику для поддержки.
 

@@ -366,11 +366,11 @@ test('orders page exposes watched orders and hides user-facing order lookup', ()
     assert.match(html, /id="ordersWatchedOrderNoteInput" name="ordersWatchedOrderNoteInput"/);
     assert.match(html, /id="ordersWatchedList"/);
     assert.match(html, /id="ordersWatchedOrderFollowUpIntervalSelect" name="ordersWatchedOrderFollowUpIntervalSelect" autocomplete="off"/);
-    assert.match(html, /Прямая проверка открывает конкретные карточки заказов/);
-    assert.match(html, /одно активное напоминание/);
-    assert.match(html, /Проверяется один заказ за тик/);
+    assert.match(html, /При включённом мониторинге расширение открывает карточки этих заказов отдельно/);
+    assert.match(html, /одно напоминание/);
+    assert.match(html, /За один раз проверяется один заказ/);
     assert.match(html, /Проверить и добавить/);
-    assert.match(html, /Заказ сначала проверяется в админке/);
+    assert.match(html, /Сначала проверим заказ в админке/);
     assert.doesNotMatch(html, /Найти заказ/);
     assert.doesNotMatch(html, /id="historyOrderQuery"/);
     assert.doesNotMatch(html, /id="searchHistory"/);
@@ -568,7 +568,7 @@ test('orders page renders and manages watched orders', () => {
         note: 'Связаться с клиентом'
     });
     assert.match(document.getElementById('ordersWatchedStatus').innerText, /2222-110626/);
-    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Baseline снят сразу/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /проверен и добавлен/);
 });
 
 
@@ -597,7 +597,7 @@ test('orders page keeps validating message for async watched order add', () => {
         target: document.getElementById('ordersAddWatchedOrder')
     });
 
-    assert.equal(document.getElementById('ordersWatchedStatus').innerText, 'Проверяем заказ №3214-000000 перед добавлением...');
+    assert.equal(document.getElementById('ordersWatchedStatus').innerText, 'Проверяем заказ №3214-000000...');
     assert.equal(document.getElementById('ordersWatchedOrderInput').value, '3214-000000');
 });
 
@@ -731,7 +731,7 @@ test('orders page removes watched order from list', () => {
     assert.equal(updateMessages.length, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.watchedOrders.items)), []);
     assert.doesNotMatch(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
-    assert.match(document.getElementById('ordersWatchedStatus').innerText, /удалён из отслеживаемых/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /удалён/);
 });
 
 test('orders page saves watched order comment inline on enter', () => {
@@ -931,5 +931,5 @@ test('orders page renders pending reminder and prevents duplicate reminder setup
     });
 
     assert.equal(getMessagesByType(context, 'SET_WATCHED_ORDER_REMINDER').length, 0);
-    assert.match(document.getElementById('ordersWatchedStatus').innerText, /уже есть активное напоминание/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /уже есть напоминание/);
 });

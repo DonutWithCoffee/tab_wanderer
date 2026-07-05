@@ -362,7 +362,7 @@
     <div class="header">
         <div class="app-title">
             <h3>Tab Wanderer</h3>
-            <div class="app-subtitle">быстрый пульт мониторинга</div>
+            <div class="app-subtitle">мониторинг заказов</div>
         </div>
         <div class="header-meta">
             <button id="openOptions" class="header-settings">Настройки</button>
@@ -380,39 +380,37 @@
     <div class="section">
         <div class="section-heading">
             <div>
-                <p class="section-title">Отслеживаемые заказы</p>
-                <p class="section-description">Добавьте заказ, чтобы расширение проверяло его отдельно от общего списка.</p>
+                <p class="section-title">Добавить в отслеживаемое</p>
             </div>
             <button id="openWatchedOrders">Открыть список</button>
         </div>
-        <p class="section-description">Расширение сначала проверит страницу заказа и только потом сохранит его в список.</p>
         <div class="stack-form">
             <div class="inline-form">
                 <input id="popupWatchedOrderInput" name="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
                 <button id="popupAddWatchedOrder" type="button">Добавить</button>
             </div>
-            <input id="popupWatchedOrderNote" name="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий для списка отслеживания" autocomplete="off">
+            <input id="popupWatchedOrderNote" name="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий" autocomplete="off">
         </div>
         <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа.</div>
     </div>
 
     <details class="support-details quick-filter-details">
-        <summary>Быстрые фильтры уведомлений</summary>
+        <summary>Скрыть уведомления</summary>
         <div class="support-body">
-            <p class="section-description">Скрывают лишние desktop-уведомления, но не отключают сбор, историю и отслеживание.</p>
+            <p class="section-description">Заказы всё равно собираются, история обновляется.</p>
             <div class="checkbox-list">
                 <label class="checkbox-row">
                     <input type="checkbox" id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off">
                     <span class="checkbox-copy">
-                        <span class="checkbox-title">Юрлица и безналичная оплата</span>
-                        <span class="checkbox-note">Не показывать уведомления по заказам юрлиц.</span>
+                        <span class="checkbox-title">Юрлица</span>
+                        <span class="checkbox-note">Безналичная оплата для юрлиц.</span>
                     </span>
                 </label>
                 <label class="checkbox-row">
                     <input type="checkbox" id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off">
                     <span class="checkbox-copy">
-                        <span class="checkbox-title">ОЗОН-заказы</span>
-                        <span class="checkbox-note">Не показывать уведомления по заказам ОЗОН.</span>
+                        <span class="checkbox-title">ОЗОН</span>
+                        <span class="checkbox-note">Заказы ОЗОН.</span>
                     </span>
                 </label>
             </div>
@@ -422,9 +420,9 @@
 
 
     <details class="support-details">
-        <summary>Поддержка и диагностика</summary>
+        <summary>Диагностика</summary>
         <div class="support-body">
-            <button id="downloadDiagnosticLog">Скачать диагностический лог</button>
+            <button id="downloadDiagnosticLog">Скачать лог</button>
             <div id="diagnosticLogStatus" class="hint"></div>
         </div>
     </details>

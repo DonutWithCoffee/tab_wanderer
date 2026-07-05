@@ -354,10 +354,10 @@ function getMonitorModeLabel(config = {}) {
     const mode = normalizeMonitorMode(config.monitorMode);
 
     if (mode === 'active') {
-        return 'Быстрый: только первая страница';
+        return 'Только первая страница';
     }
 
-    return 'Общий: первая страница + глубокая синхронизация';
+    return 'Первая страница + глубокая проверка';
 }
 
 function buildScopeText(title, selectedIds, options) {
@@ -480,8 +480,8 @@ function renderScopeGroup(group, selectedIds, options) {
 
     if (!normalizedOptions.length) {
         renderScopeFallback(container, selectedIds.length
-            ? `Справочник не загружен. Сохранено значений: ${selectedIds.length}.`
-            : 'Справочник не загружен. Пусто = все.');
+            ? `Список не загружен. Сохранено: ${selectedIds.length}.`
+            : 'Список не загружен. Пусто = все.');
         return;
     }
 
@@ -539,8 +539,8 @@ function renderScopeControls(config = {}, dictionaries = {}) {
     setText(
         'optionsScopeHint',
         loadedGroups
-            ? 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.'
-            : 'Справочники появятся после запуска мониторинга. До этого пустой выбор означает “все”.'
+            ? 'Пусто в группе = все. Изменения сохраняются автоматически.'
+            : 'Списки появятся после запуска мониторинга. Пока пусто = все.'
     );
 }
 
@@ -551,7 +551,7 @@ function renderConfigSummary(config, dictionaries) {
     setText('optionsScopeSummary', getScopeSummary(config, dictionaries));
     setText('optionsNotificationSummary', getNotificationSummary(config));
     setText('optionsWatchedOrdersSummary', getWatchedOrdersSummaryWithInterval(config));
-    setText('optionsLoadStatus', 'Текущие настройки загружены.');
+    setText('optionsLoadStatus', 'Настройки загружены.');
 }
 
 function setNotificationFieldControlsDisabled(disabled) {
@@ -650,7 +650,7 @@ function saveMonitorScopeFromUI(scopeValue = null) {
     };
 
     pendingMonitorScopeAutosaveValue = null;
-    saveConfig(nextConfig, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
+    saveConfig(nextConfig, 'Область сбора сохранена. База обновится без лишних уведомлений.');
 }
 
 function scheduleMonitorScopeSaveFromUI() {
@@ -662,7 +662,7 @@ function scheduleMonitorScopeSaveFromUI() {
     };
 
     renderConfigSummary(pendingConfig, currentDictionaries);
-    setText('optionsSettingsSaveStatus', 'Область мониторинга изменена. Сохраняем после завершения выбора...');
+    setText('optionsSettingsSaveStatus', 'Область сбора изменена. Скоро сохраним...');
 
     if (pendingMonitorScopeAutosaveTimer !== null && typeof clearTimeout === 'function') {
         clearTimeout(pendingMonitorScopeAutosaveTimer);
@@ -709,8 +709,8 @@ function renderWatchedOrders(config = {}) {
     setText(
         'optionsWatchedOrdersStatus',
         watchedOrders.items.length
-            ? `Отслеживается заказов: ${watchedOrders.items.length}. Прямая проверка проверяет эти заказы отдельно при активном мониторинге.`
-            : 'Список пуст. Добавь номер заказа для прямого отслеживания.'
+            ? `Отслеживается заказов: ${watchedOrders.items.length}. Они проверяются отдельно при включённом мониторинге.`
+            : 'Список пуст. Добавьте номер заказа на странице отслеживания.'
     );
 
     if (!listEl) {
@@ -841,7 +841,7 @@ function collectNotificationTriggersFromUI(baseConfig = {}) {
     };
 }
 
-function saveNotificationTriggersFromUI(successMessage = 'Настройки уведомлений сохранены.') {
+function saveNotificationTriggersFromUI(successMessage = 'Уведомления сохранены.') {
     const nextTriggers = collectNotificationTriggersFromUI(currentConfig);
     const nextConfig = {
         ...currentConfig,
@@ -862,7 +862,7 @@ function collectNotificationSuppressorsFromUI(baseConfig = {}) {
     return suppressors;
 }
 
-function saveNotificationSuppressorsFromUI(successMessage = 'Подавления уведомлений сохранены.') {
+function saveNotificationSuppressorsFromUI(successMessage = 'Фильтры уведомлений сохранены.') {
     const nextConfig = {
         ...currentConfig,
         notificationSuppressors: collectNotificationSuppressorsFromUI(currentConfig)
@@ -1097,8 +1097,8 @@ function getOptionalNumberText(value) {
 
 function getDiagnosticMonitorModeLabel(mode) {
     return String(mode || 'windowed') === 'active'
-        ? 'Быстрый: только первая страница'
-        : 'Общий: первая страница + глубокая синхронизация';
+        ? 'Только первая страница'
+        : 'Первая страница + глубокая проверка';
 }
 
 function getDiagnosticMonitorStateLabel(state) {
@@ -1222,7 +1222,7 @@ function renderDiagnosticLog(snapshot = {}) {
 }
 
 function loadDiagnosticLog() {
-    setText('optionsDiagnosticLogStatus', 'Загрузка диагностического лога...');
+    setText('optionsDiagnosticLogStatus', 'Загрузка лога...');
 
     send({
         type: 'GET_DIAGNOSTIC_LOG',
@@ -1232,7 +1232,7 @@ function loadDiagnosticLog() {
         }
     }, (res) => {
         if (!res?.ok) {
-            setText('optionsDiagnosticLogStatus', 'Не удалось загрузить диагностический лог.');
+            setText('optionsDiagnosticLogStatus', 'Не удалось загрузить лог.');
             return;
         }
 
@@ -1251,7 +1251,7 @@ function copyDiagnosticLog() {
     const clipboard = globalThis.navigator?.clipboard;
 
     if (!clipboard?.writeText) {
-        setText('optionsDiagnosticLogStatus', 'Копирование недоступно в этом браузере. Используй скачивание .txt.');
+        setText('optionsDiagnosticLogStatus', 'Копирование недоступно. Скачайте .txt.');
         return;
     }
 
@@ -1260,7 +1260,7 @@ function copyDiagnosticLog() {
             setText('optionsDiagnosticLogStatus', 'Лог скопирован в буфер обмена.');
         })
         .catch(() => {
-            setText('optionsDiagnosticLogStatus', 'Не удалось скопировать лог. Используй скачивание .txt.');
+            setText('optionsDiagnosticLogStatus', 'Не удалось скопировать лог. Скачайте .txt.');
         });
 }
 
@@ -1306,7 +1306,7 @@ function downloadTextFile(filename, text) {
 }
 
 function downloadDiagnosticLog() {
-    setText('optionsDiagnosticLogStatus', 'Подготовка полного диагностического лога...');
+    setText('optionsDiagnosticLogStatus', 'Готовим полный лог...');
 
     send({
         type: 'GET_DIAGNOSTIC_LOG',
@@ -1323,7 +1323,7 @@ function downloadDiagnosticLog() {
         const text = buildDiagnosticLogText(res);
         const downloaded = downloadTextFile(buildDiagnosticLogFilename(), text);
 
-        setText('optionsDiagnosticLogStatus', downloaded ? 'Полный файл лога подготовлен для скачивания.' : 'Не удалось подготовить файл лога.');
+        setText('optionsDiagnosticLogStatus', downloaded ? 'Файл лога готов.' : 'Не удалось подготовить файл лога.');
     });
 }
 

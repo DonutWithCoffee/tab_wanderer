@@ -437,7 +437,7 @@ test('options page contains autosave settings and support diagnostics sections',
     const html = readOptionsHtml();
 
     assert.match(html, /id="optionsSettingsSaveStatus"/);
-    assert.match(html, /Обычные рабочие действия находятся в popup/);
+    assert.match(html, /Обычные действия — в popup/);
     assert.match(html, /Рекомендуется: общий режим/);
     assert.match(html, /id="optionsNotificationsDetails" class="card-details"/);
     assert.doesNotMatch(html, /сотруднику/);
@@ -454,7 +454,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /<details class="scope-group">\s*<summary>Статус<\/summary>/);
     assert.match(html, /<details class="scope-group">\s*<summary>Доставка<\/summary>/);
     assert.match(html, /<details class="scope-group">\s*<summary>Оплата<\/summary>/);
-    assert.match(html, /<details class="scope-group">\s*<summary>Склад \/ магазин<\/summary>/);
+    assert.match(html, /<details class="scope-group">\s*<summary>Склад<\/summary>/);
     assert.match(html, /id="optionsScopeStatusList"/);
     assert.match(html, /id="optionsScopeDeliveryList"/);
     assert.match(html, /id="optionsScopePaymentList"/);
@@ -475,8 +475,8 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsMonitorDiagnosticsDetails" class="card-details"/);
     assert.match(html, /id="optionsDiagnosticLogDetails" class="card-details"/);
     assert.match(html, /Настройки мониторинга/);
-    assert.match(html, /Общий: первая страница \+ глубокая синхронизация/);
-    assert.match(html, /Не уведомлять о/);
+    assert.match(html, /Первая страница \+ глубокая проверка/);
+    assert.match(html, /Скрывать уведомления по/);
     assert.match(html, /Прямая проверка/);
     assert.match(html, /id="optionsDiagnosticsDirect"/);
     assert.match(html, /Обновить диагностику/);
@@ -492,7 +492,7 @@ test('options page contains autosave settings and support diagnostics sections',
         'Какие заказы собирать',
         'Уведомления',
         'Текущие настройки',
-        'Диагностика монитора',
+        'Диагностика',
         'Диагностический лог'
     ].map((title) => html.indexOf(title));
 
@@ -515,10 +515,10 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
     assert.equal(document.getElementById('optionsSuppressOzon').checked, false);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки загружены. Изменения сохраняются автоматически.');
-    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Общий: первая страница + глубокая синхронизация');
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Первая страница + глубокая проверка');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: Ожидает оплаты; Доставка: Самовывоз; Оплата: Наличными в офисе; Склад: все');
-    assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пустой выбор в группе означает “все”. Изменения сохраняются автоматически.');
+    assert.equal(document.getElementById('optionsScopeHint').innerText, 'Пусто в группе = все. Изменения сохраняются автоматически.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ; проверка: каждые 2 мин.');
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /глубина: 50 страниц/);
@@ -546,7 +546,7 @@ test('options page autosaves monitor mode changes', () => {
     assert.equal(updateMessages[0].userConfig.monitorMode, 'active');
     assert.equal(updateMessages[0].userConfig.deepSyncMaxPages, 50);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.status)), ['6806']);
-    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Быстрый: только первая страница');
+    assert.equal(document.getElementById('optionsMonitorMode').innerText, 'Только первая страница');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Режим мониторинга сохранён.');
 });
 
@@ -573,7 +573,7 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     assert.equal(context.__test.pendingTimers.length, 2);
     assert.equal(context.__test.pendingTimers[0].cleared, true);
     assert.equal(context.__test.pendingTimers[1].delay, 700);
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга изменена. Сохраняем после завершения выбора...');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область сбора изменена. Скоро сохраним...');
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Склад: все');
 
     context.__test.runPendingTimers();
@@ -585,7 +585,7 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.monitorScope.payment)), ['9791', '9793']);
     assert.equal(Object.prototype.hasOwnProperty.call(updateMessages[0].userConfig.monitorScope, 'orderFlags'), false);
     assert.equal(document.getElementById('optionsScopeSummary').innerText, 'Статус: все; Доставка: Самовывоз; Оплата: Наличными в офисе, Безналичный расчёт; Склад: все');
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область мониторинга сохранена. Будет выполнена безопасная перебазировка без потока уведомлений.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Область сбора сохранена. База обновится без лишних уведомлений.');
 });
 
 test('options page autosaves and clamps deep sync max pages', () => {
@@ -622,7 +622,7 @@ test('options page autosaves notification trigger settings', () => {
     assert.equal(updateMessages[0].userConfig.notificationTriggers.newOrders, false);
     assert.equal(updateMessages[1].userConfig.notificationTriggers.changedFields.payment, false);
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: выключены; Изменения заказов: включены; Поля изменений: 3 включено; Юрики: уведомляются; ОЗОН: уведомляется');
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Настройки уведомлений сохранены.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Уведомления сохранены.');
 });
 
 
@@ -645,7 +645,7 @@ test('options page autosaves quick notification suppressors', () => {
     assert.equal(updateMessages[0].userConfig.notificationSuppressors.ignoreOzon, false);
     assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreLegalEntityPayment, true);
     assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreOzon, true);
-    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Подавления уведомлений сохранены.');
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Фильтры уведомлений сохранены.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: игнорируются; ОЗОН: игнорируется');
 });
 
@@ -738,7 +738,7 @@ test('options page prepares diagnostic log txt download', () => {
     assert.match(createdLinks[0].download, /^tab_wanderer-diagnostic-log-/);
     assert.match(decodeURIComponent(createdLinks[0].href), /Диагностический лог tab_wanderer/);
     assert.match(decodeURIComponent(createdLinks[0].href), /Экспорт: режим=полный/);
-    assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Полный файл лога подготовлен для скачивания.');
+    assert.equal(document.getElementById('optionsDiagnosticLogStatus').innerText, 'Файл лога готов.');
 });
 
 test('options page copies diagnostic log when clipboard is available', async () => {
@@ -764,7 +764,7 @@ test('options page shows diagnostic log load error when GET_DIAGNOSTIC_LOG fails
 
     assert.equal(
         context.__test.document.getElementById('optionsDiagnosticLogStatus').innerText,
-        'Не удалось загрузить диагностический лог.'
+        'Не удалось загрузить лог.'
     );
 });
 

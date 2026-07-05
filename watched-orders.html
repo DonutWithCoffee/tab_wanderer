@@ -592,12 +592,12 @@
 <header class="page-header">
     <h2>Отслеживаемые заказы</h2>
     <p class="section-subtitle">
-        Рабочий экран для управления прямой проверкой выбранных заказов.
+        Заказы, которые нужно проверять отдельно от общего списка.
     </p>
     <p class="hint">
-        Прямая проверка открывает конкретные карточки заказов при активном мониторинге.
-        Первая проверка нового заказа становится baseline и не создаёт уведомление.
-        Для каждого заказа можно поставить одно активное напоминание.
+        При включённом мониторинге расширение открывает карточки этих заказов отдельно.
+        Первая проверка только запоминает состояние.
+        На каждый заказ можно поставить одно напоминание.
     </p>
 </header>
 
@@ -607,10 +607,10 @@
     <div class="watched-orders-controls">
         <div class="control-card">
             <div class="control-card-title">Добавить заказ</div>
-            <p class="hint">Заказ сначала проверяется в админке. Если карточка не найдена, он не попадёт в список.</p>
+            <p class="hint">Сначала проверим заказ в админке. Если карточка найдена — добавим.</p>
             <div class="inline-form">
-                <input id="ordersWatchedOrderInput" name="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
-                <input id="ordersWatchedOrderNoteInput" name="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий (опционально)" autocomplete="off">
+                <input id="ordersWatchedOrderInput" name="ordersWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
+                <input id="ordersWatchedOrderNoteInput" name="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий" autocomplete="off">
                 <button id="ordersAddWatchedOrder" type="button">Проверить и добавить</button>
             </div>
         </div>
@@ -618,7 +618,7 @@
         <div class="control-card" aria-label="Интервал прямой проверки отслеживаемых заказов">
             <div class="control-card-title">Интервал проверки</div>
             <div class="inline-form">
-                <label for="ordersWatchedOrderFollowUpIntervalSelect">Периодичность</label>
+                <label for="ordersWatchedOrderFollowUpIntervalSelect">Проверять</label>
                 <select id="ordersWatchedOrderFollowUpIntervalSelect" name="ordersWatchedOrderFollowUpIntervalSelect" autocomplete="off">
                     <option value="2">Каждые 2 минуты</option>
                     <option value="5">Каждые 5 минут</option>
@@ -627,7 +627,7 @@
                     <option value="30">Каждые 30 минут</option>
                 </select>
             </div>
-            <p class="hint">Проверяется один заказ за тик. Полный круг зависит от количества заказов.</p>
+            <p class="hint">За один раз проверяется один заказ. Чем больше заказов, тем дольше полный круг.</p>
         </div>
     </div>
 

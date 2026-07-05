@@ -106,23 +106,23 @@ function updateQuickSuppressorControls(config = {}) {
 function loadPopupConfig() {
     send({ type: 'GET_CONFIG' }, (res) => {
         if (!res?.ok) {
-            setText('quickSuppressStatus', 'Не удалось загрузить быстрые фильтры.');
+            setText('quickSuppressStatus', 'Не удалось загрузить фильтры.');
             return;
         }
 
         currentPopupConfig = res.userConfig || currentPopupConfig;
         updateQuickSuppressorControls(currentPopupConfig);
-        setText('quickSuppressStatus', 'Фильтры скрывают только уведомления. Состояние заказов всё равно обновляется.');
+        setText('quickSuppressStatus', 'Фильтры скрывают только уведомления. Заказы всё равно обновляются.');
     });
 }
 
-function savePopupConfig(nextConfig, successMessage = 'Фильтры уведомлений сохранены.') {
-    setText('quickSuppressStatus', 'Сохраняем фильтры уведомлений...');
+function savePopupConfig(nextConfig, successMessage = 'Фильтры сохранены.') {
+    setText('quickSuppressStatus', 'Сохраняем фильтры...');
 
     send({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (res) => {
         if (!res?.ok) {
             updateQuickSuppressorControls(currentPopupConfig);
-            setText('quickSuppressStatus', 'Ошибка сохранения фильтров уведомлений.');
+            setText('quickSuppressStatus', 'Не удалось сохранить фильтры.');
             return;
         }
 
@@ -220,10 +220,10 @@ function getPopupWatchedOrderAddError(status = {}, orderId = '') {
     }
 
     if (error === 'direct order parse failed') {
-        return `Заказ №${id} не найден в админке или страница заказа не распознана. В список отслеживания не добавлен.`;
+        return `Заказ №${id} не найден в админке. В список не добавлен.`;
     }
 
-    return error || 'Заказ не найден или его не удалось проверить.';
+    return error || 'Заказ не найден или не проверен.';
 }
 
 function pollPopupWatchedOrderAddResult(orderId, attempt = 0) {
@@ -249,7 +249,7 @@ function pollPopupWatchedOrderAddResult(orderId, attempt = 0) {
                     noteInput.value = '';
                 }
 
-                setText('popupWatchedOrderStatus', `Заказ №${id} проверен и добавлен. Список — на странице “Отслеживаемые заказы”.`);
+                setText('popupWatchedOrderStatus', `Заказ №${id} добавлен в отслеживание.`);
                 return;
             }
 
@@ -270,7 +270,7 @@ function pollPopupWatchedOrderAddResult(orderId, attempt = 0) {
                     if (attempt + 1 < POPUP_WATCHED_ORDER_ADD_MAX_POLLS) {
                         pollPopupWatchedOrderAddResult(id, attempt + 1);
                     } else {
-                        setText('popupWatchedOrderStatus', 'Проверка заказа заняла слишком много времени. Попробуйте ещё раз или откройте страницу отслеживаемых заказов.');
+                        setText('popupWatchedOrderStatus', 'Проверка затянулась. Попробуйте ещё раз или откройте список заказов.');
                     }
                     return;
                 }
@@ -288,7 +288,7 @@ function addWatchedOrderFromPopup() {
     const note = normalizePopupWatchedOrderNote(noteInput?.value);
 
     if (!isValidPopupWatchedOrderId(id)) {
-        setText('popupWatchedOrderStatus', 'Введите полный номер заказа в формате 1234-110626.');
+        setText('popupWatchedOrderStatus', 'Введите полный номер: 1234-110626.');
         return;
     }
 
@@ -304,7 +304,7 @@ function addWatchedOrderFromPopup() {
         return;
     }
 
-    setText('popupWatchedOrderStatus', 'Проверяем заказ перед добавлением...');
+    setText('popupWatchedOrderStatus', 'Проверяем заказ...');
 
     send({
         type: 'ADD_WATCHED_ORDER',
@@ -312,14 +312,14 @@ function addWatchedOrderFromPopup() {
         note
     }, (res) => {
         if (!res?.ok) {
-            setText('popupWatchedOrderStatus', res?.error || 'Заказ не найден или его не удалось проверить.');
+            setText('popupWatchedOrderStatus', res?.error || 'Заказ не найден или не проверен.');
             return;
         }
 
         currentPopupConfig = res.userConfig || currentPopupConfig;
 
         if (res.validating === true) {
-            setText('popupWatchedOrderStatus', `Проверяем заказ №${id} перед добавлением...`);
+            setText('popupWatchedOrderStatus', `Проверяем заказ №${id}...`);
             pollPopupWatchedOrderAddResult(id);
             return;
         }
@@ -332,7 +332,7 @@ function addWatchedOrderFromPopup() {
             noteInput.value = '';
         }
 
-        setText('popupWatchedOrderStatus', `Заказ №${id} проверен и добавлен. Список — на странице “Отслеживаемые заказы”.`);
+        setText('popupWatchedOrderStatus', `Заказ №${id} добавлен в отслеживание.`);
     });
 }
 
@@ -357,7 +357,7 @@ function getMonitorModeLabel(value) {
 
 function buildStatusDetails(status = {}) {
     if (status.isRunning !== true) {
-        return 'Мониторинг остановлен. Уведомления не отправляются.';
+        return 'Мониторинг выключен. Уведомлений не будет.';
     }
 
     const parts = [
@@ -368,7 +368,7 @@ function buildStatusDetails(status = {}) {
     ];
 
     if (String(status.monitorState || '') === 'warming') {
-        parts.unshift('идёт стартовая синхронизация без пачки уведомлений');
+        parts.unshift('идёт стартовая синхронизация без лишних уведомлений');
     }
 
     return parts.join(' · ');
@@ -640,7 +640,7 @@ function downloadTextFile(filename, text) {
 }
 
 function downloadDiagnosticLogFromPopup() {
-    setText('diagnosticLogStatus', 'Готовим диагностический лог...');
+    setText('diagnosticLogStatus', 'Готовим лог...');
 
     send({ type: 'GET_MONITOR_STATUS' }, (statusRes) => {
         if (!statusRes?.ok) {
@@ -656,7 +656,7 @@ function downloadDiagnosticLogFromPopup() {
             }
         }, (logRes) => {
             if (!logRes?.ok) {
-                setText('diagnosticLogStatus', 'Не удалось загрузить диагностический лог.');
+                setText('diagnosticLogStatus', 'Не удалось загрузить лог.');
                 return;
             }
 
@@ -665,7 +665,7 @@ function downloadDiagnosticLogFromPopup() {
 
             setText(
                 'diagnosticLogStatus',
-                downloaded ? 'Диагностический лог готов.' : 'Не удалось подготовить диагностический лог.'
+                downloaded ? 'Лог готов.' : 'Не удалось подготовить диагностический лог.'
             );
         });
     });

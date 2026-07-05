@@ -34,7 +34,7 @@ const EVENT_KIND_LABELS = {
 
 const SYNC_REASON_LABELS = {
     normal: 'Обычный цикл',
-    initial: 'Первичный baseline',
+    initial: 'Первая проверка',
     'manual-start': 'Ручной запуск',
     recovery: 'Восстановление',
     'stale-resume': 'Возврат после долгого перерыва',
@@ -801,7 +801,7 @@ function renderWatchedOrderFacts(item) {
     const snapshot = normalizeOrdersWatchedOrderSnapshot(item?.lastSnapshot) || null;
 
     if (!snapshot) {
-        return '<div class="watched-order-facts watched-order-facts-empty">Детали заказа появятся после первой успешной проверки.</div>';
+        return '<div class="watched-order-facts watched-order-facts-empty">Данные появятся после первой проверки.</div>';
     }
 
     return `
@@ -817,7 +817,7 @@ function renderWatchedOrderFacts(item) {
 function renderWatchedOrderTechnicalDetails(item) {
     return `
         <details class="watched-order-technical-details">
-            <summary>Техническая информация проверки</summary>
+            <summary>Проверки и даты</summary>
             ${renderWatchedOrderMetaGrid(item)}
         </details>
     `;
@@ -857,7 +857,7 @@ function renderWatchedOrderNote(item) {
                 data-order-id="${escapeHtml(item.id)}"
                 autocomplete="off"
             >
-            <div class="watched-order-note-hint">Enter или клик вне поля — сохранить. Очистите текст, чтобы удалить комментарий.</div>
+            <div class="watched-order-note-hint">Enter или клик вне поля — сохранить. Пустой текст удалит комментарий.</div>
         </div>
     `;
 }
@@ -872,12 +872,12 @@ function renderWatchedOrders(config = currentOrdersConfig) {
     setInnerText(
         'ordersWatchedStatus',
         watchedOrders.items.length
-            ? `Отслеживается: ${stats.total}; активных: ${stats.active}; с напоминанием: ${stats.pendingReminders}; интервал: ${intervalLabel}`
-            : `Список отслеживаемых заказов пуст. Интервал проверки: ${intervalLabel}`
+            ? `Отслеживается: ${stats.total}; активных: ${stats.active}; с напоминанием: ${stats.pendingReminders}; проверка: ${intervalLabel}`
+            : `Список пуст. Проверка: ${intervalLabel}`
     );
 
     if (!watchedOrders.items.length) {
-        setInnerHtml('ordersWatchedList', '<div class="history-empty">Добавьте полный номер заказа, чтобы включить прямую проверку конкретной карточки заказа.</div>');
+        setInnerHtml('ordersWatchedList', '<div class="history-empty">Добавьте полный номер заказа, чтобы проверять его отдельно.</div>');
         return;
     }
 
@@ -912,7 +912,7 @@ function renderWatchedOrders(config = currentOrdersConfig) {
 function loadOrdersConfig() {
     sendMessage({ type: 'GET_CONFIG' }, (response) => {
         if (!response?.ok) {
-            setInnerText('ordersWatchedStatus', 'Не удалось загрузить отслеживаемые заказы.');
+            setInnerText('ordersWatchedStatus', 'Не удалось загрузить заказы.');
             return;
         }
 
@@ -924,14 +924,14 @@ function loadOrdersConfig() {
 function saveOrdersConfig(nextConfig, successMessage) {
     sendMessage({ type: 'UPDATE_CONFIG', userConfig: nextConfig }, (response) => {
         if (!response?.ok) {
-            setInnerText('ordersWatchedStatus', 'Не удалось сохранить отслеживаемые заказы.');
+            setInnerText('ordersWatchedStatus', 'Не удалось сохранить заказы.');
             renderWatchedOrders(currentOrdersConfig);
             return;
         }
 
         currentOrdersConfig = response.userConfig || nextConfig;
         renderWatchedOrders(currentOrdersConfig);
-        setInnerText('ordersWatchedStatus', successMessage || 'Список отслеживаемых заказов сохранён.');
+        setInnerText('ordersWatchedStatus', successMessage || 'Список сохранён.');
     });
 }
 
@@ -943,7 +943,7 @@ function saveWatchedOrderFollowUpIntervalFromUI() {
         )
     };
 
-    saveOrdersConfig(nextConfig, `Интервал прямой проверки сохранён: ${getOrdersWatchedOrderFollowUpIntervalLabel(nextConfig)}.`);
+    saveOrdersConfig(nextConfig, `Интервал проверки сохранён: ${getOrdersWatchedOrderFollowUpIntervalLabel(nextConfig)}.`);
 }
 
 
@@ -965,10 +965,10 @@ function getOrdersWatchedOrderAddError(status = {}, orderId = '') {
     }
 
     if (error === 'direct order parse failed') {
-        return `Заказ №${id} не найден в админке или страница заказа не распознана. В список отслеживания не добавлен.`;
+        return `Заказ №${id} не найден в админке. В список не добавлен.`;
     }
 
-    return error || 'Заказ не найден или его не удалось проверить.';
+    return error || 'Заказ не найден или не проверен.';
 }
 
 function pollOrdersWatchedOrderAddResult(orderId, source = 'orders-page', attempt = 0) {
@@ -998,8 +998,8 @@ function pollOrdersWatchedOrderAddResult(orderId, source = 'orders-page', attemp
                 }
 
                 setInnerText('ordersWatchedStatus', source === 'summary'
-                    ? `Заказ №${id} проверен и добавлен в прямую проверку.`
-                    : `Заказ №${id} проверен и добавлен. Baseline снят сразу без уведомления.`);
+                    ? `Заказ №${id} проверен и добавлен.`
+                    : `Заказ №${id} проверен и добавлен.`);
                 return;
             }
 
@@ -1021,7 +1021,7 @@ function pollOrdersWatchedOrderAddResult(orderId, source = 'orders-page', attemp
                     if (attempt + 1 < ORDERS_WATCHED_ORDER_ADD_MAX_POLLS) {
                         pollOrdersWatchedOrderAddResult(id, source, attempt + 1);
                     } else {
-                        setInnerText('ordersWatchedStatus', `Проверка заказа №${id} заняла слишком много времени. Попробуйте ещё раз.`);
+                        setInnerText('ordersWatchedStatus', `Проверка заказа №${id} затянулась. Попробуйте ещё раз.`);
                     }
                     return;
                 }
@@ -1038,7 +1038,7 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
     const note = normalizeOrdersWatchedOrderNote(noteValue);
 
     if (!isValidOrdersWatchedOrderId(id)) {
-        setInnerText('ordersWatchedStatus', 'Введите полный номер заказа в формате 1234-110626.');
+        setInnerText('ordersWatchedStatus', 'Введите полный номер: 1234-110626.');
         return;
     }
 
@@ -1054,7 +1054,7 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
         return;
     }
 
-    setInnerText('ordersWatchedStatus', `Проверяем заказ №${id} перед добавлением...`);
+    setInnerText('ordersWatchedStatus', `Проверяем заказ №${id}...`);
 
     sendMessage({
         type: 'ADD_WATCHED_ORDER',
@@ -1062,7 +1062,7 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
         note
     }, (response) => {
         if (!response?.ok) {
-            setInnerText('ordersWatchedStatus', response?.error || 'Заказ не найден или его не удалось проверить.');
+            setInnerText('ordersWatchedStatus', response?.error || 'Заказ не найден или не проверен.');
             renderWatchedOrders(currentOrdersConfig);
             return;
         }
@@ -1071,7 +1071,7 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
         renderWatchedOrders(currentOrdersConfig);
 
         if (response.validating === true) {
-            setInnerText('ordersWatchedStatus', `Проверяем заказ №${id} перед добавлением...`);
+            setInnerText('ordersWatchedStatus', `Проверяем заказ №${id}...`);
             pollOrdersWatchedOrderAddResult(id, source);
             return;
         }
@@ -1090,8 +1090,8 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
         }
 
         setInnerText('ordersWatchedStatus', source === 'summary'
-            ? `Заказ №${id} проверен и добавлен в прямую проверку.`
-            : `Заказ №${id} проверен и добавлен. Baseline снят сразу без уведомления.`);
+            ? `Заказ №${id} проверен и добавлен.`
+            : `Заказ №${id} проверен и добавлен.`);
     });
 }
 
@@ -1102,7 +1102,7 @@ function removeWatchedOrder(orderId) {
     const nextItems = watchedOrders.items.filter(item => item.id !== id);
 
     if (nextItems.length === watchedOrders.items.length) {
-        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке отслеживания.`);
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке.`);
         return;
     }
 
@@ -1113,7 +1113,7 @@ function removeWatchedOrder(orderId) {
         }
     };
 
-    saveOrdersConfig(nextConfig, `Заказ №${id} удалён из отслеживаемых.`);
+    saveOrdersConfig(nextConfig, `Заказ №${id} удалён.`);
 }
 
 function beginInlineWatchedOrderNoteEdit(orderId) {
@@ -1168,7 +1168,7 @@ function setWatchedOrderNoteFromForm(orderId) {
     };
 
     if (!found) {
-        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке отслеживания.`);
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке.`);
         return;
     }
 
@@ -1177,7 +1177,7 @@ function setWatchedOrderNoteFromForm(orderId) {
         return;
     }
 
-    saveOrdersConfig(nextConfig, note ? `Комментарий для заказа №${id} сохранён.` : `Комментарий для заказа №${id} удалён.`);
+    saveOrdersConfig(nextConfig, note ? `Комментарий сохранён.` : `Комментарий удалён.`);
 }
 
 function setWatchedOrderReminderFromForm(orderId) {
@@ -1186,12 +1186,12 @@ function setWatchedOrderReminderFromForm(orderId) {
     const item = watchedOrders.items.find(candidate => candidate.id === id);
 
     if (!item) {
-        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке отслеживания.`);
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке.`);
         return;
     }
 
     if (item.reminder?.status === 'pending') {
-        setInnerText('ordersWatchedStatus', `У заказа №${id} уже есть активное напоминание.`);
+        setInnerText('ordersWatchedStatus', `У заказа №${id} уже есть напоминание.`);
         return;
     }
 
@@ -1199,7 +1199,7 @@ function setWatchedOrderReminderFromForm(orderId) {
     const note = getElementValue(getWatchedOrderReminderInputId('Note', id));
 
     if (!remindAt || remindAt <= Date.now()) {
-        setInnerText('ordersWatchedStatus', 'Выберите дату и время напоминания в будущем.');
+        setInnerText('ordersWatchedStatus', 'Выберите будущую дату и время.');
         return;
     }
 
@@ -1219,7 +1219,7 @@ function setWatchedOrderReminderFromForm(orderId) {
 
         currentOrdersConfig = response.userConfig || currentOrdersConfig;
         renderWatchedOrders(currentOrdersConfig);
-        setInnerText('ordersWatchedStatus', `Напоминание для заказа №${id} сохранено.`);
+        setInnerText('ordersWatchedStatus', `Напоминание сохранено.`);
     });
 }
 
@@ -1238,7 +1238,7 @@ function clearWatchedOrderReminderFromButton(orderId) {
 
         currentOrdersConfig = response.userConfig || currentOrdersConfig;
         renderWatchedOrders(currentOrdersConfig);
-        setInnerText('ordersWatchedStatus', `Напоминание для заказа №${id} удалено.`);
+        setInnerText('ordersWatchedStatus', `Напоминание удалено.`);
     });
 }
 
@@ -1255,7 +1255,7 @@ function loadOrderHistory(queryOverride) {
     const statusEl = document.getElementById('historyStatus');
 
     if (statusEl) {
-        statusEl.innerText = 'Ищу заказ...';
+        statusEl.innerText = 'Ищем заказ...';
     }
 
     sendMessage({

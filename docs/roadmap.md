@@ -22,7 +22,7 @@ Version state:
 ```text
 Manifest version: 0.9.9
 Tests: 241 pass / 0 fail
-Latest checkpoint: ui(popup-options): refine pre-RC popup and settings hierarchy
+Latest checkpoint: ui(copy): simplify pre-RC user-facing text
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
