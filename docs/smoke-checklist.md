@@ -1,15 +1,24 @@
-# tab_wanderer — final smoke checklist перед 1.0 RC
+# tab_wanderer — final smoke checklist для 1.0
 
-Актуально для `0.9.9` / Pre-1.0 после watched-orders, Options layout, diagnostics polish и pre-RC popup/options visual hierarchy and copy polish.
+Актуально для `1.0.0` после watched-orders, Options layout, diagnostics polish, CWS icon metadata и финального smoke.
 
-Цель: перед `1.0 RC` быстро проверить, что локальная сборка не создаёт ложные уведомления, не мешает рабочим вкладкам менеджера/склада, корректно ведёт watched orders и даёт достаточную диагностику для поддержки.
+Цель: перед `1.0.0` быстро проверить, что локальная сборка не создаёт ложные уведомления, не мешает рабочим вкладкам менеджера/склада, корректно ведёт watched orders и даёт достаточную диагностику для поддержки.
+
+---
+
+Smoke status:
+
+```text
+Manual smoke: passed by user before 1.0.0 release prep
+Automated tests: 242 pass / 0 fail
+```
 
 ---
 
 ## 0. Перед проверкой
 
 ```text
-npm test → 241 pass / 0 fail
+npm test → 242 pass / 0 fail
 main clean/pushed
 расширение загружено в chrome://extensions как Load unpacked из актуальной папки проекта
 расширение перезагружено после установки новой сборки

@@ -1,6 +1,6 @@
 # tab_wanderer — Roadmap
 
-Документ фиксирует путь разработки от текущего состояния `Pre-1.0` до `1.0` и post-1.0.
+Документ фиксирует состояние `1.0` и дальнейший путь: Chrome Web Store submission и post-1.0.
 
 ---
 
@@ -12,21 +12,22 @@
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ⏳ current
-1.0 RC ⏳
-1.0 Stable Monitoring Release ⏳
+Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ✅
+1.0 RC ✅ smoke passed
+1.0 Stable Monitoring Release ✅ current
+Chrome Web Store submission ⏳ next
 ```
 
 Version state:
 
 ```text
-Manifest version: 0.9.9
-Tests: 241 pass / 0 fail
-Latest checkpoint: ui(copy): simplify pre-RC user-facing text
+Manifest version: 1.0.0
+Tests: 242 pass / 0 fail
+Latest checkpoint: release: prepare 1.0.0 stable monitoring release
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
-Решение по версии: substeps `0.9.9.x` фиксируются как development checkpoints, а manifest остаётся `0.9.9`, чтобы не превращать каждый внутренний slice в отдельную production-facing версию.
+Решение по версии: после чистого smoke проект переводится в `1.0.0`; дальнейшие исправления для Chrome Web Store идут отдельными patch/minor версиями.
 
 ---
 
@@ -158,7 +159,7 @@ diagnostic log/export polished
 
 ---
 
-## Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ⏳ current
+## Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ✅
 
 Новая продуктовая рамка:
 
@@ -198,7 +199,7 @@ async validation UI no longer shows premature success or hangs on rejected order
 form metadata cleanup for popup/options/watched-orders controls
 Options layout polished: monitoring mode → collection scope → notifications dropdown → current settings → monitor diagnostics → diagnostic log
 Options no longer duplicates watched-orders entry point; popup remains the entry point
-final smoke checklist prepared for 1.0 RC
+final smoke checklist passed before 1.0.0 release prep
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -248,15 +249,15 @@ display active/completed reminder state
 configure watched-order direct follow-up interval: 2 / 5 / 10 / 15 / 30 minutes
 ```
 
-Reminder / direct follow-up remaining checks:
+Reminder / direct follow-up smoke result:
 
 ```text
-manual smoke for configured follow-up interval cadence
-manual smoke for fired reminder notification
-manual smoke for notification click-through to order page
+configured follow-up interval cadence smoke passed
+fired reminder notification smoke passed
+notification click-through to order page smoke passed
 Orders/Tracking UI polish is complete
 Options diagnostics panel polish is complete
-continue with final smoke and release-readiness prep
+continue with Chrome Web Store submission prep
 ```
 
 Reminder MVP non-goals:
@@ -276,19 +277,19 @@ collect real workflow first
 then decide whether they need filters, presets, reminders or separate views
 ```
 
-Recommended next implementation order:
+Recommended next order:
 
 ```text
-1. Smoke configured watched-order follow-up interval manually.
-2. Smoke reminder alarm firing and order-page click-through manually.
-3. Continue Pre-1.0 UI polish: Options layout and diagnostics polish.
-4. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
+1. Commit the 1.0.0 release metadata/docs slice after green tests.
+2. Build final Chrome Web Store package from 1.0.0.
+3. Prepare privacy policy URL, listing screenshots, permission justifications and reviewer notes.
+4. Submit as Unlisted Chrome Web Store listing.
 5. After legal department QA, design legal workflow if needed.
 ```
 
 ---
 
-## Release Readiness — Chrome Web Store ⏳ pre-RC
+## Release Readiness — Chrome Web Store ⏳ next
 
 Решение по каналу распространения:
 
@@ -296,7 +297,7 @@ Recommended next implementation order:
 Primary distribution channel: Chrome Web Store
 Listing type: Unlisted
 Developer registration fee: paid
-Manual archive distribution remains dev/QA-only before 1.0
+Manual archive distribution remains dev/QA-only after 1.0; staff distribution target is Chrome Web Store
 ```
 
 Цель:
@@ -324,7 +325,7 @@ screenshots for popup/options/orders/Ozon warehouse flow
 staff install/update instructions
 review notes: extension is not officially affiliated with Ozon or Amperkot unless separately approved
 check no remote code, eval, CDN scripts or dynamic code loading
-final smoke checklist before upload
+final smoke checklist passed before 1.0.0 release prep
 plan for Google review feedback / resubmission
 ```
 
@@ -337,23 +338,23 @@ broad host permissions increase review risk; keep them narrow
 notifications/alarms/tabs/storage permissions must be justified by visible user-facing features
 ```
 
-## 1.0 RC ⏳
+## 1.0 RC ✅ smoke passed
 
-Перед RC нужно:
+RC checklist result:
 
 ```text
-run full npm test baseline
-run smoke checklist from docs/smoke-checklist.md
-verify popup/options/orders pages
-verify startup/recovery/catch-up behavior
-verify deep sync and page return to page 1
-verify diagnostic log/export
-verify Ozon/warehouse flow after docs/refactor
-check release packaging does not include .git, docs/private, node_modules or temp archives
-complete Chrome Web Store readiness checklist
+npm test baseline passed: 242 pass / 0 fail
+manual smoke checklist passed by user
+popup/options/orders pages verified
+startup/recovery/catch-up behavior verified
+deep sync and page return to page 1 verified
+diagnostic log/export verified
+Ozon/warehouse flow verified by smoke
+release packaging candidate verified without .git, docs/private, node_modules or temp archives
+Chrome Web Store readiness remains operational submission work
 ```
 
-Potential pre-RC cleanup candidates:
+Post-1.0 / CWS feedback cleanup candidates:
 
 ```text
 Ozon operation lock for simultaneous warehouse tabs
@@ -365,7 +366,7 @@ small UI text polish if user requests
 
 ---
 
-## 1.0 Stable Monitoring Release ⏳
+## 1.0 Stable Monitoring Release ✅ current
 
 Scope:
 

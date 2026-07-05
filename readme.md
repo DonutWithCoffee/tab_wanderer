@@ -9,11 +9,11 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
-Manifest version: 0.9.9
-Текущий фокус: Pre-RC UI visual polish
-Tests: 241 pass / 0 fail
-Latest checkpoint: ui(copy): simplify pre-RC user-facing text
+Стадия разработки: 1.0 stable monitoring release
+Manifest version: 1.0.0
+Текущий фокус: Chrome Web Store submission readiness
+Tests: 242 pass / 0 fail
+Latest checkpoint: release: prepare 1.0.0 stable monitoring release
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -38,7 +38,7 @@ Listing type: Unlisted
 Manual archive installs: только dev/QA до 1.0
 ```
 
-Перед отправкой в Chrome Web Store требуется отдельная release-readiness подготовка:
+Перед отправкой в Chrome Web Store остаётся операционная release-readiness подготовка:
 
 ```text
 release package без .git / docs/private / node_modules / временных архивов
@@ -318,7 +318,7 @@ changedFields:
   city
 ```
 
-Pre-1.0 notification polish target:
+Notification format:
 
 ```text
 номер заказа всегда
@@ -470,7 +470,7 @@ npm test
 Expected baseline:
 
 ```text
-239 pass / 0 fail
+242 pass / 0 fail
 ```
 
 Before commit for code/test changes:

@@ -1,7 +1,7 @@
 const VERSION = {
-    version: '0.9.9',
-    build: '0.9.9.16',
-    stage: 'pre-RC user-facing copy polish checkpoint',
+    version: '1.0.0',
+    build: '1.0.0.0',
+    stage: 'stable monitoring release',
     date: '2026-07-05'
 };
 
@@ -15,5 +15,6 @@ const CHANGELOG = {
     '0.9.6': 'monitorState, collection session, URL-driven pagination, fast/deep collection, known/window state, duplicate protection, timeout and retry-limit',
     '0.9.7': 'scope UX, notification triggers, order event model, event journal and history page foundation',
     '0.9.8': 'observability, diagnostic log retention/full export, manual-start catch-up, pagination completion, runtime consistency and core extraction',
-    '0.9.9': 'orders page, watchlist/direct follow-up, reminders, options polish, diagnostics, startup catch-up suppression and warehouse/Ozon barcode QA'
+    '0.9.9': 'orders page, watchlist/direct follow-up, reminders, options polish, diagnostics, startup catch-up suppression, startup guard hardening and warehouse/Ozon barcode QA',
+    '1.0.0': 'stable monitoring release: local-first order monitoring, watched orders with reminders, diagnostics, Chrome Web Store icon metadata and warehouse/Ozon barcode helper'
 };

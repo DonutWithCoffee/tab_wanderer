@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: `Pre-1.0 product simplification, reminders and notification polish`.
+Актуально на момент: `1.0 stable monitoring release`.
 
 Этот документ заменяет старые message/handoff тексты и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,10 +11,10 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
-Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
-Manifest version: 0.9.9
-Tests: 241 pass / 0 fail
-Latest checkpoint: ui(copy): simplify pre-RC user-facing text
+Текущая стадия: 1.0 stable monitoring release
+Manifest version: 1.0.0
+Tests: 242 pass / 0 fail
+Latest checkpoint: release: prepare 1.0.0 stable monitoring release
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -28,9 +28,10 @@ Roadmap:
 0.9.7 — Scope UX + Event/History Foundation ✅
 0.9.8 — Observability + Refactor ✅
 0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ⏳ current
-1.0 RC ⏳
-1.0 Stable Monitoring Release ⏳
+Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ✅
+1.0 RC ✅ smoke passed
+1.0 Stable Monitoring Release ✅ current
+Chrome Web Store submission ⏳ next
 Post-1.0 — centralized collector / Ozon hardening / Firefox fork
 ```
 
@@ -56,6 +57,9 @@ fix(ui): add form metadata to extension controls
 feat(options): polish settings layout and diagnostics sections
 ui(watched-orders): refine cards and inline comments
 ui(copy): simplify pre-RC user-facing text
+fix: harden startup guard on worker creation failure
+chore: add Chrome Web Store icon metadata
+release: prepare 1.0.0 stable monitoring release
 ```
 
 ---
@@ -170,7 +174,7 @@ Developer registration fee: paid
 Manual archive installs remain dev/QA-only before 1.0
 ```
 
-Pre-RC tasks:
+Chrome Web Store submission tasks:
 
 ```text
 release package/checklist
@@ -180,7 +184,7 @@ Chrome Web Store permissions justification
 single purpose listing description
 screenshots
 staff install/update instructions
-final smoke checklist before upload
+final smoke checklist passed before 1.0.0 release prep
 review feedback/resubmission plan
 ```
 
@@ -553,7 +557,7 @@ content.js still owns DOM rendering and runtime messaging
 Baseline:
 
 ```text
-npm test → 227 pass / 0 fail
+npm test → 242 pass / 0 fail
 ```
 
 Important suites:
@@ -579,15 +583,15 @@ tests/watched-orders-ui.test.js
 Current task family:
 
 ```text
-Pre-1.0 product simplification, reminders and notification polish
+1.0 stable monitoring release
 ```
 
 Decisions:
 
 ```text
 Legal entity department workflow is postponed until a QA session with that department.
-Watched order reminders are mandatory for Pre-1.0 regardless of legal workflow.
-Release packaging is useful but not the next priority.
+Watched order reminders are included in 1.0.
+Release packaging and Chrome Web Store submission are the next priority.
 Full Ozon session controller extraction is paused unless it becomes an explicit priority.
 ```
 
@@ -599,8 +603,8 @@ Immediate roadmap:
 3. Restore informative notification format: order number + status + payment + delivery, with было → стало for changed fields.
 4. Add one-time reminders for watched orders.
 5. Add configurable direct follow-up interval for watched orders.
-6. Smoke interval cadence, reminder alarm firing and click-through before RC.
-7. Continue Pre-1.0 UI polish: Options layout and diagnostics polish.
+6. Smoke interval cadence, reminder alarm firing and click-through: passed before 1.0.0 release prep.
+7. Prepare Chrome Web Store submission package, privacy policy, listing and screenshots.
 8. After legal department QA, design legal workflow from real process.
 ```
 

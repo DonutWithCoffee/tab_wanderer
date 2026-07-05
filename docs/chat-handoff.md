@@ -9,10 +9,10 @@
 ```text
 Repo: DonutWithCoffee/tab_wanderer
 Branch: main
-Manifest version: 0.9.9
-Stage: Pre-1.0 product simplification, reminders and notification polish
-Latest checkpoint: ui(copy): simplify pre-RC user-facing text
-Expected tests: 241 pass / 0 fail
+Manifest version: 1.0.0
+Stage: 1.0 stable monitoring release / Chrome Web Store submission prep
+Latest checkpoint: release: prepare 1.0.0 stable monitoring release
+Expected tests: 242 pass / 0 fail
 Distribution target: Chrome Web Store / Unlisted listing
 Working tree expected: clean
 ```
@@ -39,6 +39,9 @@ fix(ui): add form metadata to extension controls
 feat(options): polish settings layout and diagnostics sections
 ui(watched-orders): refine cards and inline comments
 ui(copy): simplify pre-RC user-facing text
+fix: harden startup guard on worker creation failure
+chore: add Chrome Web Store icon metadata
+release: prepare 1.0.0 stable monitoring release
 ```
 
 ---
@@ -57,8 +60,8 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  ui(copy): simplify pre-RC user-facing text
-npm test → 241 pass / 0 fail
+  release: prepare 1.0.0 stable monitoring release
+npm test → 242 pass / 0 fail
 ```
 
 If dependencies are missing:
@@ -235,7 +238,7 @@ tab_wanderer = уведомления о новых/изменённых зак�
 Current priority:
 
 ```text
-Pre-1.0 product simplification, reminders and notification polish.
+1.0 stable monitoring release; next operational step is Chrome Web Store submission.
 Legal entity department work is postponed until QA with that department.
 Watched order reminders are required regardless of legal workflow.
 Chrome Web Store is the chosen distribution channel for 1.0+; listing should be Unlisted.
@@ -248,10 +251,10 @@ Chrome Web Store is the chosen distribution channel for 1.0+; listing should be 
 Recommended order:
 
 ```text
-1. Smoke watched-order interval setting manually: change interval in Options and verify direct follow-up cadence.
-2. Smoke watched-order reminders manually: set, reload extension, fire alarm, notification, click-through to order page.
-3. Continue Pre-1.0 UI polish: Options layout and diagnostics polish.
-4. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
+1. Commit the 1.0.0 release metadata/docs slice after green tests.
+2. Build final Chrome Web Store package from 1.0.0.
+3. Prepare privacy policy URL, listing screenshots, permission justifications and reviewer notes.
+4. Submit as Unlisted Chrome Web Store listing.
 5. After legal department QA, design legal workflow from real process.
 ```
 
@@ -277,10 +280,10 @@ Committing private admin samples or temporary archives.
 Distribution channel: Chrome Web Store
 Listing type: Unlisted
 Developer registration fee: paid
-Manual zip/archive distribution remains for dev/QA only before 1.0
+Manual zip/archive distribution remains for dev/QA only; staff distribution target is Chrome Web Store
 ```
 
-Before 1.0 RC, prepare:
+Before Chrome Web Store submission, prepare:
 
 ```text
 release package without .git, docs/private, node_modules, temp archives or local samples
