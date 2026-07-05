@@ -67,6 +67,10 @@
             background: #f7f9ff;
         }
 
+        .header-status {
+            margin: 12px 0 0;
+        }
+
         .muted {
             color: #666;
         }
@@ -133,6 +137,31 @@
             border: 1px solid #e5e5e5;
             border-radius: 8px;
             background: #fafafa;
+        }
+
+        .scope-group[open] {
+            background: #fff;
+        }
+
+        .scope-group > summary {
+            font-size: 14px;
+        }
+
+        .card-details {
+            margin-top: 0;
+        }
+
+        .card-details > summary {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .card-details > p:first-of-type,
+        .card-details > .summary-grid,
+        .card-details > .diagnostics-grid,
+        .card-details > .actions-row,
+        .card-details > .log-preview {
+            margin-top: 12px;
         }
 
         .scope-list {
@@ -226,15 +255,11 @@
             <p class="lead">
                 Здесь задаются режим сбора, область мониторинга и правила уведомлений. Изменения сохраняются автоматически.
             </p>
+            <p id="optionsSettingsSaveStatus" class="muted header-status">Загрузка настроек...</p>
         </header>
 
-        <section class="card notice">
-            <h2>Статус сохранения</h2>
-            <p id="optionsSettingsSaveStatus" class="muted">Загрузка настроек...</p>
-        </section>
-
         <section class="card">
-            <h2>Режим и глубина мониторинга</h2>
+            <h2>Режим мониторинга</h2>
             <p class="muted">
                 Оконный режим — основной рабочий режим: первая страница проверяется часто, а глубокая синхронизация периодически проходит дальше.
                 Быстрый режим проверяет только первую страницу.
@@ -315,83 +340,36 @@
                 При изменении области расширение выполнит безопасную перебазировку без потока уведомлений.
             </p>
             <div class="scope-grid">
-                <div class="scope-group">
-                    <h3>Статус</h3>
+                <details class="scope-group">
+                    <summary>Статус</summary>
                     <p id="optionsScopeDictionaryStatus" class="dictionary-value">—</p>
                     <div id="optionsScopeStatusList" class="scope-list"></div>
-                </div>
-                <div class="scope-group">
-                    <h3>Доставка</h3>
+                </details>
+                <details class="scope-group">
+                    <summary>Доставка</summary>
                     <p id="optionsScopeDictionaryDelivery" class="dictionary-value">—</p>
                     <div id="optionsScopeDeliveryList" class="scope-list"></div>
-                </div>
-                <div class="scope-group">
-                    <h3>Оплата</h3>
+                </details>
+                <details class="scope-group">
+                    <summary>Оплата</summary>
                     <p id="optionsScopeDictionaryPayment" class="dictionary-value">—</p>
                     <div id="optionsScopePaymentList" class="scope-list"></div>
-                </div>
-                <div class="scope-group">
-                    <h3>Склад / магазин</h3>
+                </details>
+                <details class="scope-group">
+                    <summary>Склад / магазин</summary>
                     <p id="optionsScopeDictionaryStore" class="dictionary-value">—</p>
                     <div id="optionsScopeStoreList" class="scope-list"></div>
-                </div>
+                </details>
             </div>
             <p id="optionsScopeHint" class="muted">Справочники появятся после запуска мониторинга.</p>
         </section>
 
 
         <section class="card">
-            <h2>Отслеживаемые заказы</h2>
-            <p class="muted">
-                Список заказов, напоминания и интервал прямой проверки управляются на отдельной странице.
-                Это рабочий экран для задач, которые нужно держать под контролем.
-            </p>
-            <div class="actions-row">
-                <button id="optionsOpenOrdersPage" type="button">Открыть страницу “Отслеживание”</button>
-            </div>
-        </section>
-
-        <section class="card">
-            <h2>Диагностика монитора</h2>
-            <p class="muted">
-                Текущее состояние расширения только для чтения. Блок не запускает мониторинг и не меняет настройки.
-            </p>
-            <div class="diagnostics-grid">
-                <div>
-                    <h3>Состояние</h3>
-                    <p id="optionsDiagnosticsRuntime" class="diagnostics-value">—</p>
-                </div>
-                <div>
-                    <h3>Worker-вкладки</h3>
-                    <p id="optionsDiagnosticsWorker" class="diagnostics-value">—</p>
-                </div>
-                <div>
-                    <h3>Заказы</h3>
-                    <p id="optionsDiagnosticsOrders" class="diagnostics-value">—</p>
-                </div>
-                <div>
-                    <h3>История</h3>
-                    <p id="optionsDiagnosticsJournal" class="diagnostics-value">—</p>
-                </div>
-                <div>
-                    <h3>Синхронизация</h3>
-                    <p id="optionsDiagnosticsSync" class="diagnostics-value">—</p>
-                </div>
-                <div>
-                    <h3>Сбор страниц</h3>
-                    <p id="optionsDiagnosticsCollection" class="diagnostics-value">—</p>
-                </div>
-            </div>
-            <div class="actions-row">
-                <button id="optionsRefreshDiagnostics">Обновить диагностику</button>
-            </div>
-            <p id="optionsDiagnosticsStatus" class="muted">Загрузка диагностики...</p>
-        </section>
-
-        <section class="card">
-            <h2>Текущие настройки</h2>
-            <p id="optionsLoadStatus" class="muted">Загрузка текущих настроек...</p>
-            <div class="summary-grid">
+            <details id="optionsCurrentSettingsDetails" class="card-details">
+                <summary>Текущие настройки</summary>
+                <p id="optionsLoadStatus" class="muted">Загрузка текущих настроек...</p>
+                <div class="summary-grid">
                 <div>
                     <h3>Режим</h3>
                     <p id="optionsMonitorMode" class="summary-value">—</p>
@@ -412,11 +390,55 @@
                     <h3>Отслеживаемые заказы</h3>
                     <p id="optionsWatchedOrdersSummary" class="summary-value">—</p>
                 </div>
-            </div>
+                </div>
+            </details>
         </section>
 
         <section class="card">
-            <details id="optionsDiagnosticLogDetails">
+            <details id="optionsMonitorDiagnosticsDetails" class="card-details">
+                <summary>Диагностика монитора</summary>
+                <p class="muted">
+                    Текущее состояние расширения только для чтения. Блок не запускает мониторинг и не меняет настройки.
+                </p>
+                <div class="diagnostics-grid">
+                <div>
+                    <h3>Состояние</h3>
+                    <p id="optionsDiagnosticsRuntime" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Worker-вкладки</h3>
+                    <p id="optionsDiagnosticsWorker" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Прямая проверка</h3>
+                    <p id="optionsDiagnosticsDirect" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Заказы</h3>
+                    <p id="optionsDiagnosticsOrders" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>История</h3>
+                    <p id="optionsDiagnosticsJournal" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Синхронизация</h3>
+                    <p id="optionsDiagnosticsSync" class="diagnostics-value">—</p>
+                </div>
+                <div>
+                    <h3>Сбор страниц</h3>
+                    <p id="optionsDiagnosticsCollection" class="diagnostics-value">—</p>
+                </div>
+                </div>
+                <div class="actions-row">
+                    <button id="optionsRefreshDiagnostics">Обновить диагностику</button>
+                </div>
+                <p id="optionsDiagnosticsStatus" class="muted">Загрузка диагностики...</p>
+            </details>
+        </section>
+
+        <section class="card">
+            <details id="optionsDiagnosticLogDetails" class="card-details">
                 <summary>Диагностический лог</summary>
                 <p class="muted">
                     Предпросмотр показывает последние 100 записей. Кнопка “Скачать .txt” выгружает все сохранённые записи с кратким состоянием монитора. Чувствительные данные скрываются.

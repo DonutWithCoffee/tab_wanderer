@@ -1,8 +1,8 @@
 const VERSION = {
     version: '0.9.9',
-    build: '0.9.9.9',
-    stage: 'watched orders UI polish and validation checkpoint',
-    date: '2026-07-04'
+    build: '0.9.9.10',
+    stage: 'diagnostics panel polish checkpoint',
+    date: '2026-07-05'
 };
 
 const CHANGELOG = {

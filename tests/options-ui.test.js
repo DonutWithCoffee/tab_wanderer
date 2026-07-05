@@ -120,10 +120,10 @@ function createOptionsDom() {
         'optionsScopePaymentList',
         'optionsScopeStoreList',
         'optionsScopeHint',
-        'optionsOpenOrdersPage',
         'optionsWatchedOrdersSummary',
         'optionsDiagnosticsRuntime',
         'optionsDiagnosticsWorker',
+        'optionsDiagnosticsDirect',
         'optionsDiagnosticsOrders',
         'optionsDiagnosticsJournal',
         'optionsDiagnosticsSync',
@@ -223,6 +223,23 @@ function loadOptionsContext(overrides = {}) {
         watchedOrderFollowUpIntervalMinutes: 2,
         workerTabId: 77,
         hasWorkerTab: true,
+        directWorkerTabId: 88,
+        hasDirectWorkerTab: true,
+        directFollowUpState: {
+            state: 'checking',
+            currentOrderId: '1000-300326',
+            nextIndex: 0,
+            lastStartedAt: 1700000000000,
+            lastCompletedAt: null,
+            lastError: null
+        },
+        watchedOrderAddState: {
+            pending: false,
+            orderId: null,
+            startedAt: null,
+            lastResult: null
+        },
+        watchedOrdersCount: 1,
         pendingRebaseline: false,
         pendingSyncReason: null,
         knownOrdersCount: 12,
@@ -232,6 +249,8 @@ function loadOptionsContext(overrides = {}) {
         notificationTargetsCount: 1,
         eventJournalCount: 4,
         diagnosticLogCount: 2,
+        eventJournalDroppedEntries: 1,
+        diagnosticLogDroppedEntries: 2,
         lastBaselineDate: 'Wed Jun 10 2026',
         lastDeepSyncAt: 1700000000000,
         lastCollectionMetadata: {
@@ -426,6 +445,10 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off"/);
     assert.match(html, /id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off"/);
     assert.match(html, /id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off"/);
+    assert.match(html, /<details class="scope-group">\s*<summary>Статус<\/summary>/);
+    assert.match(html, /<details class="scope-group">\s*<summary>Доставка<\/summary>/);
+    assert.match(html, /<details class="scope-group">\s*<summary>Оплата<\/summary>/);
+    assert.match(html, /<details class="scope-group">\s*<summary>Склад \/ магазин<\/summary>/);
     assert.match(html, /id="optionsScopeStatusList"/);
     assert.match(html, /id="optionsScopeDeliveryList"/);
     assert.match(html, /id="optionsScopePaymentList"/);
@@ -436,16 +459,20 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.doesNotMatch(html, /<h3>Резерв<\/h3>/);
     assert.doesNotMatch(html, /<h3>Комплектация<\/h3>/);
     assert.match(html, /id="optionsScopeHint"/);
-    assert.match(html, /id="optionsOpenOrdersPage"/);
-    assert.match(html, /Открыть страницу “Отслеживание”/);
+    assert.doesNotMatch(html, /id="optionsOpenOrdersPage"/);
+    assert.doesNotMatch(html, /Открыть страницу “Отслеживание”/);
     assert.match(html, /id="optionsWatchedOrdersSummary"/);
     assert.doesNotMatch(html, /id="optionsWatchedOrderInput"/);
     assert.doesNotMatch(html, /id="optionsAddWatchedOrder"/);
     assert.doesNotMatch(html, /id="optionsWatchedOrdersList"/);
-    assert.match(html, /id="optionsDiagnosticLogDetails"/);
+    assert.match(html, /id="optionsCurrentSettingsDetails" class="card-details"/);
+    assert.match(html, /id="optionsMonitorDiagnosticsDetails" class="card-details"/);
+    assert.match(html, /id="optionsDiagnosticLogDetails" class="card-details"/);
     assert.match(html, /Настройки мониторинга/);
     assert.match(html, /Общий: первая страница \+ глубокая синхронизация/);
     assert.match(html, /Не уведомлять о/);
+    assert.match(html, /Прямая проверка/);
+    assert.match(html, /id="optionsDiagnosticsDirect"/);
     assert.match(html, /Обновить диагностику/);
     assert.doesNotMatch(html, /Поиск заказа, список отслеживаемых заказов/);
     assert.doesNotMatch(html, /локальной истории заказа/);
@@ -453,6 +480,18 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.doesNotMatch(html, /id="optionsResetMonitorMode"/);
     assert.doesNotMatch(html, /id="optionsApplyNotificationTriggers"/);
     assert.doesNotMatch(html, /id="optionsResetNotificationTriggers"/);
+
+    const blockOrder = [
+        'Режим мониторинга',
+        'Уведомления',
+        'Какие заказы собирать',
+        'Текущие настройки',
+        'Диагностика монитора',
+        'Диагностический лог'
+    ].map((title) => html.indexOf(title));
+
+    assert.deepEqual(blockOrder.every((index) => index >= 0), true);
+    assert.deepEqual([...blockOrder].sort((a, b) => a - b), blockOrder);
 });
 
 test('options page loads current config and diagnostics without updating config', () => {
@@ -477,26 +516,15 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: уведомляются; ОЗОН: уведомляется');
     assert.equal(document.getElementById('optionsWatchedOrdersSummary').innerText, '1 заказ; проверка: каждые 2 мин.');
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /глубина: 50 страниц/);
+    assert.match(document.getElementById('optionsDiagnosticsWorker').innerText, /основной worker: да/);
+    assert.match(document.getElementById('optionsDiagnosticsDirect').innerText, /worker: да/);
+    assert.match(document.getElementById('optionsDiagnosticsDirect').innerText, /текущий заказ: 1000-300326/);
+    assert.match(document.getElementById('optionsDiagnosticsJournal').innerText, /удалено: 1 \/ 2/);
+    assert.match(document.getElementById('optionsDiagnosticsSync').innerText, /последняя глубокая синхронизация: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+    assert.doesNotMatch(document.getElementById('optionsDiagnosticsSync').innerText, /1700000000000/);
 });
 
 
-test('options page links watched orders management to watched orders page', () => {
-    const context = loadOptionsContext();
-    const document = context.__test.document;
-
-    document.getElementById('optionsOpenOrdersPage').dispatchEvent({
-        type: 'click',
-        target: document.getElementById('optionsOpenOrdersPage')
-    });
-
-    assert.deepEqual(JSON.parse(JSON.stringify(context.chrome.tabs.createdTabs)), [
-        {
-            url: 'chrome-extension://tab-wanderer/watched-orders.html',
-            active: true
-        }
-    ]);
-    assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
-});
 
 test('options page autosaves monitor mode changes', () => {
     const context = loadOptionsContext();
@@ -640,6 +668,7 @@ test('options page refreshes monitor diagnostics on demand', () => {
     assert.equal(getSentMessagesByType(context, 'GET_MONITOR_STATUS').length, 2);
     assert.equal(document.getElementById('optionsDiagnosticsStatus').innerText, 'Диагностика загружена.');
     assert.match(document.getElementById('optionsDiagnosticsRuntime').innerText, /отслеживаемые: каждые 2 мин\./);
+    assert.match(document.getElementById('optionsDiagnosticsDirect').innerText, /отслеживаемых: 1/);
     assert.match(document.getElementById('optionsDiagnosticsCollection').innerText, /лимит: 50/);
 });
 

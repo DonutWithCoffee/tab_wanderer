@@ -13,7 +13,7 @@ Chrome extension для мониторинга заказов в админке 
 Manifest version: 0.9.9
 Текущий фокус: product simplification, watched-order reminders и notification polish
 Tests: 239 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): polish management UI and stabilize validation
+Latest checkpoint: fix(options): polish monitor diagnostics panel
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 

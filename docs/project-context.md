@@ -14,7 +14,7 @@
 Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Tests: 239 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): polish management UI and stabilize validation
+Latest checkpoint: fix(options): polish monitor diagnostics panel
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer

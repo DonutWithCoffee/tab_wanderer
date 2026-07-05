@@ -22,7 +22,7 @@ Version state:
 ```text
 Manifest version: 0.9.9
 Tests: 239 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): polish management UI and stabilize validation
+Latest checkpoint: fix(options): polish monitor diagnostics panel
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -250,7 +250,9 @@ Reminder / direct follow-up remaining checks:
 manual smoke for configured follow-up interval cadence
 manual smoke for fired reminder notification
 manual smoke for notification click-through to order page
-Orders/Tracking UI polish is complete; continue with Options/popup polish and final smoke
+Orders/Tracking UI polish is complete
+Options diagnostics panel polish is complete
+continue with final smoke and release-readiness prep
 ```
 
 Reminder MVP non-goals:

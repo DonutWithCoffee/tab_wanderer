@@ -295,6 +295,7 @@ Options содержит ссылку на страницу “Заказы”
 ```text
 export содержит русскоязычный header с состоянием монитора
 header показывает worker, прямую проверку, интервал отслеживаемых заказов, counts, sync и retention
+preview/status cards показывают formatted timestamps, а не raw millisecond timestamps
 full export не ограничен preview=100
 после clear counters/entries обновляются корректно
 лог не содержит HTML, cookie/token/auth данные или полный payload заказа

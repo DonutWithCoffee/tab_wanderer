@@ -894,18 +894,6 @@ function bindSettingsAutosave() {
     ];
     const suppressorControlIds = OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS.map((item) => item.id);
 
-    const optionsOpenOrdersPage = document.getElementById('optionsOpenOrdersPage');
-
-    if (optionsOpenOrdersPage) {
-        optionsOpenOrdersPage.addEventListener('click', () => {
-            if (chrome?.tabs?.create && chrome?.runtime?.getURL) {
-                chrome.tabs.create({
-                    url: chrome.runtime.getURL('watched-orders.html'),
-                    active: true
-                });
-            }
-        });
-    }
 
     for (const id of triggerControlIds) {
         const control = document.getElementById(id);
@@ -973,10 +961,28 @@ function renderMonitorDiagnostics(status = {}) {
     setText(
         'optionsDiagnosticsWorker',
         [
-            `worker: ${getYesNo(status.hasWorkerTab === true)}`,
+            `основной worker: ${getYesNo(status.hasWorkerTab === true)}`,
             `tabId: ${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`
         ].join('; ')
     );
+
+    const directState = status.directFollowUpState || {};
+    const addState = status.watchedOrderAddState || {};
+    const directError = directState.lastError || addState.lastResult?.error || null;
+    const directParts = [
+        `worker: ${getYesNo(status.hasDirectWorkerTab === true)}`,
+        `tabId: ${status.directWorkerTabId === null || status.directWorkerTabId === undefined ? '—' : String(status.directWorkerTabId)}`,
+        `отслеживаемых: ${getNumber(status.watchedOrdersCount)}`,
+        `интервал: ${getNumber(status.watchedOrderFollowUpIntervalMinutes, OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES)} мин.`,
+        `текущий заказ: ${getTextValue(directState.currentOrderId)}`,
+        `добавление: ${addState.pending === true ? `проверяется ${getTextValue(addState.orderId)}` : 'нет'}`
+    ];
+
+    if (directError) {
+        directParts.push(`последняя ошибка: ${getTextValue(directError)}`);
+    }
+
+    setText('optionsDiagnosticsDirect', directParts.join('; '));
 
     setText(
         'optionsDiagnosticsOrders',
@@ -992,7 +998,8 @@ function renderMonitorDiagnostics(status = {}) {
         'optionsDiagnosticsJournal',
         [
             `история: ${getNumber(status.eventJournalCount)}`,
-            `диагностика: ${getNumber(status.diagnosticLogCount)}`
+            `диагностика: ${getNumber(status.diagnosticLogCount)}`,
+            `удалено: ${getNumber(status.eventJournalDroppedEntries)} / ${getNumber(status.diagnosticLogDroppedEntries)}`
         ].join('; ')
     );
 
@@ -1002,7 +1009,7 @@ function renderMonitorDiagnostics(status = {}) {
             `ожидает перебазировки: ${getYesNo(status.pendingRebaseline === true)}`,
             `причина: ${getTextValue(status.pendingSyncReason)}`,
             `последний baseline: ${getTextValue(status.lastBaselineDate)}`,
-            `последняя глубокая синхронизация: ${getNumber(status.lastDeepSyncAt)}`
+            `последняя глубокая синхронизация: ${formatTimestamp(status.lastDeepSyncAt)}`
         ].join('; ')
     );
 
