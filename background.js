@@ -2845,10 +2845,12 @@ if (msg.type === 'START') {
         } catch {}
     }
 
-    await cleanupOldWorkers();
-    await ensureWorkerTab();
-
-    isStarting = false;
+    try {
+        await cleanupOldWorkers();
+        await ensureWorkerTab();
+    } finally {
+        isStarting = false;
+    }
 
     await save();
 

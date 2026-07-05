@@ -1276,6 +1276,38 @@ test('START creates worker tab with URL from current monitorScope and enters war
 });
 
 
+test('START clears startup guard when worker creation fails', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        workerTabId: null,
+        userConfig: createWindowedConfig(context)
+    });
+
+    context.chrome.tabs.create = async (createInfo) => {
+        context.__test.createdTabs.push(createInfo);
+        throw new Error('tab create failed');
+    };
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'START'
+    });
+    const state = getBackgroundState(context);
+
+    assert.equal(response.ok, false);
+    assert.match(response.error, /tab create failed/);
+    assert.equal(runExpression(context, 'isStarting'), false);
+    assert.equal(runExpression(context, 'isCreatingWorker'), false);
+    assert.equal(state.isRunning, true);
+    assert.equal(state.monitorState, 'warming');
+    assert.equal(state.workerTabId, null);
+    assert.equal(context.__test.createdTabs.length, 1);
+});
+
+
 test('START with known state schedules manual-start catch-up', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
