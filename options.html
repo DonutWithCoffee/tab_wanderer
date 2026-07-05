@@ -79,6 +79,14 @@
             color: #3f4856;
         }
 
+        .page-note {
+            max-width: 780px;
+            margin: 10px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
         .card {
             margin-bottom: 16px;
             padding: 20px;
@@ -86,6 +94,69 @@
             border-radius: var(--radius);
             background: var(--surface);
             box-shadow: var(--shadow);
+        }
+
+        .card-header {
+            margin-bottom: 16px;
+        }
+
+        .card-kicker {
+            margin: 0 0 5px;
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+
+        .setting-panel {
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface-muted);
+        }
+
+        .setting-panel + .setting-panel {
+            margin-top: 12px;
+        }
+
+        .setting-panel h3 {
+            margin-bottom: 8px;
+        }
+
+        .field-help {
+            margin: 7px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            padding: 3px 8px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.2;
+        }
+
+        .pill-primary {
+            border-color: #c8d8ff;
+            background: var(--surface-accent);
+            color: var(--primary);
+            font-weight: 700;
         }
 
         .notice {
@@ -237,11 +308,18 @@
         }
 
         .card-details > p:first-of-type,
+        .card-details > .setting-panel:first-of-type,
         .card-details > .summary-grid,
         .card-details > .diagnostics-grid,
         .card-details > .actions-row,
         .card-details > .log-preview {
             margin-top: 16px;
+        }
+
+        .summary-helper {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 400;
         }
 
         .scope-list {
@@ -266,8 +344,29 @@
             line-height: 1.4;
         }
 
+        .setting-panel > .checkbox-list .checkbox-row {
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface);
+        }
+
         .checkbox-row input {
             margin-top: 2px;
+        }
+
+        .checkbox-copy {
+            display: grid;
+            gap: 2px;
+        }
+
+        .checkbox-title {
+            font-weight: 700;
+        }
+
+        .checkbox-note {
+            color: var(--muted);
+            font-size: 13px;
         }
 
         .actions-row {
@@ -281,6 +380,17 @@
             border-color: var(--primary);
             color: var(--primary);
             font-weight: 700;
+        }
+
+        .diagnostic-log-actions {
+            justify-content: space-between;
+        }
+
+        .diagnostic-log-actions .safe-actions,
+        .diagnostic-log-actions .danger-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
         }
 
         #optionsClearDiagnosticLog {
@@ -350,15 +460,24 @@
             <p class="lead">
                 Здесь задаются режим сбора, область мониторинга и правила уведомлений. Изменения сохраняются автоматически.
             </p>
+            <p class="page-note">
+                Обычные рабочие действия находятся в popup и на странице отслеживаемых заказов. Этот экран нужен для редкой настройки и поддержки.
+            </p>
             <p id="optionsSettingsSaveStatus" class="muted header-status">Загрузка настроек...</p>
         </header>
 
         <section class="card">
-            <h2>Режим мониторинга</h2>
-            <p class="muted">
-                Оконный режим — основной рабочий режим: первая страница проверяется часто, а глубокая синхронизация периодически проходит дальше.
-                Быстрый режим проверяет только первую страницу.
-            </p>
+            <div class="card-header">
+                <p class="card-kicker">Базовая настройка</p>
+                <h2>Режим мониторинга</h2>
+                <p class="muted">
+                    Выберите, насколько глубоко расширение проверяет список заказов. Для рабочей сборки обычно нужен общий режим.
+                </p>
+                <div class="pill-row">
+                    <span class="pill pill-primary">Рекомендуется: общий режим</span>
+                    <span class="pill">Изменение режима запускает безопасную перебазировку</span>
+                </div>
+            </div>
             <div class="form-grid">
                 <div>
                     <label for="optionsMonitorModeSelect">Режим</label>
@@ -366,74 +485,25 @@
                         <option value="active">Быстрый: только первая страница</option>
                         <option value="windowed">Общий: первая страница + глубокая синхронизация</option>
                     </select>
+                    <p class="field-help">Быстрый режим полезен только когда важны самые свежие заказы на первой странице.</p>
                 </div>
                 <div>
                     <label for="optionsDeepSyncMaxPages">Глубина синхронизации</label>
                     <input id="optionsDeepSyncMaxPages" name="optionsDeepSyncMaxPages" type="number" min="1" max="50" step="1" autocomplete="off">
-                    <p class="muted">Сколько страниц проходит глубокая синхронизация. Безопасный диапазон: 1–50, по умолчанию: 50.</p>
+                    <p class="field-help">Сколько страниц проходит глубокая синхронизация. Безопасный диапазон: 1–50, по умолчанию: 50.</p>
                 </div>
             </div>
         </section>
 
         <section class="card">
-            <h2>Уведомления</h2>
-            <p class="muted">
-                Этот блок управляет только desktop-уведомлениями. Состояние заказов, история и поиск обновляются даже при отключённых уведомлениях.
-            </p>
-
-            <div class="checkbox-list">
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyNewOrders" name="optionsNotifyNewOrders" autocomplete="off">
-                    Показывать уведомления о новых заказах
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off">
-                    Показывать уведомления об изменениях заказов
-                </label>
+            <div class="card-header">
+                <p class="card-kicker">Область сбора</p>
+                <h2>Какие заказы собирать</h2>
+                <p class="muted">
+                    Эти фильтры определяют, какие заказы попадают в рабочее окно мониторинга. Пустой выбор в группе означает “все”.
+                    При изменении области расширение выполнит безопасную перебазировку без потока уведомлений.
+                </p>
             </div>
-
-            <h3>Какие изменения показывать</h3>
-            <div class="field-grid">
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldStatus" name="optionsNotifyFieldStatus" autocomplete="off">
-                    Статус
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldDelivery" name="optionsNotifyFieldDelivery" autocomplete="off">
-                    Доставка
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldPayment" name="optionsNotifyFieldPayment" autocomplete="off">
-                    Оплата
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldCity" name="optionsNotifyFieldCity" autocomplete="off">
-                    Город
-                </label>
-            </div>
-
-            <h3>Не уведомлять о</h3>
-            <p class="muted">
-                Эти переключатели не исключают заказы из сбора и истории. Они только скрывают уведомления по выбранным бизнес-условиям.
-            </p>
-            <div class="checkbox-list">
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off">
-                    Юридические лица — не показывать уведомления при оплате “безналичный расчет для юридических лиц”
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off">
-                    ОЗОН — не показывать уведомления по заказам ОЗОН
-                </label>
-            </div>
-        </section>
-
-        <section class="card">
-            <h2>Какие заказы собирать</h2>
-            <p class="muted">
-                Эти фильтры определяют, какие заказы попадают в рабочее окно мониторинга. Пустой выбор в группе означает “все”.
-                При изменении области расширение выполнит безопасную перебазировку без потока уведомлений.
-            </p>
             <div class="scope-grid">
                 <details class="scope-group">
                     <summary>Статус</summary>
@@ -461,8 +531,82 @@
 
 
         <section class="card">
+            <details id="optionsNotificationsDetails" class="card-details">
+                <summary>Уведомления <span class="summary-helper">— что показывать на рабочем столе</span></summary>
+                <p class="muted">
+                    Этот блок управляет только desktop-уведомлениями. Состояние заказов, история и поиск обновляются даже при отключённых уведомлениях.
+                </p>
+
+                <div class="setting-panel">
+                    <h3>Когда уведомлять</h3>
+                    <div class="checkbox-list">
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsNotifyNewOrders" name="optionsNotifyNewOrders" autocomplete="off">
+                            <span class="checkbox-copy">
+                                <span class="checkbox-title">Новые заказы</span>
+                                <span class="checkbox-note">Показывать уведомления, когда в рабочем окне появился новый заказ.</span>
+                            </span>
+                        </label>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off">
+                            <span class="checkbox-copy">
+                                <span class="checkbox-title">Изменения заказов</span>
+                                <span class="checkbox-note">Показывать уведомления, когда у известного заказа изменились выбранные поля.</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="setting-panel">
+                    <h3>Какие изменения показывать</h3>
+                    <div class="field-grid">
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsNotifyFieldStatus" name="optionsNotifyFieldStatus" autocomplete="off">
+                            Статус
+                        </label>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsNotifyFieldDelivery" name="optionsNotifyFieldDelivery" autocomplete="off">
+                            Доставка
+                        </label>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsNotifyFieldPayment" name="optionsNotifyFieldPayment" autocomplete="off">
+                            Оплата
+                        </label>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsNotifyFieldCity" name="optionsNotifyFieldCity" autocomplete="off">
+                            Город
+                        </label>
+                    </div>
+                </div>
+
+                <div class="setting-panel">
+                    <h3>Не уведомлять о</h3>
+                    <p class="muted">
+                        Эти переключатели не исключают заказы из сбора и истории. Они только скрывают уведомления по выбранным бизнес-условиям.
+                    </p>
+                    <div class="checkbox-list">
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off">
+                            <span class="checkbox-copy">
+                                <span class="checkbox-title">Юридические лица</span>
+                                <span class="checkbox-note">Не показывать уведомления при оплате “безналичный расчет для юридических лиц”.</span>
+                            </span>
+                        </label>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off">
+                            <span class="checkbox-copy">
+                                <span class="checkbox-title">ОЗОН</span>
+                                <span class="checkbox-note">Не показывать уведомления по заказам ОЗОН.</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </details>
+        </section>
+
+        <section class="card">
             <details id="optionsCurrentSettingsDetails" class="card-details">
-                <summary>Текущие настройки</summary>
+                <summary>Текущие настройки <span class="summary-helper">— итог применённых параметров</span></summary>
                 <p id="optionsLoadStatus" class="muted">Загрузка текущих настроек...</p>
                 <div class="summary-grid">
                 <div>
@@ -491,7 +635,7 @@
 
         <section class="card">
             <details id="optionsMonitorDiagnosticsDetails" class="card-details">
-                <summary>Диагностика монитора</summary>
+                <summary>Диагностика монитора <span class="summary-helper">— только для поддержки</span></summary>
                 <p class="muted">
                     Текущее состояние расширения только для чтения. Блок не запускает мониторинг и не меняет настройки.
                 </p>
@@ -534,15 +678,19 @@
 
         <section class="card">
             <details id="optionsDiagnosticLogDetails" class="card-details">
-                <summary>Диагностический лог</summary>
+                <summary>Диагностический лог <span class="summary-helper">— экспорт для разбора ошибок</span></summary>
                 <p class="muted">
                     Предпросмотр показывает последние 100 записей. Кнопка “Скачать .txt” выгружает все сохранённые записи с кратким состоянием монитора. Чувствительные данные скрываются.
                 </p>
-                <div class="actions-row">
-                    <button id="optionsRefreshDiagnosticLog">Обновить лог</button>
-                    <button id="optionsCopyDiagnosticLog">Копировать лог</button>
-                    <button id="optionsDownloadDiagnosticLog">Скачать .txt</button>
-                    <button id="optionsClearDiagnosticLog">Очистить лог</button>
+                <div class="actions-row diagnostic-log-actions">
+                    <div class="safe-actions">
+                        <button id="optionsRefreshDiagnosticLog">Обновить лог</button>
+                        <button id="optionsCopyDiagnosticLog">Копировать лог</button>
+                        <button id="optionsDownloadDiagnosticLog">Скачать .txt</button>
+                    </div>
+                    <div class="danger-actions">
+                        <button id="optionsClearDiagnosticLog">Очистить лог</button>
+                    </div>
                 </div>
                 <p id="optionsDiagnosticLogStatus" class="muted">Загрузка диагностического лога...</p>
                 <pre id="optionsDiagnosticLogPreview" class="log-preview">—</pre>

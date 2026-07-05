@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 239 pass / 0 fail
-Latest checkpoint: ui(watched-orders): refine cards and inline comments
+Tests: 241 pass / 0 fail
+Latest checkpoint: ui(popup-options): refine pre-RC popup and settings hierarchy
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -196,7 +196,7 @@ watched-orders management UI polished
 validated add flow stabilized for existing and nonexistent orders
 async validation UI no longer shows premature success or hangs on rejected orders
 form metadata cleanup for popup/options/watched-orders controls
-Options layout polished: monitoring mode → notifications → collection scope → current settings → monitor diagnostics → diagnostic log
+Options layout polished: monitoring mode → collection scope → notifications dropdown → current settings → monitor diagnostics → diagnostic log
 Options no longer duplicates watched-orders entry point; popup remains the entry point
 final smoke checklist prepared for 1.0 RC
 ```

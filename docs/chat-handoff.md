@@ -11,8 +11,8 @@ Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Manifest version: 0.9.9
 Stage: Pre-1.0 product simplification, reminders and notification polish
-Latest checkpoint: ui(watched-orders): refine cards and inline comments
-Expected tests: 239 pass / 0 fail
+Latest checkpoint: ui(popup-options): refine pre-RC popup and settings hierarchy
+Expected tests: 241 pass / 0 fail
 Distribution target: Chrome Web Store / Unlisted listing
 Working tree expected: clean
 ```
@@ -38,6 +38,7 @@ feat(watched-orders): polish management UI and stabilize validation
 fix(ui): add form metadata to extension controls
 feat(options): polish settings layout and diagnostics sections
 ui(watched-orders): refine cards and inline comments
+ui(popup-options): refine pre-RC popup and settings hierarchy
 ```
 
 ---
@@ -56,8 +57,8 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  ui(watched-orders): refine cards and inline comments
-npm test → 239 pass / 0 fail
+  ui(popup-options): refine pre-RC popup and settings hierarchy
+npm test → 241 pass / 0 fail
 ```
 
 If dependencies are missing:

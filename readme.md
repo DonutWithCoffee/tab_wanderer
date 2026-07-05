@@ -12,8 +12,8 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Текущий фокус: Pre-RC UI visual polish
-Tests: 239 pass / 0 fail
-Latest checkpoint: ui(watched-orders): refine cards and inline comments
+Tests: 241 pass / 0 fail
+Latest checkpoint: ui(popup-options): refine pre-RC popup and settings hierarchy
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -101,11 +101,11 @@ Popup — быстрый рабочий пульт:
 ```text
 Start / Stop
 статус мониторинга
-быстрые suppressors:
+добавить заказ в отслеживаемые по полному orderId
+открыть страницу “Отслеживаемые заказы”
+быстрые suppressors под dropdown:
   - Игнорировать юриков
   - Игнорировать ОЗОН
-добавить заказ в отслеживаемые по полному orderId
-открыть страницу “Заказы”
 открыть настройки
 скачать diagnostic log
 ```
@@ -116,8 +116,8 @@ Options — настройки и диагностика:
 
 ```text
 режим мониторинга
-уведомления
 какие заказы собирать
+уведомления под dropdown
 текущие настройки под dropdown
 диагностика монитора под dropdown
 диагностический лог под dropdown

@@ -1,7 +1,7 @@
 const VERSION = {
     version: '0.9.9',
-    build: '0.9.9.13',
-    stage: 'pre-RC watched-orders card polish checkpoint',
+    build: '0.9.9.15',
+    stage: 'pre-RC popup and options polish checkpoint',
     date: '2026-07-05'
 };
 

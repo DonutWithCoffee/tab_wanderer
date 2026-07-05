@@ -275,10 +275,20 @@ test('popup is quick-control only and contains no settings form controls', () =>
     const html = readPopupHtml();
 
     assert.match(html, /id="toggleMonitor"/);
-    assert.match(html, /id="openOptions"/);
+    assert.match(html, /id="openOptions" class="header-settings"/);
+    assert.match(html, /<div class="header-meta">/);
+    assert.doesNotMatch(html, /class="navigation-grid"/);
     assert.match(html, /id="openWatchedOrders"/);
     assert.match(html, /Отслеживаемые заказы/);
     assert.match(html, /id="downloadDiagnosticLog"/);
+    assert.match(html, /<details class="support-details quick-filter-details">/);
+    assert.match(html, /Поддержка и диагностика/);
+    assert.match(html, /быстрый пульт мониторинга/);
+    assert.match(html, /Отслеживаемые заказы/);
+    assert.match(html, /Быстрые фильтры уведомлений/);
+    assert.match(html, /Скрывают лишние desktop-уведомления, но не отключают сбор/);
+    assert.match(html, /Расширение сначала проверит страницу заказа/);
+    assert.match(html, /Добавьте заказ, чтобы расширение проверяло его отдельно от общего списка/);
     assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupIgnoreOzon"/);
@@ -287,6 +297,13 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off"/);
     assert.match(html, /id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off"/);
     assert.match(html, /id="popupAddWatchedOrder"/);
+
+    const watchedOrderIndex = html.indexOf('Отслеживаемые заказы');
+    const quickFiltersIndex = html.indexOf('Быстрые фильтры уведомлений');
+    assert.ok(watchedOrderIndex >= 0);
+    assert.ok(quickFiltersIndex >= 0);
+    assert.ok(watchedOrderIndex < quickFiltersIndex);
+
     assert.doesNotMatch(html, /id="applyConfig"/);
     assert.doesNotMatch(html, /id="resetConfig"/);
     assert.doesNotMatch(html, /id="monitorModeWindowed"/);

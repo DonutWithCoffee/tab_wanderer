@@ -437,6 +437,12 @@ test('options page contains autosave settings and support diagnostics sections',
     const html = readOptionsHtml();
 
     assert.match(html, /id="optionsSettingsSaveStatus"/);
+    assert.match(html, /Обычные рабочие действия находятся в popup/);
+    assert.match(html, /Рекомендуется: общий режим/);
+    assert.match(html, /id="optionsNotificationsDetails" class="card-details"/);
+    assert.doesNotMatch(html, /сотруднику/);
+    assert.match(html, /<div class="setting-panel">/);
+    assert.match(html, /class="actions-row diagnostic-log-actions"/);
     assert.match(html, /id="optionsMonitorModeSelect" name="optionsMonitorModeSelect" autocomplete="off"/);
     assert.match(html, /id="optionsDeepSyncMaxPages" name="optionsDeepSyncMaxPages"/);
     assert.match(html, /id="optionsDeepSyncMaxPages"[^>]+autocomplete="off"/);
@@ -483,8 +489,8 @@ test('options page contains autosave settings and support diagnostics sections',
 
     const blockOrder = [
         'Режим мониторинга',
-        'Уведомления',
         'Какие заказы собирать',
+        'Уведомления',
         'Текущие настройки',
         'Диагностика монитора',
         'Диагностический лог'
