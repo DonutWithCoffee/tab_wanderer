@@ -12,8 +12,8 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
 Текущий фокус: product simplification, watched-order reminders и notification polish
-Tests: 225 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
+Tests: 239 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): polish management UI and stabilize validation
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -467,7 +467,7 @@ npm test
 Expected baseline:
 
 ```text
-225 pass / 0 fail
+239 pass / 0 fail
 ```
 
 Before commit:

@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 225 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
+Tests: 239 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): polish management UI and stabilize validation
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -192,6 +192,9 @@ watched-order reminder core model added
 background chrome.alarms + reminder runtime API added
 watched-order reminder UI added on Orders/Tracking page
 watched-order direct follow-up interval setting added in Options
+watched-orders management UI polished
+validated add flow stabilized for existing and nonexistent orders
+async validation UI no longer shows premature success or hangs on rejected orders
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -247,7 +250,7 @@ Reminder / direct follow-up remaining checks:
 manual smoke for configured follow-up interval cadence
 manual smoke for fired reminder notification
 manual smoke for notification click-through to order page
-then start Pre-1.0 UI polish if smoke is clean
+Orders/Tracking UI polish is complete; continue with Options/popup polish and final smoke
 ```
 
 Reminder MVP non-goals:
@@ -272,7 +275,7 @@ Recommended next implementation order:
 ```text
 1. Smoke configured watched-order follow-up interval manually.
 2. Smoke reminder alarm firing and order-page click-through manually.
-3. Start Pre-1.0 UI polish: Orders/Tracking page, Options, popup quick actions.
+3. Continue Pre-1.0 UI polish: Options and popup quick actions.
 4. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
 5. After legal department QA, design legal workflow if needed.
 ```

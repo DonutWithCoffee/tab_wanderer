@@ -13,8 +13,8 @@
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
 Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Tests: 225 pass / 0 fail
-Latest pushed checkpoint: feat(watched-orders): add follow-up interval setting
+Tests: 239 pass / 0 fail
+Latest pushed checkpoint: feat(watched-orders): polish management UI and stabilize validation
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -51,7 +51,7 @@ feat(notifications): include full order context
 feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
 feat(watched-orders): add reminder UI
-feat(watched-orders): add follow-up interval setting
+feat(watched-orders): polish management UI and stabilize validation
 ```
 
 ---
@@ -595,7 +595,7 @@ Immediate roadmap:
 4. Add one-time reminders for watched orders.
 5. Add configurable direct follow-up interval for watched orders.
 6. Smoke interval cadence, reminder alarm firing and click-through before RC.
-7. Start Pre-1.0 UI polish after watched-orders smoke.
+7. Continue Pre-1.0 UI polish: Options and popup quick actions.
 8. After legal department QA, design legal workflow from real process.
 ```
 
