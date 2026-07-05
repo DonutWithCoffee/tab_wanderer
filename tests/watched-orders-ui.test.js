@@ -356,10 +356,10 @@ test('orders page exposes watched orders and hides user-facing order lookup', ()
     const html = readWatchedOrdersHtml();
 
     assert.match(html, /Отслеживаемые заказы/);
-    assert.match(html, /id="ordersWatchedOrderInput"/);
-    assert.match(html, /id="ordersWatchedOrderNoteInput"/);
+    assert.match(html, /id="ordersWatchedOrderInput" name="ordersWatchedOrderInput"/);
+    assert.match(html, /id="ordersWatchedOrderNoteInput" name="ordersWatchedOrderNoteInput"/);
     assert.match(html, /id="ordersWatchedList"/);
-    assert.match(html, /id="ordersWatchedOrderFollowUpIntervalSelect"/);
+    assert.match(html, /id="ordersWatchedOrderFollowUpIntervalSelect" name="ordersWatchedOrderFollowUpIntervalSelect" autocomplete="off"/);
     assert.match(html, /Прямая проверка открывает конкретные карточки заказов/);
     assert.match(html, /одно активное напоминание/);
     assert.match(html, /Проверяется один заказ за тик/);
@@ -533,6 +533,8 @@ test('orders page renders and manages watched orders', () => {
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /watched-order-meta-grid/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /Открыть в админке/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /name="ordersWatchedOrderNote_1001_300326"/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /autocomplete="off"/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /https:\/\/amperkot\.ru\/admin\/orders\/1001-300326\//);
     assert.match(document.getElementById('ordersWatchedStatus').innerText, /Отслеживается: 1; активных: 1/);
     assert.equal(document.getElementById('ordersWatchedOrderFollowUpIntervalSelect').value, '2');

@@ -282,7 +282,10 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupIgnoreOzon"/);
-    assert.match(html, /id="popupWatchedOrderInput"/);
+    assert.match(html, /id="popupWatchedOrderInput" name="popupWatchedOrderInput"/);
+    assert.match(html, /id="popupWatchedOrderNote" name="popupWatchedOrderNote"/);
+    assert.match(html, /id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off"/);
+    assert.match(html, /id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off"/);
     assert.match(html, /id="popupAddWatchedOrder"/);
     assert.doesNotMatch(html, /id="applyConfig"/);
     assert.doesNotMatch(html, /id="resetConfig"/);

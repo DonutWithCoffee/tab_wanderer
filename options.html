@@ -242,14 +242,14 @@
             <div class="form-grid">
                 <div>
                     <label for="optionsMonitorModeSelect">Режим</label>
-                    <select id="optionsMonitorModeSelect">
+                    <select id="optionsMonitorModeSelect" name="optionsMonitorModeSelect" autocomplete="off">
                         <option value="active">Быстрый: только первая страница</option>
                         <option value="windowed">Общий: первая страница + глубокая синхронизация</option>
                     </select>
                 </div>
                 <div>
                     <label for="optionsDeepSyncMaxPages">Глубина синхронизации</label>
-                    <input id="optionsDeepSyncMaxPages" type="number" min="1" max="50" step="1">
+                    <input id="optionsDeepSyncMaxPages" name="optionsDeepSyncMaxPages" type="number" min="1" max="50" step="1" autocomplete="off">
                     <p class="muted">Сколько страниц проходит глубокая синхронизация. Безопасный диапазон: 1–50, по умолчанию: 50.</p>
                 </div>
             </div>
@@ -263,11 +263,11 @@
 
             <div class="checkbox-list">
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyNewOrders">
+                    <input type="checkbox" id="optionsNotifyNewOrders" name="optionsNotifyNewOrders" autocomplete="off">
                     Показывать уведомления о новых заказах
                 </label>
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyChangedOrders">
+                    <input type="checkbox" id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off">
                     Показывать уведомления об изменениях заказов
                 </label>
             </div>
@@ -275,19 +275,19 @@
             <h3>Какие изменения показывать</h3>
             <div class="field-grid">
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldStatus">
+                    <input type="checkbox" id="optionsNotifyFieldStatus" name="optionsNotifyFieldStatus" autocomplete="off">
                     Статус
                 </label>
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldDelivery">
+                    <input type="checkbox" id="optionsNotifyFieldDelivery" name="optionsNotifyFieldDelivery" autocomplete="off">
                     Доставка
                 </label>
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldPayment">
+                    <input type="checkbox" id="optionsNotifyFieldPayment" name="optionsNotifyFieldPayment" autocomplete="off">
                     Оплата
                 </label>
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsNotifyFieldCity">
+                    <input type="checkbox" id="optionsNotifyFieldCity" name="optionsNotifyFieldCity" autocomplete="off">
                     Город
                 </label>
             </div>
@@ -298,11 +298,11 @@
             </p>
             <div class="checkbox-list">
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsSuppressLegalEntityPayment">
+                    <input type="checkbox" id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off">
                     Юридические лица — не показывать уведомления при оплате “безналичный расчет для юридических лиц”
                 </label>
                 <label class="checkbox-row">
-                    <input type="checkbox" id="optionsSuppressOzon">
+                    <input type="checkbox" id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off">
                     ОЗОН — не показывать уведомления по заказам ОЗОН
                 </label>
             </div>

@@ -668,13 +668,17 @@ function renderWatchedOrderReminderForm(item) {
         <div class="reminder-form" aria-label="Новое напоминание для заказа ${escapeHtml(item.id)}">
             <input
                 id="${escapeHtml(reminderAtInputId)}"
+                name="${escapeHtml(reminderAtInputId)}"
                 type="datetime-local"
+                autocomplete="off"
                 aria-label="Дата и время напоминания"
                 required
             >
             <input
                 id="${escapeHtml(reminderNoteInputId)}"
+                name="${escapeHtml(reminderNoteInputId)}"
                 type="text"
+                autocomplete="off"
                 maxlength="${ORDERS_WATCHED_ORDER_REMINDER_NOTE_LIMIT}"
                 placeholder="Комментарий (опционально)"
                 aria-label="Комментарий к напоминанию"
@@ -765,7 +769,9 @@ function renderWatchedOrderNote(item) {
             <div class="inline-form">
                 <input
                     id="${escapeHtml(inputId)}"
+                    name="${escapeHtml(inputId)}"
                     type="text"
+                    autocomplete="off"
                     maxlength="${ORDERS_WATCHED_ORDER_NOTE_LIMIT}"
                     value="${escapeHtml(note)}"
                     placeholder="Комментарий к заказу"

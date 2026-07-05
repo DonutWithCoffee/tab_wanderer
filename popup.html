@@ -182,11 +182,11 @@
     <div class="section">
         <p class="section-title">Не уведомлять о:</p>
         <label class="checkbox-row">
-            <input type="checkbox" id="popupIgnoreLegalEntityPayment">
+            <input type="checkbox" id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off">
             Юрлицах / безналичной оплате для юридических лиц
         </label>
         <label class="checkbox-row">
-            <input type="checkbox" id="popupIgnoreOzon">
+            <input type="checkbox" id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off">
             ОЗОН-заказах
         </label>
         <div id="quickSuppressStatus" class="hint">Загрузка фильтров...</div>
@@ -196,10 +196,10 @@
         <p class="section-title">Добавить в отслеживание</p>
         <div class="stack-form">
             <div class="inline-form">
-                <input id="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
+                <input id="popupWatchedOrderInput" name="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
                 <button id="popupAddWatchedOrder" type="button">Добавить</button>
             </div>
-            <input id="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий к заказу (опционально)" autocomplete="off">
+            <input id="popupWatchedOrderNote" name="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий к заказу (опционально)" autocomplete="off">
         </div>
         <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа. Список — на странице “Отслеживаемые заказы”.</div>
     </div>

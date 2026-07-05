@@ -495,6 +495,8 @@ function renderScopeGroup(group, selectedIds, options) {
         label.className = 'checkbox-row';
         input.type = 'checkbox';
         input.id = getScopeControlId(group.key, index);
+        input.name = input.id;
+        input.autocomplete = 'off';
         input.value = option.id;
         input.checked = selectedSet.has(option.id);
         text.innerText = option.label;

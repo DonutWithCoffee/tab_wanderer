@@ -418,13 +418,14 @@ test('options page contains autosave settings and support diagnostics sections',
     const html = readOptionsHtml();
 
     assert.match(html, /id="optionsSettingsSaveStatus"/);
-    assert.match(html, /id="optionsMonitorModeSelect"/);
-    assert.match(html, /id="optionsDeepSyncMaxPages"/);
+    assert.match(html, /id="optionsMonitorModeSelect" name="optionsMonitorModeSelect" autocomplete="off"/);
+    assert.match(html, /id="optionsDeepSyncMaxPages" name="optionsDeepSyncMaxPages"/);
+    assert.match(html, /id="optionsDeepSyncMaxPages"[^>]+autocomplete="off"/);
     assert.doesNotMatch(html, /id="optionsWatchedOrderFollowUpIntervalSelect"/);
-    assert.match(html, /id="optionsNotifyNewOrders"/);
-    assert.match(html, /id="optionsNotifyChangedOrders"/);
-    assert.match(html, /id="optionsSuppressLegalEntityPayment"/);
-    assert.match(html, /id="optionsSuppressOzon"/);
+    assert.match(html, /id="optionsNotifyNewOrders" name="optionsNotifyNewOrders" autocomplete="off"/);
+    assert.match(html, /id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off"/);
+    assert.match(html, /id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off"/);
+    assert.match(html, /id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off"/);
     assert.match(html, /id="optionsScopeStatusList"/);
     assert.match(html, /id="optionsScopeDeliveryList"/);
     assert.match(html, /id="optionsScopePaymentList"/);
@@ -522,6 +523,8 @@ test('options page debounces monitor scope changes and keeps empty group as all'
     const initialSecondPayment = findCreatedInput(context, 'optionsScope_payment_1');
 
     assert.equal(selectedStatus.checked, true);
+    assert.equal(selectedStatus.name, selectedStatus.id);
+    assert.equal(selectedStatus.autocomplete, 'off');
     assert.equal(initialSecondPayment.checked, false);
 
     selectedStatus.checked = false;

@@ -375,8 +375,8 @@
             <div class="control-card-title">Добавить заказ</div>
             <p class="hint">Заказ сначала проверяется в админке. Если карточка не найдена, он не попадёт в список.</p>
             <div class="inline-form">
-                <input id="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
-                <input id="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий (опционально)" autocomplete="off">
+                <input id="ordersWatchedOrderInput" name="ordersWatchedOrderInput" type="text" placeholder="Полный номер: 1234-110626" autocomplete="off">
+                <input id="ordersWatchedOrderNoteInput" name="ordersWatchedOrderNoteInput" type="text" maxlength="300" placeholder="Комментарий (опционально)" autocomplete="off">
                 <button id="ordersAddWatchedOrder" type="button">Проверить и добавить</button>
             </div>
         </div>
@@ -385,7 +385,7 @@
             <div class="control-card-title">Интервал проверки</div>
             <div class="inline-form">
                 <label for="ordersWatchedOrderFollowUpIntervalSelect">Периодичность</label>
-                <select id="ordersWatchedOrderFollowUpIntervalSelect">
+                <select id="ordersWatchedOrderFollowUpIntervalSelect" name="ordersWatchedOrderFollowUpIntervalSelect" autocomplete="off">
                     <option value="2">Каждые 2 минуты</option>
                     <option value="5">Каждые 5 минут</option>
                     <option value="10">Каждые 10 минут</option>
