@@ -1652,7 +1652,7 @@ function notifyWatchedOrderReminder(item) {
 
     chrome.notifications.create({
         type: 'basic',
-        iconUrl: 'icon.png',
+        iconUrl: 'icons/icon128.png',
         title: content.title,
         message: content.message
     }, async (notificationId) => {
@@ -1739,7 +1739,7 @@ function notifyOrder(o, eventContext = {}) {
 
     chrome.notifications.create({
         type: 'basic',
-        iconUrl: 'icon.png',
+        iconUrl: 'icons/icon128.png',
         title: content.title,
         message: content.message
     }, async (notificationId) => {
