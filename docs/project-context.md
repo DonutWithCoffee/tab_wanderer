@@ -13,8 +13,8 @@
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
 Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Tests: 239 pass / 0 fail
-Latest checkpoint: fix(options): polish monitor diagnostics panel
+Tests: 238 pass / 0 fail
+Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -52,6 +52,8 @@ feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
 feat(watched-orders): add reminder UI
 feat(watched-orders): polish management UI and stabilize validation
+fix(ui): add form metadata to extension controls
+feat(options): polish settings layout and diagnostics sections
 ```
 
 ---
@@ -96,8 +98,9 @@ Git workflow:
 User works in VS Code integrated Git Bash on Windows.
 Repo: DonutWithCoffee/tab_wanderer
 Branch: main
-Tests before commit: npm test
-Always provide explicit git add file list and Conventional Commit message when tests are green and a commit is appropriate.
+Tests before commit: npm test for code/test changes
+Docs/version/checklist-only slices: no npm test and commit/push immediately with explicit file list
+Always provide explicit git add file list and Conventional Commit message when commit is appropriate
 Never use git add .
 Do not commit/push unless user asks or confirms.
 ```
@@ -595,7 +598,7 @@ Immediate roadmap:
 4. Add one-time reminders for watched orders.
 5. Add configurable direct follow-up interval for watched orders.
 6. Smoke interval cadence, reminder alarm firing and click-through before RC.
-7. Continue Pre-1.0 UI polish: Options and popup quick actions.
+7. Continue Pre-1.0 UI polish: Options layout and diagnostics polish.
 8. After legal department QA, design legal workflow from real process.
 ```
 

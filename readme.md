@@ -11,9 +11,9 @@ Chrome extension для мониторинга заказов в админке 
 ```text
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Текущий фокус: product simplification, watched-order reminders и notification polish
-Tests: 239 pass / 0 fail
-Latest checkpoint: fix(options): polish monitor diagnostics panel
+Текущий фокус: final smoke / 1.0 RC readiness
+Tests: 238 pass / 0 fail
+Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -115,15 +115,18 @@ Start / Stop
 Options — настройки и диагностика:
 
 ```text
-monitorMode
-monitorScope
+режим мониторинга
+уведомления
+какие заказы собирать
+текущие настройки под dropdown
+диагностика монитора под dropdown
+диагностический лог под dropdown
+monitorScope groups: статус / доставка / оплата / склад под dropdown
 deepSyncMaxPages
-watched order follow-up interval
 notificationTriggers
 notificationSuppressors
 monitor diagnostics
 diagnostic log tools
-ссылка на страницу “Заказы”
 ```
 
 ### Заказы
@@ -467,10 +470,10 @@ npm test
 Expected baseline:
 
 ```text
-239 pass / 0 fail
+238 pass / 0 fail
 ```
 
-Before commit:
+Before commit for code/test changes:
 
 ```bash
 git status
@@ -478,6 +481,8 @@ npm test
 git diff --stat
 git diff --name-status
 ```
+
+Docs/version/checklist-only slices can be committed without npm test.
 
 Commit style:
 

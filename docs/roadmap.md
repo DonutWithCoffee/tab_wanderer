@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 239 pass / 0 fail
-Latest checkpoint: fix(options): polish monitor diagnostics panel
+Tests: 238 pass / 0 fail
+Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -195,6 +195,10 @@ watched-order direct follow-up interval setting added in Options
 watched-orders management UI polished
 validated add flow stabilized for existing and nonexistent orders
 async validation UI no longer shows premature success or hangs on rejected orders
+form metadata cleanup for popup/options/watched-orders controls
+Options layout polished: monitoring mode → notifications → collection scope → current settings → monitor diagnostics → diagnostic log
+Options no longer duplicates watched-orders entry point; popup remains the entry point
+final smoke checklist prepared for 1.0 RC
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -277,7 +281,7 @@ Recommended next implementation order:
 ```text
 1. Smoke configured watched-order follow-up interval manually.
 2. Smoke reminder alarm firing and order-page click-through manually.
-3. Continue Pre-1.0 UI polish: Options and popup quick actions.
+3. Continue Pre-1.0 UI polish: Options layout and diagnostics polish.
 4. Add Chrome Web Store release readiness docs/package work before 1.0 RC.
 5. After legal department QA, design legal workflow if needed.
 ```

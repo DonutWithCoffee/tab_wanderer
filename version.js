@@ -1,7 +1,7 @@
 const VERSION = {
     version: '0.9.9',
-    build: '0.9.9.10',
-    stage: 'diagnostics panel polish checkpoint',
+    build: '0.9.9.11',
+    stage: 'release smoke checklist checkpoint',
     date: '2026-07-05'
 };
 
@@ -15,5 +15,5 @@ const CHANGELOG = {
     '0.9.6': 'monitorState, collection session, URL-driven pagination, fast/deep collection, known/window state, duplicate protection, timeout and retry-limit',
     '0.9.7': 'scope UX, notification triggers, order event model, event journal and history page foundation',
     '0.9.8': 'observability, diagnostic log retention/full export, manual-start catch-up, pagination completion, runtime consistency and core extraction',
-    '0.9.9': 'orders page, watchlist/direct follow-up, order lookup, quick suppressors, event journal retention, startup catch-up notification suppression and 0.9.9 QA cleanup'
+    '0.9.9': 'orders page, watchlist/direct follow-up, reminders, options polish, diagnostics, startup catch-up suppression and warehouse/Ozon barcode QA'
 };

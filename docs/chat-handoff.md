@@ -11,8 +11,8 @@ Repo: DonutWithCoffee/tab_wanderer
 Branch: main
 Manifest version: 0.9.9
 Stage: Pre-1.0 product simplification, reminders and notification polish
-Latest checkpoint: fix(options): polish monitor diagnostics panel
-Expected tests: 239 pass / 0 fail
+Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
+Expected tests: 238 pass / 0 fail
 Distribution target: Chrome Web Store / Unlisted listing
 Working tree expected: clean
 ```
@@ -35,6 +35,8 @@ feat(watched-orders): add reminder core model
 feat(watched-orders): schedule reminder alarms
 feat(watched-orders): add reminder UI
 feat(watched-orders): polish management UI and stabilize validation
+fix(ui): add form metadata to extension controls
+feat(options): polish settings layout and diagnostics sections
 ```
 
 ---
@@ -53,8 +55,8 @@ Expected:
 ```text
 working tree clean
 latest commit includes:
-  feat(watched-orders): polish management UI and stabilize validation
-npm test → 239 pass / 0 fail
+  docs(release): finalize smoke checklist for 1.0 RC
+npm test → 238 pass / 0 fail
 ```
 
 If dependencies are missing:
@@ -116,6 +118,7 @@ Request a fresh project archive only when current code context is missing, stale
 For implementation work, provide an archive with full replacement files only, not a full project archive and not patch files.
 Do not send raw code snippets unless the user explicitly asks.
 When tests are green and a commit is appropriate, always provide commit commands.
+For docs/version/checklist-only slices, skip npm test and provide commit/push commands immediately.
 Never use git add .
 Stage explicit files only.
 Do not commit/push unless user asks or confirms.
@@ -245,7 +248,7 @@ Recommended order:
 ```text
 1. Smoke watched-order interval setting manually: change interval in Options and verify direct follow-up cadence.
 2. Smoke watched-order reminders manually: set, reload extension, fire alarm, notification, click-through to order page.
-3. Continue Pre-1.0 UI polish: Options and popup quick actions.
+3. Continue Pre-1.0 UI polish: Options layout and diagnostics polish.
 4. Add Chrome Web Store release readiness work before 1.0 RC: package, privacy, permissions, listing, screenshots.
 5. After legal department QA, design legal workflow from real process.
 ```
