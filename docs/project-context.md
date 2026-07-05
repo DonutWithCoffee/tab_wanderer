@@ -13,8 +13,8 @@
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
 Текущая стадия: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Tests: 238 pass / 0 fail
-Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
+Tests: 239 pass / 0 fail
+Latest checkpoint: ui(watched-orders): refine cards and inline comments
 Distribution target: Chrome Web Store / Unlisted listing
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -54,6 +54,7 @@ feat(watched-orders): add reminder UI
 feat(watched-orders): polish management UI and stabilize validation
 fix(ui): add form metadata to extension controls
 feat(options): polish settings layout and diagnostics sections
+ui(watched-orders): refine cards and inline comments
 ```
 
 ---

@@ -180,6 +180,30 @@ function normalizeOrdersWatchedOrderNote(value) {
         .slice(0, ORDERS_WATCHED_ORDER_NOTE_LIMIT);
 }
 
+
+function normalizeOrdersWatchedOrderSnapshotText(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, 200);
+}
+
+function normalizeOrdersWatchedOrderSnapshot(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const snapshot = {
+        status: normalizeOrdersWatchedOrderSnapshotText(value.status),
+        delivery: normalizeOrdersWatchedOrderSnapshotText(value.delivery),
+        payment: normalizeOrdersWatchedOrderSnapshotText(value.payment),
+        contractor: normalizeOrdersWatchedOrderSnapshotText(value.contractor),
+        city: normalizeOrdersWatchedOrderSnapshotText(value.city)
+    };
+
+    return Object.values(snapshot).some(Boolean) ? snapshot : null;
+}
+
 function normalizeOrdersWatchedOrderReminderStatus(value) {
     const status = String(value || '').trim();
 
@@ -280,7 +304,8 @@ function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
         return null;
     }
 
-    return {
+    const lastSnapshot = normalizeOrdersWatchedOrderSnapshot(source.lastSnapshot || source.orderSnapshot || source.snapshot);
+    const item = {
         id,
         status: source.status === 'unresolved' ? 'unresolved' : 'active',
         note: normalizeOrdersWatchedOrderNote(source.note),
@@ -291,6 +316,12 @@ function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
         lastError: source.lastError ? String(source.lastError) : null,
         reminder: normalizeOrdersWatchedOrderReminder(source.reminder)
     };
+
+    if (lastSnapshot) {
+        item.lastSnapshot = lastSnapshot;
+    }
+
+    return item;
 }
 
 function normalizeOrdersWatchedOrdersConfig(value = {}, now = Date.now()) {
@@ -756,32 +787,81 @@ function renderWatchedOrderMetaGrid(item) {
     `;
 }
 
-function renderWatchedOrderNote(item) {
-    const note = normalizeOrdersWatchedOrderNote(item?.note);
-    const inputId = getWatchedOrderNoteInputId(item.id);
+
+function renderWatchedOrderFact(label, value) {
+    return `
+        <div class="watched-order-fact">
+            <span class="watched-order-fact-label">${escapeHtml(label)}</span>
+            <span class="watched-order-fact-value">${escapeHtml(value || '—')}</span>
+        </div>
+    `;
+}
+
+function renderWatchedOrderFacts(item) {
+    const snapshot = normalizeOrdersWatchedOrderSnapshot(item?.lastSnapshot) || null;
+
+    if (!snapshot) {
+        return '<div class="watched-order-facts watched-order-facts-empty">Детали заказа появятся после первой успешной проверки.</div>';
+    }
 
     return `
-        <div class="watched-order-note">
-            Комментарий: ${note ? escapeHtml(note) : '—'}
+        <div class="watched-order-facts" aria-label="Основная информация по заказу ${escapeHtml(item.id)}">
+            ${renderWatchedOrderFact('Статус', snapshot.status)}
+            ${renderWatchedOrderFact('Доставка', snapshot.delivery)}
+            ${renderWatchedOrderFact('Оплата', snapshot.payment)}
+            ${renderWatchedOrderFact('Контрагент', snapshot.contractor)}
         </div>
-        <details class="watched-order-note-editor">
-            <summary>Изменить комментарий</summary>
-            <div class="inline-form">
-                <input
-                    id="${escapeHtml(inputId)}"
-                    name="${escapeHtml(inputId)}"
-                    type="text"
-                    autocomplete="off"
-                    maxlength="${ORDERS_WATCHED_ORDER_NOTE_LIMIT}"
-                    value="${escapeHtml(note)}"
-                    placeholder="Комментарий к заказу"
-                    aria-label="Комментарий к заказу ${escapeHtml(item.id)}"
-                >
-                <button type="button" data-watch-action="save-note" data-order-id="${escapeHtml(item.id)}">Сохранить</button>
-            </div>
+    `;
+}
+
+function renderWatchedOrderTechnicalDetails(item) {
+    return `
+        <details class="watched-order-technical-details">
+            <summary>Техническая информация проверки</summary>
+            ${renderWatchedOrderMetaGrid(item)}
         </details>
     `;
 }
+
+function renderWatchedOrderNote(item) {
+    const note = normalizeOrdersWatchedOrderNote(item?.note);
+    const inputId = getWatchedOrderNoteInputId(item.id);
+    const displayText = note || 'Добавить комментарий';
+    const displayClass = note ? '' : ' watched-order-note-display-empty';
+    const actionText = note ? 'Изменить' : '+ Добавить';
+    return `
+        <div class="watched-order-note" data-order-id="${escapeHtml(item.id)}">
+            <button
+                type="button"
+                class="watched-order-note-display${displayClass}"
+                data-watch-action="edit-note"
+                data-order-id="${escapeHtml(item.id)}"
+                aria-label="${note ? `Изменить комментарий к заказу ${escapeHtml(item.id)}` : `Добавить комментарий к заказу ${escapeHtml(item.id)}`}"
+            >
+                <span class="watched-order-note-header">
+                    <span class="watched-order-note-label">Комментарий</span>
+                    <span class="watched-order-note-action">${escapeHtml(actionText)}</span>
+                </span>
+                <span class="watched-order-note-text">${escapeHtml(displayText)}</span>
+            </button>
+            <input
+                id="${escapeHtml(inputId)}"
+                name="${escapeHtml(inputId)}"
+                class="watched-order-note-input"
+                type="text"
+                maxlength="${ORDERS_WATCHED_ORDER_NOTE_LIMIT}"
+                value="${escapeHtml(note)}"
+                placeholder="Комментарий к заказу"
+                aria-label="Комментарий к заказу ${escapeHtml(item.id)}"
+                data-watch-action="note-input"
+                data-order-id="${escapeHtml(item.id)}"
+                autocomplete="off"
+            >
+            <div class="watched-order-note-hint">Enter или клик вне поля — сохранить. Очистите текст, чтобы удалить комментарий.</div>
+        </div>
+    `;
+}
+
 
 function renderWatchedOrders(config = currentOrdersConfig) {
     const watchedOrders = getOrdersWatchedOrdersConfig(config);
@@ -820,9 +900,10 @@ function renderWatchedOrders(config = currentOrdersConfig) {
                         <button type="button" data-watch-action="remove" data-order-id="${escapeHtml(item.id)}">Удалить</button>
                     </div>
                 </div>
-                ${renderWatchedOrderMetaGrid(item)}
+                ${renderWatchedOrderFacts(item)}
                 ${renderWatchedOrderNote(item)}
                 ${renderWatchedOrderReminder(item)}
+                ${renderWatchedOrderTechnicalDetails(item)}
             </article>
         `;
     }).join(''));
@@ -1035,11 +1116,37 @@ function removeWatchedOrder(orderId) {
     saveOrdersConfig(nextConfig, `Заказ №${id} удалён из отслеживаемых.`);
 }
 
+function beginInlineWatchedOrderNoteEdit(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+    const input = document.getElementById(getWatchedOrderNoteInputId(id));
+
+    if (!input) {
+        return;
+    }
+
+    const noteContainer = typeof input.closest === 'function'
+        ? input.closest('.watched-order-note')
+        : null;
+
+    if (noteContainer?.classList?.add) {
+        noteContainer.classList.add('is-editing');
+    }
+
+    if (typeof input.focus === 'function') {
+        input.focus();
+    }
+
+    if (typeof input.select === 'function') {
+        input.select();
+    }
+}
+
 function setWatchedOrderNoteFromForm(orderId) {
     const id = normalizeOrdersWatchedOrderId(orderId);
     const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
     const note = normalizeOrdersWatchedOrderNote(getElementValue(getWatchedOrderNoteInputId(id)));
     let found = false;
+    let previousNote = '';
 
     const nextConfig = {
         ...currentOrdersConfig,
@@ -1050,6 +1157,7 @@ function setWatchedOrderNoteFromForm(orderId) {
                 }
 
                 found = true;
+                previousNote = normalizeOrdersWatchedOrderNote(item.note);
 
                 return {
                     ...item,
@@ -1064,7 +1172,12 @@ function setWatchedOrderNoteFromForm(orderId) {
         return;
     }
 
-    saveOrdersConfig(nextConfig, note ? `Комментарий для заказа №${id} сохранён.` : `Комментарий для заказа №${id} очищен.`);
+    if (note === previousNote) {
+        renderWatchedOrders(currentOrdersConfig);
+        return;
+    }
+
+    saveOrdersConfig(nextConfig, note ? `Комментарий для заказа №${id} сохранён.` : `Комментарий для заказа №${id} удалён.`);
 }
 
 function setWatchedOrderReminderFromForm(orderId) {
@@ -1156,6 +1269,20 @@ function resetHistorySearch() {
     renderHistory({ ok: true, status: 'idle' });
 }
 
+function getEventActionTarget(event) {
+    const target = event?.target || null;
+
+    if (target?.dataset?.watchAction) {
+        return target;
+    }
+
+    if (typeof target?.closest === 'function') {
+        return target.closest('[data-watch-action]');
+    }
+
+    return target;
+}
+
 function bindHistoryControls() {
     const searchBtn = document.getElementById('searchHistory');
     const resetBtn = document.getElementById('resetHistorySearch');
@@ -1186,7 +1313,13 @@ function bindHistoryControls() {
 
     if (candidatesEl) {
         candidatesEl.addEventListener('click', (event) => {
-            const orderId = event?.target?.dataset?.orderId;
+            const target = event?.target || null;
+            const orderTarget = target?.dataset?.orderId
+                ? target
+                : typeof target?.closest === 'function'
+                    ? target.closest('[data-order-id]')
+                    : null;
+            const orderId = orderTarget?.dataset?.orderId;
 
             if (!orderId) {
                 return;
@@ -1199,8 +1332,9 @@ function bindHistoryControls() {
 
     if (orderSummaryEl) {
         orderSummaryEl.addEventListener('click', (event) => {
-            const action = event?.target?.dataset?.watchAction;
-            const orderId = event?.target?.dataset?.orderId;
+            const actionTarget = getEventActionTarget(event);
+            const action = actionTarget?.dataset?.watchAction;
+            const orderId = actionTarget?.dataset?.orderId;
 
             if (action === 'add') {
                 addWatchedOrder(orderId, 'summary');
@@ -1212,18 +1346,45 @@ function bindHistoryControls() {
 
     if (watchedListEl) {
         watchedListEl.addEventListener('click', (event) => {
-            const action = event?.target?.dataset?.watchAction;
-            const orderId = event?.target?.dataset?.orderId;
+            const actionTarget = getEventActionTarget(event);
+            const action = actionTarget?.dataset?.watchAction;
+            const orderId = actionTarget?.dataset?.orderId;
 
             if (action === 'remove') {
                 removeWatchedOrder(orderId);
-            } else if (action === 'save-note') {
-                setWatchedOrderNoteFromForm(orderId);
+            } else if (action === 'edit-note') {
+                beginInlineWatchedOrderNoteEdit(orderId);
             } else if (action === 'set-reminder') {
                 setWatchedOrderReminderFromForm(orderId);
             } else if (action === 'clear-reminder') {
                 clearWatchedOrderReminderFromButton(orderId);
             }
+        });
+
+        watchedListEl.addEventListener('keydown', (event) => {
+            const action = event?.target?.dataset?.watchAction;
+            const orderId = event?.target?.dataset?.orderId;
+
+            if (action !== 'note-input' || event.key !== 'Enter') {
+                return;
+            }
+
+            if (typeof event.preventDefault === 'function') {
+                event.preventDefault();
+            }
+
+            setWatchedOrderNoteFromForm(orderId);
+        });
+
+        watchedListEl.addEventListener('focusout', (event) => {
+            const action = event?.target?.dataset?.watchAction;
+            const orderId = event?.target?.dataset?.orderId;
+
+            if (action !== 'note-input') {
+                return;
+            }
+
+            setWatchedOrderNoteFromForm(orderId);
         });
     }
 

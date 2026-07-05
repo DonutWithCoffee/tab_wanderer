@@ -182,6 +182,29 @@ function clearStaleDirectFollowUpState(reason = 'stale-direct-state-cleared') {
     return true;
 }
 
+function clearStalePendingWatchedOrderAdd(reason = 'stale watched order add validation cleared') {
+    if (!pendingWatchedOrderAdd || directWorkerTabId || directFollowUpState?.currentOrderId) {
+        return false;
+    }
+
+    const staleOrderId = pendingWatchedOrderAdd.orderId || null;
+
+    pendingWatchedOrderAdd = null;
+    lastWatchedOrderAddResult = {
+        ok: false,
+        orderId: staleOrderId,
+        error: reason,
+        completedAt: Date.now()
+    };
+
+    log('WARN', 'WATCHED_ORDERS', 'stale add validation cleared', {
+        orderId: staleOrderId,
+        reason
+    });
+
+    return true;
+}
+
 function completePendingWatchedOrderAdd(orderId, response) {
     const pending = getPendingWatchedOrderAddForOrder(orderId);
 
@@ -348,7 +371,8 @@ async function completeDirectFollowUpCheck(orderId, result = {}) {
         ...userConfig,
         watchedOrders: markWatchedOrderCheckResult(userConfig?.watchedOrders, normalizedId, {
             ok: ok && directResult?.ok !== false,
-            error: error || directResult?.reason
+            error: error || directResult?.reason,
+            order: result?.order || null
         }, now)
     };
 
@@ -2427,6 +2451,7 @@ async function startWatchedOrderAddValidation(orderId, options = {}) {
     });
 
     clearStaleDirectFollowUpState('stale direct follow-up cleared before watched order add');
+    clearStalePendingWatchedOrderAdd('stale watched order add validation cleared before new add');
 
     if (result.invalid) {
         const response = createRuntimeFailureResponse({ error: 'Введите полный номер заказа в формате 1234-110626.' });

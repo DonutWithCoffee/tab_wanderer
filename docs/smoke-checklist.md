@@ -1,6 +1,6 @@
 # tab_wanderer — final smoke checklist перед 1.0 RC
 
-Актуально для `0.9.9` / Pre-1.0 после watched-orders, Options layout и diagnostics polish.
+Актуально для `0.9.9` / Pre-1.0 после watched-orders, Options layout, diagnostics polish и pre-RC visual polish.
 
 Цель: перед `1.0 RC` быстро проверить, что локальная сборка не создаёт ложные уведомления, не мешает рабочим вкладкам менеджера/склада, корректно ведёт watched orders и даёт достаточную диагностику для поддержки.
 
@@ -9,7 +9,7 @@
 ## 0. Перед проверкой
 
 ```text
-npm test → 238 pass / 0 fail
+npm test → 239 pass / 0 fail
 main clean/pushed
 расширение загружено в chrome://extensions как Load unpacked из актуальной папки проекта
 расширение перезагружено после установки новой сборки
@@ -24,6 +24,7 @@ Options открывается без ошибок
 страница “Отслеживание” открывается без ошибок
 диагностический лог доступен из popup и Options
 console не содержит наших ReferenceError/runtime.lastError
+визуальная иерархия единая: карточки, кнопки, поля, dropdown и статусы выглядят как одна система
 ```
 
 ---

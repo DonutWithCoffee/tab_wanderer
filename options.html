@@ -4,16 +4,37 @@
     <meta charset="utf-8">
     <title>Настройки мониторинга tab_wanderer</title>
     <style>
+
+        :root {
+            --bg: #f6f7fb;
+            --surface: #ffffff;
+            --surface-muted: #f9fafb;
+            --surface-accent: #f4f7ff;
+            --border: #d9dee7;
+            --border-strong: #c4ccd8;
+            --text: #1f2937;
+            --muted: #5f6b7a;
+            --primary: #2458d3;
+            --primary-hover: #1d47ae;
+            --danger: #b42318;
+            --radius: 14px;
+            --shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
-            padding: 32px;
+            padding: 32px 20px;
             font-family: Arial, sans-serif;
-            background: #f4f4f4;
-            color: #222;
+            background: var(--bg);
+            color: var(--text);
         }
 
         .page {
-            max-width: 960px;
+            max-width: 980px;
             margin: 0 auto;
         }
 
@@ -24,24 +45,28 @@
         .eyebrow {
             margin: 0 0 6px;
             font-size: 12px;
+            font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: #666;
+            color: var(--primary);
         }
 
         h1 {
             margin: 0 0 8px;
-            font-size: 28px;
+            font-size: 30px;
+            line-height: 1.15;
         }
 
         h2 {
             margin: 0 0 10px;
-            font-size: 18px;
+            font-size: 19px;
+            line-height: 1.25;
         }
 
         h3 {
             margin: 0 0 6px;
             font-size: 14px;
+            line-height: 1.3;
         }
 
         p {
@@ -49,30 +74,37 @@
         }
 
         .lead {
-            max-width: 720px;
+            max-width: 760px;
             margin: 0;
-            color: #444;
+            color: #3f4856;
         }
 
         .card {
             margin-bottom: 16px;
-            padding: 18px;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            background: #fff;
+            padding: 20px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface);
+            box-shadow: var(--shadow);
         }
 
         .notice {
             border-color: #c8d8ff;
-            background: #f7f9ff;
+            background: var(--surface-accent);
         }
 
         .header-status {
-            margin: 12px 0 0;
+            display: inline-block;
+            margin: 14px 0 0;
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface);
+            font-size: 13px;
         }
 
         .muted {
-            color: #666;
+            color: var(--muted);
         }
 
         label {
@@ -82,15 +114,40 @@
         }
 
         select,
-        input[type="number"] {
+        input[type="number"],
+        input[type="text"] {
             min-width: 280px;
-            padding: 8px;
+            padding: 9px 10px;
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            color: var(--text);
             font-size: 14px;
         }
 
         button {
+            min-height: 36px;
             padding: 8px 12px;
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            color: var(--text);
             cursor: pointer;
+            font-size: 14px;
+            transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+        }
+
+        button:hover {
+            background: var(--surface-muted);
+            border-color: #aeb7c5;
+        }
+
+        button:focus-visible,
+        select:focus-visible,
+        input:focus-visible,
+        summary:focus-visible {
+            outline: 2px solid rgba(36, 88, 211, 0.35);
+            outline-offset: 2px;
         }
 
         details {
@@ -112,11 +169,17 @@
             gap: 12px;
         }
 
+        .form-grid > div,
+        .summary-grid > div,
+        .diagnostics-grid > div {
+            min-width: 0;
+        }
+
         .summary-value,
         .dictionary-value,
         .diagnostics-value {
             margin: 0;
-            color: #333;
+            color: #303948;
             line-height: 1.45;
         }
 
@@ -130,21 +193,29 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 14px;
+            margin-top: 14px;
         }
 
         .scope-group {
-            padding: 12px;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            background: #fafafa;
+            padding: 0;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface-muted);
+            overflow: hidden;
         }
 
         .scope-group[open] {
-            background: #fff;
+            background: var(--surface);
         }
 
         .scope-group > summary {
+            padding: 12px 14px;
             font-size: 14px;
+        }
+
+        .scope-group > .dictionary-value,
+        .scope-group > .scope-list {
+            padding: 0 14px 14px;
         }
 
         .card-details {
@@ -152,8 +223,17 @@
         }
 
         .card-details > summary {
-            margin: 0;
+            margin: -20px;
+            padding: 20px;
+            border-radius: var(--radius);
             font-size: 18px;
+        }
+
+        .card-details[open] > summary {
+            margin-bottom: 0;
+            border-bottom: 1px solid var(--border);
+            border-radius: var(--radius) var(--radius) 0 0;
+            background: var(--surface-muted);
         }
 
         .card-details > p:first-of-type,
@@ -161,13 +241,13 @@
         .card-details > .diagnostics-grid,
         .card-details > .actions-row,
         .card-details > .log-preview {
-            margin-top: 12px;
+            margin-top: 16px;
         }
 
         .scope-list {
             display: grid;
-            gap: 6px;
-            margin-top: 8px;
+            gap: 8px;
+            margin-top: 0;
         }
 
         .field-grid {
@@ -179,10 +259,15 @@
 
         .checkbox-row {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 8px;
             margin: 0;
             font-weight: 400;
+            line-height: 1.4;
+        }
+
+        .checkbox-row input {
+            margin-top: 2px;
         }
 
         .actions-row {
@@ -190,6 +275,17 @@
             flex-wrap: wrap;
             gap: 8px;
             margin-top: 12px;
+        }
+
+        .actions-row button:first-child {
+            border-color: var(--primary);
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        #optionsClearDiagnosticLog {
+            border-color: #f0b4af;
+            color: var(--danger);
         }
 
         .inline-form {
@@ -202,7 +298,7 @@
 
         .inline-form input[type="text"] {
             min-width: 240px;
-            padding: 8px;
+            padding: 9px 10px;
             font-size: 14px;
         }
 
@@ -219,30 +315,29 @@
             gap: 8px;
             align-items: center;
             padding: 10px;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            background: #fafafa;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface-muted);
         }
 
         .watched-order-meta {
-            color: #555;
+            color: var(--muted);
             font-size: 12px;
         }
 
         .log-preview {
-            box-sizing: border-box;
             width: 100%;
             min-height: 180px;
             margin: 12px 0 0;
             padding: 12px;
             overflow: auto;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: #f8f8f8;
-            color: #222;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #111827;
+            color: #e5e7eb;
             font-family: Consolas, Monaco, monospace;
             font-size: 12px;
-            line-height: 1.45;
+            line-height: 1.5;
             white-space: pre-wrap;
         }
     </style>

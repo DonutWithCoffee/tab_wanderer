@@ -102,12 +102,16 @@ function markWatchedOrderCheckStarted(watchedOrders = {}, orderId, now = Date.no
 function markWatchedOrderCheckResult(watchedOrders = {}, orderId, result = {}, now = Date.now()) {
     const ok = result?.ok === true;
     const error = result?.error ? String(result.error) : null;
+    const snapshot = ok && typeof createWatchedOrderSnapshotFromOrder === 'function'
+        ? createWatchedOrderSnapshotFromOrder(result?.order)
+        : null;
 
     return updateWatchedOrderItem(watchedOrders, orderId, (item) => ({
         ...item,
         status: ok ? WATCHED_ORDER_STATUSES.ACTIVE : WATCHED_ORDER_STATUSES.UNRESOLVED,
         lastCheckedAt: now,
-        lastError: ok ? null : (error || 'Direct follow-up failed')
+        lastError: ok ? null : (error || 'Direct follow-up failed'),
+        lastSnapshot: snapshot || item.lastSnapshot || null
     }), now);
 }
 

@@ -11,9 +11,9 @@ Chrome extension для мониторинга заказов в админке 
 ```text
 Стадия разработки: Pre-1.0 product simplification, reminders and notification polish
 Manifest version: 0.9.9
-Текущий фокус: final smoke / 1.0 RC readiness
-Tests: 238 pass / 0 fail
-Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
+Текущий фокус: Pre-RC UI visual polish
+Tests: 239 pass / 0 fail
+Latest checkpoint: ui(watched-orders): refine cards and inline comments
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 
@@ -470,7 +470,7 @@ npm test
 Expected baseline:
 
 ```text
-238 pass / 0 fail
+239 pass / 0 fail
 ```
 
 Before commit for code/test changes:

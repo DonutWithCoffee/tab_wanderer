@@ -212,7 +212,13 @@ function loadWatchedOrdersContext(responseOverride, setupDocument, configOverrid
                     lastBaselineAt: 1700000000000,
                     lastEventAt: 1700000060000,
                     lastError: null,
-                    note: 'Важный заказ'
+                    note: 'Важный заказ',
+                    lastSnapshot: {
+                        status: 'Оплачен',
+                        delivery: 'Самовывоз',
+                        payment: 'Наличными в офисе',
+                        contractor: 'ООО Ромашка'
+                    }
                 }
             ]
         }
@@ -531,7 +537,14 @@ test('orders page renders and manages watched orders', () => {
     const document = context.__test.document;
 
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /1001-300326/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /watched-order-facts/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Оплачен/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Самовывоз/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Наличными в офисе/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /ООО Ромашка/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /watched-order-technical-details/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /watched-order-meta-grid/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Важный заказ/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /Открыть в админке/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /name="ordersWatchedOrderNote_1001_300326"/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /autocomplete="off"/);
@@ -721,23 +734,29 @@ test('orders page removes watched order from list', () => {
     assert.match(document.getElementById('ordersWatchedStatus').innerText, /удалён из отслеживаемых/);
 });
 
-test('orders page saves watched order comment from row editor', () => {
+test('orders page saves watched order comment inline on enter', () => {
     const context = loadWatchedOrdersContext();
     const document = context.__test.document;
     const noteInput = document.registerElement('ordersWatchedOrderNote_1001_300326');
 
+    noteInput.dataset = {
+        watchAction: 'note-input',
+        orderId: '1001-300326'
+    };
+
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /Важный заказ/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /data-watch-action="edit-note"/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /data-watch-action="note-input"/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Изменить/);
+    assert.doesNotMatch(document.getElementById('ordersWatchedList').innerHTML, /Нажмите на этот блок/);
 
     noteInput.value = '  Нужно проверить документы  ';
 
     document.getElementById('ordersWatchedList').dispatchEvent({
-        type: 'click',
-        target: {
-            dataset: {
-                watchAction: 'save-note',
-                orderId: '1001-300326'
-            }
-        }
+        type: 'keydown',
+        key: 'Enter',
+        preventDefault: () => {},
+        target: noteInput
     });
 
     const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
@@ -745,6 +764,70 @@ test('orders page saves watched order comment from row editor', () => {
     assert.equal(updateMessages.length, 1);
     assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].note, 'Нужно проверить документы');
     assert.match(document.getElementById('ordersWatchedStatus').innerText, /Комментарий/);
+});
+
+test('orders page clears watched order comment inline on blur', () => {
+    const context = loadWatchedOrdersContext();
+    const document = context.__test.document;
+    const noteInput = document.registerElement('ordersWatchedOrderNote_1001_300326');
+
+    noteInput.dataset = {
+        watchAction: 'note-input',
+        orderId: '1001-300326'
+    };
+    noteInput.value = '';
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'focusout',
+        target: noteInput
+    });
+
+    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].note, '');
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /удалён/);
+});
+
+test('orders page starts inline note editing when clicking inside comment block', () => {
+    const context = loadWatchedOrdersContext();
+    const document = context.__test.document;
+    const noteInput = document.registerElement('ordersWatchedOrderNote_1001_300326');
+    const noteContainer = {
+        edited: false,
+        classList: {
+            add(className) {
+                if (className === 'is-editing') {
+                    noteContainer.edited = true;
+                }
+            }
+        }
+    };
+    let focused = false;
+    let selected = false;
+
+    noteInput.closest = (selector) => selector === '.watched-order-note' ? noteContainer : null;
+    noteInput.focus = () => { focused = true; };
+    noteInput.select = () => { selected = true; };
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {},
+            closest: (selector) => selector === '[data-watch-action]'
+                ? {
+                    dataset: {
+                        watchAction: 'edit-note',
+                        orderId: '1001-300326'
+                    }
+                }
+                : null
+        }
+    });
+
+    assert.equal(noteContainer.edited, true);
+    assert.equal(focused, true);
+    assert.equal(selected, true);
 });
 
 test('orders page sets and clears watched order reminder through runtime API', () => {

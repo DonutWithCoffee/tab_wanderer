@@ -2850,6 +2850,51 @@ test('ADD_WATCHED_ORDER clears stale direct state before validation', async () =
     assert.equal(state.userConfig.watchedOrders.items[0].id, '1000-300326');
 });
 
+test('ADD_WATCHED_ORDER clears stale pending add before validation', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: false,
+        monitorState: 'uninitialized',
+        directWorkerTabId: null,
+        directFollowUpState: null,
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: []
+            }
+        })
+    });
+
+    runExpression(context, `
+        pendingWatchedOrderAdd = {
+            orderId: '9048-020726',
+            note: '',
+            startedAt: Date.now() - 120000,
+            accepted: true
+        };
+    `);
+
+    const response = await sendRuntimeMessage(context, {
+        type: 'ADD_WATCHED_ORDER',
+        orderId: '1000-300326'
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.accepted, true);
+    assert.equal(response.validating, true);
+
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+    await settleBackgroundContext();
+
+    const state = getBackgroundState(context);
+
+    assert.equal(context.__test.createdTabs.length, 1);
+    assert.equal(state.directFollowUpState.currentOrderId, '1000-300326');
+    assert.equal(state.directWorkerTabId, 1);
+});
+
 test('ADD_WATCHED_ORDER rejects pending add when direct worker tab closes', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

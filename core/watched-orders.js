@@ -49,6 +49,40 @@ function normalizeWatchedOrderNote(value) {
         .slice(0, WATCHED_ORDER_NOTE_LIMIT);
 }
 
+
+function normalizeWatchedOrderSnapshotText(value) {
+    return String(value || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .slice(0, 200);
+}
+
+function normalizeWatchedOrderSnapshot(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const snapshot = {
+        status: normalizeWatchedOrderSnapshotText(value.status),
+        delivery: normalizeWatchedOrderSnapshotText(value.delivery),
+        payment: normalizeWatchedOrderSnapshotText(value.payment),
+        contractor: normalizeWatchedOrderSnapshotText(value.contractor),
+        city: normalizeWatchedOrderSnapshotText(value.city)
+    };
+
+    return Object.values(snapshot).some(Boolean) ? snapshot : null;
+}
+
+function createWatchedOrderSnapshotFromOrder(order = {}) {
+    return normalizeWatchedOrderSnapshot({
+        status: order?.status,
+        delivery: order?.delivery,
+        payment: order?.payment,
+        contractor: order?.contractor,
+        city: order?.city
+    });
+}
+
 function normalizeWatchedOrderReminderStatus(value) {
     const status = String(value || '').trim();
 
@@ -120,7 +154,8 @@ function normalizeWatchedOrderItem(value, now = Date.now()) {
         return null;
     }
 
-    return {
+    const lastSnapshot = normalizeWatchedOrderSnapshot(source.lastSnapshot || source.orderSnapshot || source.snapshot);
+    const item = {
         id,
         status: normalizeWatchedOrderStatus(source.status),
         note: normalizeWatchedOrderNote(source.note),
@@ -131,6 +166,12 @@ function normalizeWatchedOrderItem(value, now = Date.now()) {
         lastError: source.lastError ? String(source.lastError) : null,
         reminder: normalizeWatchedOrderReminder(source.reminder, now)
     };
+
+    if (lastSnapshot) {
+        item.lastSnapshot = lastSnapshot;
+    }
+
+    return item;
 }
 
 function getRawWatchedOrderItems(value) {
@@ -426,6 +467,8 @@ globalThis.isValidWatchedOrderId = isValidWatchedOrderId;
 globalThis.normalizeWatchedOrderStatus = normalizeWatchedOrderStatus;
 globalThis.normalizeWatchedOrderTimestamp = normalizeWatchedOrderTimestamp;
 globalThis.normalizeWatchedOrderNote = normalizeWatchedOrderNote;
+globalThis.normalizeWatchedOrderSnapshot = normalizeWatchedOrderSnapshot;
+globalThis.createWatchedOrderSnapshotFromOrder = createWatchedOrderSnapshotFromOrder;
 globalThis.normalizeWatchedOrderReminderStatus = normalizeWatchedOrderReminderStatus;
 globalThis.normalizeWatchedOrderReminderNote = normalizeWatchedOrderReminderNote;
 globalThis.normalizeWatchedOrderReminder = normalizeWatchedOrderReminder;

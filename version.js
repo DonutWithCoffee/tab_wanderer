@@ -1,7 +1,7 @@
 const VERSION = {
     version: '0.9.9',
-    build: '0.9.9.11',
-    stage: 'release smoke checklist checkpoint',
+    build: '0.9.9.13',
+    stage: 'pre-RC watched-orders card polish checkpoint',
     date: '2026-07-05'
 };
 

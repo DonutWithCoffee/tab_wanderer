@@ -21,8 +21,8 @@ Version state:
 
 ```text
 Manifest version: 0.9.9
-Tests: 238 pass / 0 fail
-Latest checkpoint: docs(release): finalize smoke checklist for 1.0 RC
+Tests: 239 pass / 0 fail
+Latest checkpoint: ui(watched-orders): refine cards and inline comments
 Distribution target: Chrome Web Store / Unlisted listing
 ```
 

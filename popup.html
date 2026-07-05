@@ -3,35 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        body {
+
+        :root {
+            --bg: #f6f7fb;
+            --surface: #ffffff;
+            --surface-muted: #f9fafb;
+            --border: #d9dee7;
+            --border-strong: #c4ccd8;
+            --text: #1f2937;
+            --muted: #5f6b7a;
+            --primary: #2458d3;
+            --primary-hover: #1d47ae;
+            --success: #177245;
+            --danger: #b42318;
+            --warning: #9a6700;
+            --radius: 12px;
+            --shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+        }
+
+        * {
             box-sizing: border-box;
-            min-width: 340px;
+        }
+
+        body {
+            min-width: 360px;
             margin: 0;
-            padding: 14px;
+            padding: 16px;
             font-family: Arial, sans-serif;
-            color: #222;
-            background: #fff;
+            color: var(--text);
+            background: var(--bg);
         }
 
         h3 {
             margin: 0;
             font-size: 16px;
+            line-height: 1.2;
         }
 
         button {
-            box-sizing: border-box;
             width: 100%;
-            padding: 8px 10px;
-            border: 1px solid #cfcfcf;
-            border-radius: 6px;
-            background: #fff;
+            min-height: 36px;
+            padding: 8px 12px;
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            color: var(--text);
             cursor: pointer;
             text-align: center;
             font-size: 13px;
+            line-height: 1.2;
+            transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
         }
 
         button:hover {
-            background: #f3f3f3;
+            background: var(--surface-muted);
+            border-color: #aeb7c5;
+        }
+
+        button:focus-visible,
+        input:focus-visible {
+            outline: 2px solid rgba(36, 88, 211, 0.35);
+            outline-offset: 2px;
+        }
+
+        input[type="text"] {
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        input::placeholder {
+            color: #8a94a3;
         }
 
         .header {
@@ -39,50 +82,65 @@
             align-items: baseline;
             justify-content: space-between;
             gap: 12px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         #version {
-            color: #666;
+            color: var(--muted);
             font-size: 12px;
             white-space: nowrap;
         }
 
-        .status-card {
+        .status-card,
+        .section {
             margin-bottom: 12px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: #f8f8f8;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface);
+            box-shadow: var(--shadow);
+        }
+
+        .status-card {
+            border-left: 4px solid var(--primary);
         }
 
         #status {
             margin-bottom: 5px;
-            font-weight: bold;
+            font-weight: 700;
             font-size: 14px;
+            line-height: 1.3;
         }
 
         #statusDetails {
-            color: #555;
+            color: var(--muted);
             font-size: 12px;
-            line-height: 1.35;
+            line-height: 1.4;
         }
 
         .running {
-            color: #168018;
+            color: var(--success);
         }
 
         .stopped {
-            color: #b00020;
+            color: var(--danger);
         }
 
         .warming {
-            color: #a15c00;
+            color: var(--warning);
         }
 
         .primary-action {
             margin-top: 10px;
-            font-weight: bold;
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+            font-weight: 700;
+        }
+
+        .primary-action:hover {
+            border-color: var(--primary-hover);
+            background: var(--primary-hover);
         }
 
         .actions-grid {
@@ -98,23 +156,16 @@
 
         .hint {
             margin: 7px 0 0;
-            color: #555;
+            color: var(--muted);
             font-size: 12px;
-            line-height: 1.35;
-        }
-
-        .section {
-            margin: 12px 0;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: #fff;
+            line-height: 1.4;
         }
 
         .section-title {
             margin: 0 0 8px;
             font-size: 13px;
-            font-weight: bold;
+            line-height: 1.3;
+            font-weight: 700;
         }
 
         .inline-form {
@@ -124,26 +175,20 @@
         }
 
         .inline-form input[type="text"] {
-            box-sizing: border-box;
             flex: 1;
             min-width: 0;
-            padding: 8px;
-            border: 1px solid #cfcfcf;
-            border-radius: 6px;
+            padding: 9px 10px;
             font-size: 13px;
         }
 
         .stack-form {
             display: grid;
-            gap: 6px;
+            gap: 8px;
         }
 
         .stack-form input[type="text"] {
-            box-sizing: border-box;
             width: 100%;
-            padding: 8px;
-            border: 1px solid #cfcfcf;
-            border-radius: 6px;
+            padding: 9px 10px;
             font-size: 13px;
         }
 
@@ -153,13 +198,19 @@
             white-space: nowrap;
         }
 
+        #popupAddWatchedOrder {
+            border-color: var(--primary);
+            color: var(--primary);
+            font-weight: 700;
+        }
+
         .checkbox-row {
             display: flex;
             align-items: flex-start;
             gap: 8px;
-            margin: 6px 0;
+            margin: 8px 0;
             font-size: 12px;
-            line-height: 1.35;
+            line-height: 1.4;
         }
 
         .checkbox-row input {
