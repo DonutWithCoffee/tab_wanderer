@@ -288,6 +288,7 @@ test('getEffectiveConfig normalizes watched orders config', () => {
             {
                 id: '1000-300326',
                 status: 'active',
+                followUpEnabled: true,
                 note: '',
                 addedAt: config.watchedOrders.items[0].addedAt,
                 lastCheckedAt: null,
@@ -299,6 +300,7 @@ test('getEffectiveConfig normalizes watched orders config', () => {
             {
                 id: '2000-300326',
                 status: 'unresolved',
+                followUpEnabled: true,
                 note: '',
                 addedAt: config.watchedOrders.items[1].addedAt,
                 lastCheckedAt: null,

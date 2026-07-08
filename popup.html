@@ -141,6 +141,85 @@
             box-shadow: var(--shadow);
         }
 
+        .release-notes {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: grid;
+            align-items: center;
+            min-width: 370px;
+            min-height: 100vh;
+            margin: 0;
+            padding: 18px;
+            border: 0;
+            border-radius: 0;
+            background: #eef4ff;
+            box-shadow: none;
+        }
+
+        .release-notes[hidden] {
+            display: none !important;
+        }
+
+        .release-notes-panel {
+            display: grid;
+            gap: 12px;
+            width: 100%;
+            padding: 18px;
+            border: 1px solid #b7c6ec;
+            border-radius: 16px;
+            background: var(--surface);
+            box-shadow: 0 14px 34px rgba(16, 24, 40, 0.18);
+        }
+
+        .release-notes-eyebrow {
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+
+        .release-notes-title {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1.25;
+            font-weight: 700;
+        }
+
+        .release-notes-description {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .release-notes-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--text);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .release-notes-list li + li {
+            margin-top: 7px;
+        }
+
+        .release-notes button {
+            min-height: 40px;
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+            font-weight: 700;
+        }
+
+        .release-notes button:hover {
+            border-color: var(--primary-hover);
+            background: var(--primary-hover);
+            color: #fff;
+        }
+
         .status-card {
             border-left: 4px solid var(--primary);
         }
@@ -375,6 +454,16 @@
         <div id="status">Статус: загрузка...</div>
         <div id="statusDetails">Получаем состояние мониторинга...</div>
         <button id="toggleMonitor" class="primary-action">Включить мониторинг</button>
+    </div>
+
+    <div id="popupReleaseNotes" class="release-notes release-notes-fullscreen" hidden>
+        <div class="release-notes-panel">
+            <div class="release-notes-eyebrow">Обновление Tab Wanderer</div>
+            <p id="popupReleaseNotesTitle" class="release-notes-title">Что нового</p>
+            <p class="release-notes-description">Коротко прочитайте изменения. После подтверждения этот экран больше не появится до следующего патча.</p>
+            <ul id="popupReleaseNotesBody" class="release-notes-list"></ul>
+            <button id="dismissReleaseNotes" type="button">Понятно, продолжить</button>
+        </div>
     </div>
 
     <div class="section">

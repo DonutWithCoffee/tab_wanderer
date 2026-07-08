@@ -549,7 +549,9 @@ test('orders page renders and manages watched orders', () => {
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /name="ordersWatchedOrderNote_1001_300326"/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /autocomplete="off"/);
     assert.match(document.getElementById('ordersWatchedList').innerHTML, /https:\/\/amperkot\.ru\/admin\/orders\/1001-300326\//);
-    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Отслеживается: 1; активных: 1/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Сохранено: 1; проверка включена: 1/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /проверка включена/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Отключить проверку/);
     assert.equal(document.getElementById('ordersWatchedOrderFollowUpIntervalSelect').value, '2');
 
     document.getElementById('ordersWatchedOrderInput').value = '2222-110626';
@@ -709,6 +711,56 @@ test('hidden order lookup shows order lookup load failure', () => {
 });
 
 
+
+
+
+test('orders page toggles watched order follow-up without removing reminder data', () => {
+    const context = loadWatchedOrdersContext(null, null, {
+        watchedOrderFollowUpIntervalMinutes: 2,
+        watchedOrders: {
+            items: [
+                {
+                    id: '1001-300326',
+                    status: 'active',
+                    followUpEnabled: true,
+                    note: 'Важный заказ',
+                    addedAt: 1700000000000,
+                    lastCheckedAt: 1700000060000,
+                    lastBaselineAt: 1700000000000,
+                    lastEventAt: 1700000060000,
+                    lastError: null,
+                    reminder: {
+                        status: 'pending',
+                        remindAt: 4102491600000,
+                        note: 'Позвонить клиенту',
+                        createdAt: 1700000000000,
+                        updatedAt: 1700000000000
+                    }
+                }
+            ]
+        }
+    });
+    const document = context.__test.document;
+
+    document.getElementById('ordersWatchedList').dispatchEvent({
+        type: 'click',
+        target: {
+            dataset: {
+                watchAction: 'toggle-follow-up',
+                orderId: '1001-300326'
+            }
+        }
+    });
+
+    const updateMessages = getMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].followUpEnabled, false);
+    assert.equal(updateMessages[0].userConfig.watchedOrders.items[0].reminder.status, 'pending');
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /проверка выключена/);
+    assert.match(document.getElementById('ordersWatchedList').innerHTML, /Включить проверку/);
+    assert.match(document.getElementById('ordersWatchedStatus').innerText, /Напоминания продолжают работать/);
+});
 
 test('orders page removes watched order from list', () => {
     const context = loadWatchedOrdersContext();

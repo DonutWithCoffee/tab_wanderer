@@ -42,6 +42,10 @@ function normalizeWatchedOrderTimestamp(value) {
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
+function isWatchedOrderFollowUpEnabled(item = {}) {
+    return item?.followUpEnabled !== false;
+}
+
 function normalizeWatchedOrderNote(value) {
     return String(value || '')
         .trim()
@@ -158,6 +162,7 @@ function normalizeWatchedOrderItem(value, now = Date.now()) {
     const item = {
         id,
         status: normalizeWatchedOrderStatus(source.status),
+        followUpEnabled: source.followUpEnabled !== false,
         note: normalizeWatchedOrderNote(source.note),
         addedAt: normalizeWatchedOrderTimestamp(source.addedAt) || now,
         lastCheckedAt: normalizeWatchedOrderTimestamp(source.lastCheckedAt),
@@ -217,6 +222,7 @@ function createWatchedOrderItem(orderId, now = Date.now(), options = {}) {
     return normalizeWatchedOrderItem({
         id: orderId,
         status: WATCHED_ORDER_STATUSES.ACTIVE,
+        followUpEnabled: options?.followUpEnabled !== false,
         note: options?.note,
         addedAt: now
     }, now);
@@ -466,6 +472,7 @@ globalThis.normalizeWatchedOrderId = normalizeWatchedOrderId;
 globalThis.isValidWatchedOrderId = isValidWatchedOrderId;
 globalThis.normalizeWatchedOrderStatus = normalizeWatchedOrderStatus;
 globalThis.normalizeWatchedOrderTimestamp = normalizeWatchedOrderTimestamp;
+globalThis.isWatchedOrderFollowUpEnabled = isWatchedOrderFollowUpEnabled;
 globalThis.normalizeWatchedOrderNote = normalizeWatchedOrderNote;
 globalThis.normalizeWatchedOrderSnapshot = normalizeWatchedOrderSnapshot;
 globalThis.createWatchedOrderSnapshotFromOrder = createWatchedOrderSnapshotFromOrder;

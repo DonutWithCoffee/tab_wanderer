@@ -44,6 +44,10 @@ function createDirectFollowUpUrl(orderId, options = {}) {
 function getActiveWatchedOrderItems(watchedOrders = {}) {
     return normalizeWatchedOrdersConfig(watchedOrders).items
         .filter(item => {
+            if (typeof isWatchedOrderFollowUpEnabled === 'function' && !isWatchedOrderFollowUpEnabled(item)) {
+                return false;
+            }
+
             if (item.status === WATCHED_ORDER_STATUSES.ACTIVE) {
                 return true;
             }

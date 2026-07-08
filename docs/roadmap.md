@@ -22,14 +22,14 @@ Version state:
 
 ```text
 Manifest version: 1.0.1
-Tests: 246 pass / 0 fail
-Latest checkpoint: patch: add legal-entity-only notification filter
+Tests: 249 pass / 0 fail
+Latest checkpoint: patch: legal-entity-only filter + per-order follow-up toggle + popup release notes
 Distribution target: Chrome Web Store / Unlisted listing released
 ```
 
 Решение по версии: после чистого smoke проект переводится в `1.0.0`; дальнейшие исправления для Chrome Web Store идут отдельными patch/minor версиями.
 
-## 1.0.1 — Legal entity notification filter ✅
+## 1.0.1 — Legal entity filter + watched-order follow-up toggle ✅
 
 Сделано:
 
@@ -39,12 +39,17 @@ Distribution target: Chrome Web Store / Unlisted listing released
 конфликт с “игнорировать юрлица” нормализуется: only-mode выключает ignore-mode
 popup/options UI блокируют “Юрлица” при включённом “Только юрлица”
 новые tests для rules/popup/options
+добавлен переключатель в карточке заказа: “Проверка изменений” вкл/выкл
+при выключенной проверке заказ остаётся в списке, комментарий и напоминание продолжают работать
+direct follow-up выбирает только заказы с включённой проверкой
+popup показывает блок “Что нового” до подтверждения пользователем
+прочитанный блок не появляется снова до следующей версии
 ```
 
 Chrome Web Store note для загрузки:
 
 ```text
-Bugfix and notification filter improvement only, no permission or data handling changes.
+Bugfix and local monitoring controls improvement only, no permission or data handling changes.
 ```
 
 ---

@@ -1197,6 +1197,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
             {
                 id: '1000-300326',
                 status: 'active',
+                followUpEnabled: true,
                 note: 'Срочно проверить',
                 addedAt: 1700000000000,
                 lastCheckedAt: null,
@@ -1208,6 +1209,7 @@ test('watched orders helpers normalize, deduplicate and validate order ids', () 
             {
                 id: '2000-300326',
                 status: 'active',
+                followUpEnabled: true,
                 note: '',
                 addedAt: 1700000001000,
                 lastCheckedAt: null,
@@ -1433,6 +1435,37 @@ test('direct follow-up helpers select watched orders and update check status', (
     assert.equal(context.hasWatchedOrderDirectBaseline(baselined, '1000-300326'), true);
     assert.equal(eventMarked.items[0].lastBaselineAt, 1700000007000);
     assert.equal(eventMarked.items[0].lastEventAt, 1700000008000);
+});
+
+
+
+test('direct follow-up helpers skip orders with disabled follow-up', () => {
+    const context = loadBackgroundContext();
+    const watchedOrders = context.normalizeWatchedOrdersConfig({
+        items: [
+            { id: '1000-300326', followUpEnabled: false },
+            { id: '2000-300326' }
+        ]
+    }, 1700000000000);
+
+    assert.equal(watchedOrders.items[0].followUpEnabled, false);
+    assert.equal(context.isWatchedOrderFollowUpEnabled(watchedOrders.items[0]), false);
+    assert.equal(context.isWatchedOrderFollowUpEnabled(watchedOrders.items[1]), true);
+
+    const selected = context.selectNextDirectFollowUpItem(watchedOrders, { nextIndex: 0 });
+
+    assert.equal(selected.item.id, '2000-300326');
+    assert.equal(selected.nextIndex, 0);
+
+    const none = context.selectNextDirectFollowUpItem({
+        items: [
+            { id: '1000-300326', followUpEnabled: false },
+            { id: '2000-300326', followUpEnabled: false }
+        ]
+    }, { nextIndex: 0 });
+
+    assert.equal(none.item, null);
+    assert.equal(none.nextIndex, 0);
 });
 
 test('monitor status snapshot exposes direct follow-up state without watched order payloads', () => {

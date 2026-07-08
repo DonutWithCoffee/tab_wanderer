@@ -13,8 +13,8 @@
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
 Текущая стадия: 1.0.1 stable monitoring patch
 Manifest version: 1.0.1
-Tests: 246 pass / 0 fail
-Latest checkpoint: patch: add legal-entity-only notification filter
+Tests: 249 pass / 0 fail
+Latest checkpoint: patch: legal-entity-only filter + per-order follow-up toggle + popup release notes
 Distribution target: Chrome Web Store / Unlisted listing released
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -60,7 +60,7 @@ ui(copy): simplify pre-RC user-facing text
 fix: harden startup guard on worker creation failure
 chore: add Chrome Web Store icon metadata
 release: prepare 1.0.0 stable monitoring release
-patch: add legal-entity-only notification filter
+patch: legal-entity-only filter + per-order follow-up toggle
 ```
 
 ---
@@ -442,6 +442,7 @@ tag-only direct changes = history/event only, no notification
 direct changes update knownOrdersDB
 direct follow-up state is separate from list-state
 direct follow-up interval is configurable in Options: 2 / 5 / 10 / 15 / 30 minutes; default is 2
+per-order follow-up can be disabled while keeping the saved order, comment and reminder
 ```
 
 ---

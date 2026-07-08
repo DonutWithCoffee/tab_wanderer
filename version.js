@@ -17,5 +17,5 @@ const CHANGELOG = {
     '0.9.8': 'observability, diagnostic log retention/full export, manual-start catch-up, pagination completion, runtime consistency and core extraction',
     '0.9.9': 'orders page, watchlist/direct follow-up, reminders, options polish, diagnostics, startup catch-up suppression, startup guard hardening and warehouse/Ozon barcode QA',
     '1.0.0': 'stable monitoring release: local-first order monitoring, watched orders with reminders, diagnostics, Chrome Web Store icon metadata and warehouse/Ozon barcode helper',
-    '1.0.1': 'notification filter patch: notify only about legal entity payment orders without changing permissions or data handling'
+    '1.0.1': 'monitoring patch: notify only about legal entity payment orders, toggle per-order follow-up and show local popup release notes without changing permissions or data handling'
 };

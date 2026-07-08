@@ -33,6 +33,142 @@ const POPUP_WATCHED_ORDER_ADD_POLL_INTERVAL_MS = 1000;
 const POPUP_WATCHED_ORDER_ADD_MAX_POLLS = 60;
 
 
+const POPUP_RELEASE_NOTES_STORAGE_KEY = 'lastSeenReleaseNotesVersion';
+const POPUP_RELEASE_NOTES = {
+    version: '1.0.1',
+    title: 'Что нового в 1.0.1',
+    items: [
+        'Добавлен фильтр “Только юрлица”.',
+        'В отслеживаемых заказах можно выключать проверку изменений, оставляя комментарии и напоминания.'
+    ]
+};
+
+
+function escapePopupHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function setPopupReleaseNotesVisible(value) {
+    const card = document.getElementById('popupReleaseNotes');
+
+    if (!card) {
+        return;
+    }
+
+    const isVisible = Boolean(value);
+
+    card.hidden = !isVisible;
+
+    if (card.style) {
+        card.style.display = isVisible ? '' : 'none';
+    }
+}
+
+function getPopupStorageArea() {
+    try {
+        return chrome?.storage?.local || null;
+    } catch {
+        return null;
+    }
+}
+
+function readPopupStorage(keys, callback) {
+    const storage = getPopupStorageArea();
+
+    if (!storage || typeof storage.get !== 'function') {
+        callback({});
+        return;
+    }
+
+    let callbackCalled = false;
+    const done = (result = {}) => {
+        if (callbackCalled) {
+            return;
+        }
+
+        callbackCalled = true;
+        callback(result || {});
+    };
+
+    try {
+        const maybePromise = storage.get(keys, done);
+
+        if (maybePromise && typeof maybePromise.then === 'function') {
+            maybePromise.then(done).catch(() => done({}));
+        }
+    } catch {
+        done({});
+    }
+}
+
+function writePopupStorage(values, callback) {
+    const storage = getPopupStorageArea();
+
+    if (!storage || typeof storage.set !== 'function') {
+        if (callback) callback(false);
+        return;
+    }
+
+    let callbackCalled = false;
+    const done = (ok = true) => {
+        if (callbackCalled) {
+            return;
+        }
+
+        callbackCalled = true;
+        if (callback) callback(ok);
+    };
+
+    try {
+        const maybePromise = storage.set(values, () => done(true));
+
+        if (maybePromise && typeof maybePromise.then === 'function') {
+            maybePromise.then(() => done(true)).catch(() => done(false));
+        }
+    } catch {
+        done(false);
+    }
+}
+
+function renderPopupReleaseNotes() {
+    const title = document.getElementById('popupReleaseNotesTitle');
+    const body = document.getElementById('popupReleaseNotesBody');
+
+    if (title) {
+        title.innerText = POPUP_RELEASE_NOTES.title;
+    }
+
+    if (body) {
+        body.innerHTML = POPUP_RELEASE_NOTES.items
+            .map((item) => `<li>${escapePopupHtml(item)}</li>`)
+            .join('');
+    }
+}
+
+function loadPopupReleaseNotes() {
+    renderPopupReleaseNotes();
+    setPopupReleaseNotesVisible(false);
+
+    readPopupStorage([POPUP_RELEASE_NOTES_STORAGE_KEY], (result = {}) => {
+        const lastSeen = String(result[POPUP_RELEASE_NOTES_STORAGE_KEY] || '');
+
+        setPopupReleaseNotesVisible(lastSeen !== POPUP_RELEASE_NOTES.version);
+    });
+}
+
+function dismissPopupReleaseNotes() {
+    writePopupStorage({
+        [POPUP_RELEASE_NOTES_STORAGE_KEY]: POPUP_RELEASE_NOTES.version
+    }, () => {
+        setPopupReleaseNotesVisible(false);
+    });
+}
+
 function send(msg, cb) {
     chrome.runtime.sendMessage(msg, (res) => {
         const runtimeError = chrome.runtime.lastError;
@@ -714,6 +850,7 @@ function bindNavigationActions() {
     const popupAddWatchedOrder = document.getElementById('popupAddWatchedOrder');
     const popupWatchedOrderInput = document.getElementById('popupWatchedOrderInput');
     const popupWatchedOrderNote = document.getElementById('popupWatchedOrderNote');
+    const dismissReleaseNotesBtn = document.getElementById('dismissReleaseNotes');
 
     if (toggleMonitorBtn) {
         toggleMonitorBtn.addEventListener('click', () => {
@@ -779,6 +916,10 @@ function bindNavigationActions() {
             }
         });
     }
+
+    if (dismissReleaseNotesBtn) {
+        dismissReleaseNotesBtn.addEventListener('click', dismissPopupReleaseNotes);
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -786,6 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('version', `v${version}`);
 
     bindNavigationActions();
+    loadPopupReleaseNotes();
     loadMonitorStatus();
     loadPopupConfig();
 });

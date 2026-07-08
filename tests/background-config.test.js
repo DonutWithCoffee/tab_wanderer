@@ -2604,6 +2604,33 @@ test('direct follow-up tick opens separate direct worker for watched order', asy
     assert.equal(state.workerTabId, 77);
 });
 
+
+
+test('direct follow-up tick skips watched orders with disabled follow-up', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        isRunning: true,
+        monitorState: 'active',
+        workerTabId: 77,
+        directWorkerTabId: null,
+        directFollowUpState: null,
+        userConfig: createWindowedConfig(context, {
+            watchedOrders: {
+                items: [
+                    { id: '1000-300326', followUpEnabled: false }
+                ]
+            }
+        })
+    });
+
+    const started = await context.runDirectFollowUpTick();
+
+    assert.equal(started, false);
+    assert.equal(context.__test.createdTabs.length, 0);
+});
+
 test('direct follow-up tick respects configured interval', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

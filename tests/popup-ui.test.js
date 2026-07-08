@@ -33,8 +33,11 @@ class FakeElement extends FakeEventTarget {
         this.id = id;
         this.innerText = '';
         this.textContent = '';
+        this.innerHTML = '';
         this.value = '';
         this.checked = false;
+        this.hidden = false;
+        this.disabled = false;
         this.href = '';
         this.download = '';
         this.clicked = false;
@@ -117,6 +120,10 @@ function createPopupDom() {
         'popupAddWatchedOrder',
         'popupWatchedOrderStatus',
         'popupWatchedOrderNote',
+        'popupReleaseNotes',
+        'popupReleaseNotesTitle',
+        'popupReleaseNotesBody',
+        'dismissReleaseNotes',
         'diagnosticLogStatus'
     ]) {
         document.registerElement(id);
@@ -167,6 +174,10 @@ function loadPopupContext(overrides = {}) {
             { createdAt: 1700000001000, level: 'WARN', scope: 'WATCHDOG', message: 'worker dead restarting' }
         ]
     };
+    const storageState = {
+        lastSeenReleaseNotesVersion: '1.0.1',
+        ...(overrides.storageState || {})
+    };
 
     const context = {
         console: {
@@ -178,6 +189,31 @@ function loadPopupContext(overrides = {}) {
         window: {},
         setTimeout: overrides.immediateTimers ? ((callback) => callback()) : undefined,
         chrome: {
+            storage: {
+                local: {
+                    get: (keys, callback) => {
+                        const result = {};
+                        const keyList = Array.isArray(keys) ? keys : [keys];
+
+                        for (const key of keyList) {
+                            if (Object.prototype.hasOwnProperty.call(storageState, key)) {
+                                result[key] = storageState[key];
+                            }
+                        }
+
+                        if (typeof callback === 'function') {
+                            callback(JSON.parse(JSON.stringify(result)));
+                        }
+                    },
+                    set: (values, callback) => {
+                        Object.assign(storageState, JSON.parse(JSON.stringify(values || {})));
+
+                        if (typeof callback === 'function') {
+                            callback();
+                        }
+                    }
+                }
+            },
             tabs: {
                 createdTabs: [],
                 create: (createInfo) => {
@@ -254,7 +290,8 @@ function loadPopupContext(overrides = {}) {
         },
         __test: {
             sentMessages,
-            document
+            document,
+            storageState
         }
     };
 
@@ -290,6 +327,12 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /Фильтры уведомлений/);
     assert.match(html, /Фильтры меняют только уведомления/);
     assert.match(html, /id="statusDetails"/);
+    assert.match(html, /id="popupReleaseNotes"/);
+    assert.match(html, /release-notes-fullscreen/);
+    assert.match(html, /class="release-notes-panel"/);
+    assert.match(html, /id="dismissReleaseNotes"/);
+    assert.match(html, /Понятно, продолжить/);
+    assert.match(html, /этот экран больше не появится до следующего патча/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupNotifyLegalEntityPaymentOnly"/);
     assert.match(html, /id="popupIgnoreOzon"/);
@@ -432,6 +475,38 @@ test('popup legal-entity-only filter disables legal entity suppressor', () => {
     });
     assert.equal(document.getElementById('popupIgnoreLegalEntityPayment').checked, false);
     assert.equal(document.getElementById('popupIgnoreLegalEntityPayment').disabled, true);
+});
+
+test('popup shows release notes until current version is acknowledged', () => {
+    const context = loadPopupContext({
+        storageState: {
+            lastSeenReleaseNotesVersion: '1.0.0'
+        }
+    });
+    const document = context.__test.document;
+
+    assert.equal(document.getElementById('popupReleaseNotes').hidden, false);
+    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Что нового в 1.0.1');
+    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /Только юрлица/);
+
+    document.getElementById('dismissReleaseNotes').dispatchEvent({
+        type: 'click',
+        target: document.getElementById('dismissReleaseNotes')
+    });
+
+    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.1');
+    assert.equal(document.getElementById('popupReleaseNotes').hidden, true);
+});
+
+test('popup keeps release notes hidden after acknowledgement', () => {
+    const context = loadPopupContext({
+        storageState: {
+            lastSeenReleaseNotesVersion: '1.0.1'
+        }
+    });
+    const document = context.__test.document;
+
+    assert.equal(document.getElementById('popupReleaseNotes').hidden, true);
 });
 
 test('popup adds watched order by full order id only', () => {

@@ -12,8 +12,8 @@ Chrome extension для мониторинга заказов в админке 
 Стадия разработки: 1.0.1 stable monitoring patch
 Manifest version: 1.0.1
 Текущий фокус: review-friendly patch release
-Tests: 246 pass / 0 fail
-Latest checkpoint: patch: add legal-entity-only notification filter
+Tests: 249 pass / 0 fail
+Latest checkpoint: patch: legal-entity-only filter + per-order follow-up toggle + popup release notes
 Distribution target: Chrome Web Store / Unlisted listing released
 ```
 
@@ -131,7 +131,7 @@ diagnostic log tools
 
 ### Заказы
 
-Страница `watched-orders.html/watched-orders.js` — рабочий экран отслеживаемых заказов: прямые проверки, комментарии, интервал проверки и одноразовые напоминания. Hidden order lookup остаётся внутри как diagnostic/foundation, но не является пользовательским UI.
+Страница `watched-orders.html/watched-orders.js` — рабочий экран сохранённых/отслеживаемых заказов: прямые проверки, per-order переключатель проверки изменений, комментарии, интервал проверки и одноразовые напоминания. Hidden order lookup остаётся внутри как diagnostic/foundation, но не является пользовательским UI.
 
 Текущие/целевые сценарии:
 
@@ -142,6 +142,7 @@ diagnostic log tools
 показать pending/done/cancelled reminder state
 удалить pending reminder
 настроить интервал прямой проверки отслеживаемых заказов
+включить/выключить проверку изменений у конкретного сохранённого заказа без удаления комментария/напоминания
 локальный order lookup/eventJournal оставить как diagnostic/foundation
 не продавать локальную историю как серверную историю заказа
 ```

@@ -173,6 +173,10 @@ function normalizeOrdersTimestamp(value) {
     return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
+function isOrdersWatchedOrderFollowUpEnabled(item = {}) {
+    return item?.followUpEnabled !== false;
+}
+
 function normalizeOrdersWatchedOrderNote(value) {
     return String(value || '')
         .trim()
@@ -308,6 +312,7 @@ function normalizeOrdersWatchedOrderItem(value, now = Date.now()) {
     const item = {
         id,
         status: source.status === 'unresolved' ? 'unresolved' : 'active',
+        followUpEnabled: source.followUpEnabled !== false,
         note: normalizeOrdersWatchedOrderNote(source.note),
         addedAt: normalizeOrdersTimestamp(source.addedAt) || now,
         lastCheckedAt: normalizeOrdersTimestamp(source.lastCheckedAt),
@@ -763,6 +768,7 @@ function getWatchedOrdersStats(items = []) {
         total: safeItems.length,
         active: safeItems.filter(item => item.status === 'active').length,
         unresolved: safeItems.filter(item => item.status === 'unresolved').length,
+        followUpEnabled: safeItems.filter(isOrdersWatchedOrderFollowUpEnabled).length,
         pendingReminders: safeItems.filter(item => item.reminder?.status === 'pending').length
     };
 }
@@ -872,8 +878,8 @@ function renderWatchedOrders(config = currentOrdersConfig) {
     setInnerText(
         'ordersWatchedStatus',
         watchedOrders.items.length
-            ? `Отслеживается: ${stats.total}; активных: ${stats.active}; с напоминанием: ${stats.pendingReminders}; проверка: ${intervalLabel}`
-            : `Список пуст. Проверка: ${intervalLabel}`
+            ? `Сохранено: ${stats.total}; проверка включена: ${stats.followUpEnabled}; с напоминанием: ${stats.pendingReminders}; интервал: ${intervalLabel}`
+            : `Список пуст. Интервал проверки: ${intervalLabel}`
     );
 
     if (!watchedOrders.items.length) {
@@ -883,6 +889,16 @@ function renderWatchedOrders(config = currentOrdersConfig) {
 
     setInnerHtml('ordersWatchedList', watchedOrders.items.map((item) => {
         const adminUrl = buildWatchedOrderAdminUrl(item.id);
+        const followUpEnabled = isOrdersWatchedOrderFollowUpEnabled(item);
+        const followUpBadge = followUpEnabled
+            ? renderBadge('проверка включена', 'badge-positive')
+            : renderBadge('проверка выключена', 'badge-muted');
+        const followUpButtonLabel = followUpEnabled
+            ? 'Отключить проверку'
+            : 'Включить проверку';
+        const followUpHint = followUpEnabled
+            ? ''
+            : '<div class="watched-order-meta">Проверка изменений выключена. Комментарий и напоминание остаются.</div>';
 
         return `
             <article class="watched-order-row" data-order-id="${escapeHtml(item.id)}">
@@ -891,12 +907,15 @@ function renderWatchedOrders(config = currentOrdersConfig) {
                         <div class="watched-order-title-row">
                             <span class="watched-orders-title">${escapeHtml(item.id)}</span>
                             ${renderBadge(getWatchedOrderStatusLabel(item.status), getWatchedOrderStatusBadgeClass(item.status))}
+                            ${followUpBadge}
                             ${item.reminder?.status === 'pending' ? renderBadge('есть напоминание', 'badge-warning') : ''}
                         </div>
+                        ${followUpHint}
                         ${item.lastError ? `<div class="watched-order-meta">Ошибка: ${escapeHtml(item.lastError)}</div>` : ''}
                     </div>
                     <div class="watched-order-actions">
                         ${adminUrl ? `<a class="button-link" href="${escapeHtml(adminUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>` : ''}
+                        <button type="button" data-watch-action="toggle-follow-up" data-order-id="${escapeHtml(item.id)}">${escapeHtml(followUpButtonLabel)}</button>
                         <button type="button" data-watch-action="remove" data-order-id="${escapeHtml(item.id)}">Удалить</button>
                     </div>
                 </div>
@@ -1095,6 +1114,46 @@ function addWatchedOrder(orderId, source = 'orders-page', noteValue = '') {
     });
 }
 
+
+function toggleWatchedOrderFollowUp(orderId) {
+    const id = normalizeOrdersWatchedOrderId(orderId);
+    const watchedOrders = getOrdersWatchedOrdersConfig(currentOrdersConfig);
+    let found = false;
+    let nextEnabled = true;
+
+    const nextItems = watchedOrders.items.map(item => {
+        if (item.id !== id) {
+            return item;
+        }
+
+        found = true;
+        nextEnabled = !isOrdersWatchedOrderFollowUpEnabled(item);
+
+        return {
+            ...item,
+            followUpEnabled: nextEnabled
+        };
+    });
+
+    if (!found) {
+        setInnerText('ordersWatchedStatus', `Заказ №${id} не найден в списке.`);
+        return;
+    }
+
+    const nextConfig = {
+        ...currentOrdersConfig,
+        watchedOrders: {
+            items: nextItems
+        }
+    };
+
+    saveOrdersConfig(
+        nextConfig,
+        nextEnabled
+            ? `Проверка изменений для заказа №${id} включена.`
+            : `Проверка изменений для заказа №${id} выключена. Напоминания продолжают работать.`
+    );
+}
 
 function removeWatchedOrder(orderId) {
     const id = normalizeOrdersWatchedOrderId(orderId);
@@ -1352,6 +1411,8 @@ function bindHistoryControls() {
 
             if (action === 'remove') {
                 removeWatchedOrder(orderId);
+            } else if (action === 'toggle-follow-up') {
+                toggleWatchedOrderFollowUp(orderId);
             } else if (action === 'edit-note') {
                 beginInlineWatchedOrderNoteEdit(orderId);
             } else if (action === 'set-reminder') {
