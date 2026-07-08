@@ -9,12 +9,12 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 1.0 stable monitoring release
-Manifest version: 1.0.0
-Текущий фокус: Chrome Web Store submission readiness
-Tests: 242 pass / 0 fail
-Latest checkpoint: release: prepare 1.0.0 stable monitoring release
-Distribution target: Chrome Web Store / Unlisted listing
+Стадия разработки: 1.0.1 stable monitoring patch
+Manifest version: 1.0.1
+Текущий фокус: review-friendly patch release
+Tests: 246 pass / 0 fail
+Latest checkpoint: patch: add legal-entity-only notification filter
+Distribution target: Chrome Web Store / Unlisted listing released
 ```
 
 Документы проекта:

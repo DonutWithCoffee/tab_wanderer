@@ -7,6 +7,7 @@ let currentMonitorStatus = {
 let currentPopupConfig = {
     notificationSuppressors: {
         ignoreLegalEntityPayment: false,
+        notifyLegalEntityPaymentOnly: false,
         ignoreOzon: false
     },
     watchedOrders: {
@@ -16,11 +17,13 @@ let currentPopupConfig = {
 
 const POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS = {
     ignoreLegalEntityPayment: false,
+    notifyLegalEntityPaymentOnly: false,
     ignoreOzon: false
 };
 
 const POPUP_SUPPRESSOR_CONTROLS = [
     { key: 'ignoreLegalEntityPayment', id: 'popupIgnoreLegalEntityPayment' },
+    { key: 'notifyLegalEntityPaymentOnly', id: 'popupNotifyLegalEntityPaymentOnly' },
     { key: 'ignoreOzon', id: 'popupIgnoreOzon' }
 ];
 
@@ -80,6 +83,10 @@ function getPopupNotificationSuppressors(config = {}) {
             suppressors.ignoreLegalEntityPayment,
             POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreLegalEntityPayment
         ),
+        notifyLegalEntityPaymentOnly: getBooleanConfigValue(
+            suppressors.notifyLegalEntityPaymentOnly,
+            POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS.notifyLegalEntityPaymentOnly
+        ),
         ignoreOzon: getBooleanConfigValue(
             suppressors.ignoreOzon,
             POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreOzon
@@ -95,12 +102,35 @@ function setChecked(id, value) {
     }
 }
 
+function setDisabled(id, value) {
+    const el = document.getElementById(id);
+
+    if (el) {
+        el.disabled = Boolean(value);
+    }
+}
+
+function normalizePopupNotificationSuppressors(suppressors = {}) {
+    const normalized = {
+        ...POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS,
+        ...suppressors
+    };
+
+    if (normalized.notifyLegalEntityPaymentOnly) {
+        normalized.ignoreLegalEntityPayment = false;
+    }
+
+    return normalized;
+}
+
 function updateQuickSuppressorControls(config = {}) {
-    const suppressors = getPopupNotificationSuppressors(config);
+    const suppressors = normalizePopupNotificationSuppressors(getPopupNotificationSuppressors(config));
 
     for (const control of POPUP_SUPPRESSOR_CONTROLS) {
         setChecked(control.id, suppressors[control.key]);
     }
+
+    setDisabled('popupIgnoreLegalEntityPayment', suppressors.notifyLegalEntityPaymentOnly);
 }
 
 function loadPopupConfig() {
@@ -133,13 +163,15 @@ function savePopupConfig(nextConfig, successMessage = 'Фильтры сохра
 }
 
 function toggleQuickSuppressor(key) {
-    const suppressors = getPopupNotificationSuppressors(currentPopupConfig);
+    const suppressors = normalizePopupNotificationSuppressors(getPopupNotificationSuppressors(currentPopupConfig));
+    const nextSuppressors = normalizePopupNotificationSuppressors({
+        ...suppressors,
+        [key]: !suppressors[key]
+    });
+
     const nextConfig = {
         ...currentPopupConfig,
-        notificationSuppressors: {
-            ...suppressors,
-            [key]: !suppressors[key]
-        }
+        notificationSuppressors: nextSuppressors
     };
 
     savePopupConfig(nextConfig);
@@ -677,6 +709,7 @@ function bindNavigationActions() {
     const openWatchedOrdersBtn = document.getElementById('openWatchedOrders');
     const downloadDiagnosticLogBtn = document.getElementById('downloadDiagnosticLog');
     const popupIgnoreLegalEntityPayment = document.getElementById('popupIgnoreLegalEntityPayment');
+    const popupNotifyLegalEntityPaymentOnly = document.getElementById('popupNotifyLegalEntityPaymentOnly');
     const popupIgnoreOzon = document.getElementById('popupIgnoreOzon');
     const popupAddWatchedOrder = document.getElementById('popupAddWatchedOrder');
     const popupWatchedOrderInput = document.getElementById('popupWatchedOrderInput');
@@ -712,6 +745,12 @@ function bindNavigationActions() {
     if (popupIgnoreLegalEntityPayment) {
         popupIgnoreLegalEntityPayment.addEventListener('change', () => {
             toggleQuickSuppressor('ignoreLegalEntityPayment');
+        });
+    }
+
+    if (popupNotifyLegalEntityPaymentOnly) {
+        popupNotifyLegalEntityPaymentOnly.addEventListener('change', () => {
+            toggleQuickSuppressor('notifyLegalEntityPaymentOnly');
         });
     }
 

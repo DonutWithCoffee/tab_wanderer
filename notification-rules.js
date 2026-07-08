@@ -22,6 +22,7 @@ const DEFAULT_CONFIG = {
     },
     notificationSuppressors: {
         ignoreLegalEntityPayment: false,
+        notifyLegalEntityPaymentOnly: false,
         ignoreOzon: false
     },
     monitorScope: {
@@ -143,11 +144,17 @@ function normalizeNotificationTriggers(triggers = {}) {
 function normalizeNotificationSuppressors(suppressors = {}) {
     const safeSuppressors = suppressors || {};
     const defaultSuppressors = DEFAULT_CONFIG.notificationSuppressors;
+    const notifyLegalEntityPaymentOnly = safeSuppressors.notifyLegalEntityPaymentOnly === undefined
+        ? defaultSuppressors.notifyLegalEntityPaymentOnly
+        : Boolean(safeSuppressors.notifyLegalEntityPaymentOnly);
 
     return {
-        ignoreLegalEntityPayment: safeSuppressors.ignoreLegalEntityPayment === undefined
-            ? defaultSuppressors.ignoreLegalEntityPayment
-            : Boolean(safeSuppressors.ignoreLegalEntityPayment),
+        ignoreLegalEntityPayment: notifyLegalEntityPaymentOnly
+            ? false
+            : (safeSuppressors.ignoreLegalEntityPayment === undefined
+                ? defaultSuppressors.ignoreLegalEntityPayment
+                : Boolean(safeSuppressors.ignoreLegalEntityPayment)),
+        notifyLegalEntityPaymentOnly,
         ignoreOzon: safeSuppressors.ignoreOzon === undefined
             ? defaultSuppressors.ignoreOzon
             : Boolean(safeSuppressors.ignoreOzon)
@@ -232,6 +239,15 @@ function isOzonOrder(order = {}) {
 
 function evaluateNotificationSuppressors(order = {}, context = {}, effectiveConfig) {
     const suppressors = effectiveConfig.notificationSuppressors || DEFAULT_CONFIG.notificationSuppressors;
+
+    if (suppressors.notifyLegalEntityPaymentOnly && !isLegalEntityPaymentOrder(order)) {
+        return buildTriggerDecision(
+            'notification-filter-legal-entity-payment-only',
+            'Only legal entity payment notifications are enabled by user setting',
+            context,
+            effectiveConfig
+        );
+    }
 
     if (suppressors.ignoreLegalEntityPayment && isLegalEntityPaymentOrder(order)) {
         return buildTriggerDecision(

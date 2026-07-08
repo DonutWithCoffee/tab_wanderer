@@ -110,6 +110,7 @@ function createPopupDom() {
         'openWatchedOrders',
         'downloadDiagnosticLog',
         'popupIgnoreLegalEntityPayment',
+        'popupNotifyLegalEntityPaymentOnly',
         'popupIgnoreOzon',
         'quickSuppressStatus',
         'popupWatchedOrderInput',
@@ -149,6 +150,7 @@ function loadPopupContext(overrides = {}) {
         monitorMode: 'windowed',
         notificationSuppressors: {
             ignoreLegalEntityPayment: false,
+            notifyLegalEntityPaymentOnly: false,
             ignoreOzon: false
         },
         watchedOrders: {
@@ -285,10 +287,11 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /Диагностика/);
     assert.match(html, /мониторинг заказов/);
     assert.match(html, /Добавить в отслеживаемое/);
-    assert.match(html, /Скрыть уведомления/);
-    assert.match(html, /Заказы всё равно собираются, история обновляется/);
+    assert.match(html, /Фильтры уведомлений/);
+    assert.match(html, /Фильтры меняют только уведомления/);
     assert.match(html, /id="statusDetails"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
+    assert.match(html, /id="popupNotifyLegalEntityPaymentOnly"/);
     assert.match(html, /id="popupIgnoreOzon"/);
     assert.match(html, /id="popupWatchedOrderInput" name="popupWatchedOrderInput"/);
     assert.match(html, /id="popupWatchedOrderNote" name="popupWatchedOrderNote"/);
@@ -299,7 +302,7 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.doesNotMatch(html, /Сначала проверим заказ в админке/);
 
     const watchedOrderIndex = html.indexOf('Добавить в отслеживаемое');
-    const quickFiltersIndex = html.indexOf('Скрыть уведомления');
+    const quickFiltersIndex = html.indexOf('Фильтры уведомлений');
     assert.ok(watchedOrderIndex >= 0);
     assert.ok(quickFiltersIndex >= 0);
     assert.ok(watchedOrderIndex < quickFiltersIndex);
@@ -395,9 +398,40 @@ test('popup quick suppressor toggles update config only for notifications', () =
     assert.equal(updateMessages.length, 1);
     assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.notificationSuppressors)), {
         ignoreLegalEntityPayment: true,
+        notifyLegalEntityPaymentOnly: false,
         ignoreOzon: false
     });
     assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Фильтры сохранены.');
+});
+
+test('popup legal-entity-only filter disables legal entity suppressor', () => {
+    const context = loadPopupContext({
+        userConfig: {
+            notificationSuppressors: {
+                ignoreLegalEntityPayment: true,
+                notifyLegalEntityPaymentOnly: false,
+                ignoreOzon: false
+            },
+            watchedOrders: {
+                items: []
+            }
+        }
+    });
+    const document = context.__test.document;
+    const legalOnlyToggle = document.getElementById('popupNotifyLegalEntityPaymentOnly');
+
+    legalOnlyToggle.dispatchEvent({ type: 'change', target: legalOnlyToggle });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.notificationSuppressors)), {
+        ignoreLegalEntityPayment: false,
+        notifyLegalEntityPaymentOnly: true,
+        ignoreOzon: false
+    });
+    assert.equal(document.getElementById('popupIgnoreLegalEntityPayment').checked, false);
+    assert.equal(document.getElementById('popupIgnoreLegalEntityPayment').disabled, true);
 });
 
 test('popup adds watched order by full order id only', () => {

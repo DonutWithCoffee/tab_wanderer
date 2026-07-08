@@ -395,15 +395,22 @@
     </div>
 
     <details class="support-details quick-filter-details">
-        <summary>Скрыть уведомления</summary>
+        <summary>Фильтры уведомлений</summary>
         <div class="support-body">
-            <p class="section-description">Заказы всё равно собираются, история обновляется.</p>
+            <p class="section-description">Фильтры меняют только уведомления. Заказы всё равно собираются, история обновляется.</p>
             <div class="checkbox-list">
                 <label class="checkbox-row">
                     <input type="checkbox" id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off">
                     <span class="checkbox-copy">
                         <span class="checkbox-title">Юрлица</span>
                         <span class="checkbox-note">Безналичная оплата для юрлиц.</span>
+                    </span>
+                </label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="popupNotifyLegalEntityPaymentOnly" name="popupNotifyLegalEntityPaymentOnly" autocomplete="off">
+                    <span class="checkbox-copy">
+                        <span class="checkbox-title">Только юрлица</span>
+                        <span class="checkbox-note">Уведомлять только о безналичной оплате для юрлиц.</span>
                     </span>
                 </label>
                 <label class="checkbox-row">

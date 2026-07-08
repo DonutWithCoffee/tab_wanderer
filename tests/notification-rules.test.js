@@ -324,11 +324,31 @@ test('getEffectiveConfig normalizes notification suppressor defaults', () => {
 
     assert.deepEqual(JSON.parse(JSON.stringify(defaultConfig.notificationSuppressors)), {
         ignoreLegalEntityPayment: false,
+        notifyLegalEntityPaymentOnly: false,
         ignoreOzon: false
     });
     assert.deepEqual(JSON.parse(JSON.stringify(mixedConfig.notificationSuppressors)), {
         ignoreLegalEntityPayment: true,
+        notifyLegalEntityPaymentOnly: false,
         ignoreOzon: false
+    });
+});
+
+test('getEffectiveConfig disables legal entity ignore when legal-entity-only filter is enabled', () => {
+    const context = loadRulesContext();
+
+    const config = context.getEffectiveConfig({
+        notificationSuppressors: {
+            ignoreLegalEntityPayment: true,
+            notifyLegalEntityPaymentOnly: true,
+            ignoreOzon: true
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(config.notificationSuppressors)), {
+        ignoreLegalEntityPayment: false,
+        notifyLegalEntityPaymentOnly: true,
+        ignoreOzon: true
     });
 });
 
@@ -356,6 +376,39 @@ test('evaluateNotification suppresses legal entity payment only when quick suppr
     assert.equal(enabledDecision.ruleId, 'notification-suppressor-legal-entity-payment');
     assert.equal(disabledDecision.notify, true);
     assert.equal(disabledDecision.ruleId, null);
+});
+
+test('evaluateNotification notifies only legal entity payment orders when legal-entity-only filter is enabled', () => {
+    const context = loadRulesContext();
+    const eventContext = {
+        eventType: 'new-order',
+        isNewOrder: true,
+        changedFields: []
+    };
+
+    const regularDecision = context.evaluateNotification(
+        createOrder({ payment: 'Оплата онлайн' }),
+        eventContext,
+        {
+            notificationSuppressors: {
+                notifyLegalEntityPaymentOnly: true
+            }
+        }
+    );
+    const legalDecision = context.evaluateNotification(
+        createOrder({ payment: 'Безналичный расчет для юридических лиц' }),
+        eventContext,
+        {
+            notificationSuppressors: {
+                notifyLegalEntityPaymentOnly: true
+            }
+        }
+    );
+
+    assert.equal(regularDecision.notify, false);
+    assert.equal(regularDecision.ruleId, 'notification-filter-legal-entity-payment-only');
+    assert.equal(legalDecision.notify, true);
+    assert.equal(legalDecision.ruleId, null);
 });
 
 test('evaluateNotification suppresses Ozon orders only when quick suppressor is enabled', () => {

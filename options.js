@@ -26,11 +26,13 @@ const OPTIONS_DEFAULT_NOTIFICATION_TRIGGERS = {
 
 const OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS = {
     ignoreLegalEntityPayment: false,
+    notifyLegalEntityPaymentOnly: false,
     ignoreOzon: false
 };
 
 const OPTIONS_NOTIFICATION_SUPPRESSOR_CONTROLS = [
     { key: 'ignoreLegalEntityPayment', id: 'optionsSuppressLegalEntityPayment' },
+    { key: 'notifyLegalEntityPaymentOnly', id: 'optionsNotifyLegalEntityPaymentOnly' },
     { key: 'ignoreOzon', id: 'optionsSuppressOzon' }
 ];
 
@@ -325,6 +327,10 @@ function getNotificationSuppressors(config = {}) {
             suppressors.ignoreLegalEntityPayment,
             OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreLegalEntityPayment
         ),
+        notifyLegalEntityPaymentOnly: getBooleanConfigValue(
+            suppressors.notifyLegalEntityPaymentOnly,
+            OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS.notifyLegalEntityPaymentOnly
+        ),
         ignoreOzon: getBooleanConfigValue(
             suppressors.ignoreOzon,
             OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS.ignoreOzon
@@ -435,6 +441,14 @@ function getScopeSummary(config = {}, dictionaries = {}) {
         .join('; ');
 }
 
+function getLegalEntityNotificationModeLabel(suppressors = {}) {
+    if (suppressors.notifyLegalEntityPaymentOnly) {
+        return 'только они';
+    }
+
+    return suppressors.ignoreLegalEntityPayment ? 'игнорируются' : 'уведомляются';
+}
+
 function getNotificationSummary(config = {}) {
     const triggers = getNotificationTriggers(config);
     const suppressors = getNotificationSuppressors(config);
@@ -444,7 +458,7 @@ function getNotificationSummary(config = {}) {
         `Новые заказы: ${triggers.newOrders ? 'включены' : 'выключены'}`,
         `Изменения заказов: ${triggers.changedOrders ? 'включены' : 'выключены'}`,
         `Поля изменений: ${enabledFields} включено`,
-        `Юрики: ${suppressors.ignoreLegalEntityPayment ? 'игнорируются' : 'уведомляются'}`,
+        `Юрики: ${getLegalEntityNotificationModeLabel(suppressors)}`,
         `ОЗОН: ${suppressors.ignoreOzon ? 'игнорируется' : 'уведомляется'}`
     ].join('; ');
 }
@@ -560,9 +574,22 @@ function setNotificationFieldControlsDisabled(disabled) {
     }
 }
 
+function normalizeOptionsNotificationSuppressors(suppressors = {}) {
+    const normalized = {
+        ...OPTIONS_DEFAULT_NOTIFICATION_SUPPRESSORS,
+        ...suppressors
+    };
+
+    if (normalized.notifyLegalEntityPaymentOnly) {
+        normalized.ignoreLegalEntityPayment = false;
+    }
+
+    return normalized;
+}
+
 function renderSettings(config = {}) {
     const triggers = getNotificationTriggers(config);
-    const suppressors = getNotificationSuppressors(config);
+    const suppressors = normalizeOptionsNotificationSuppressors(getNotificationSuppressors(config));
 
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
@@ -580,6 +607,7 @@ function renderSettings(config = {}) {
         setChecked(suppressor.id, suppressors[suppressor.key]);
     }
 
+    setDisabled('optionsSuppressLegalEntityPayment', suppressors.notifyLegalEntityPaymentOnly);
     setNotificationFieldControlsDisabled(!triggers.changedOrders);
 }
 
@@ -859,7 +887,7 @@ function collectNotificationSuppressorsFromUI(baseConfig = {}) {
         suppressors[suppressor.key] = getChecked(suppressor.id);
     }
 
-    return suppressors;
+    return normalizeOptionsNotificationSuppressors(suppressors);
 }
 
 function saveNotificationSuppressorsFromUI(successMessage = 'Фильтры уведомлений сохранены.') {

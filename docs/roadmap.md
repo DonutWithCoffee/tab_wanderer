@@ -1,6 +1,6 @@
 # tab_wanderer — Roadmap
 
-Документ фиксирует состояние `1.0` и дальнейший путь: Chrome Web Store submission и post-1.0.
+Документ фиксирует состояние `1.0` и дальнейший путь: review-friendly patches и post-1.0.
 
 ---
 
@@ -15,19 +15,37 @@
 Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ✅
 1.0 RC ✅ smoke passed
 1.0 Stable Monitoring Release ✅ current
-Chrome Web Store submission ⏳ next
+Chrome Web Store release ✅ published
 ```
 
 Version state:
 
 ```text
-Manifest version: 1.0.0
-Tests: 242 pass / 0 fail
-Latest checkpoint: release: prepare 1.0.0 stable monitoring release
-Distribution target: Chrome Web Store / Unlisted listing
+Manifest version: 1.0.1
+Tests: 246 pass / 0 fail
+Latest checkpoint: patch: add legal-entity-only notification filter
+Distribution target: Chrome Web Store / Unlisted listing released
 ```
 
 Решение по версии: после чистого smoke проект переводится в `1.0.0`; дальнейшие исправления для Chrome Web Store идут отдельными patch/minor версиями.
+
+## 1.0.1 — Legal entity notification filter ✅
+
+Сделано:
+
+```text
+добавлен быстрый фильтр “Только юрлица”
+фильтр скрывает уведомления по обычным заказам, но не меняет сбор/state/history
+конфликт с “игнорировать юрлица” нормализуется: only-mode выключает ignore-mode
+popup/options UI блокируют “Юрлица” при включённом “Только юрлица”
+новые tests для rules/popup/options
+```
+
+Chrome Web Store note для загрузки:
+
+```text
+Bugfix and notification filter improvement only, no permission or data handling changes.
+```
 
 ---
 

@@ -110,6 +110,7 @@ function createOptionsDom() {
         'optionsNotifyFieldPayment',
         'optionsNotifyFieldCity',
         'optionsSuppressLegalEntityPayment',
+        'optionsNotifyLegalEntityPaymentOnly',
         'optionsSuppressOzon',
         'optionsScopeDictionaryStatus',
         'optionsScopeDictionaryDelivery',
@@ -166,6 +167,7 @@ function loadOptionsContext(overrides = {}) {
         },
         notificationSuppressors: {
             ignoreLegalEntityPayment: false,
+            notifyLegalEntityPaymentOnly: false,
             ignoreOzon: false
         },
         monitorScope: {
@@ -450,6 +452,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsNotifyNewOrders" name="optionsNotifyNewOrders" autocomplete="off"/);
     assert.match(html, /id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off"/);
     assert.match(html, /id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off"/);
+    assert.match(html, /id="optionsNotifyLegalEntityPaymentOnly" name="optionsNotifyLegalEntityPaymentOnly" autocomplete="off"/);
     assert.match(html, /id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off"/);
     assert.match(html, /<details class="scope-group">\s*<summary>Статус<\/summary>/);
     assert.match(html, /<details class="scope-group">\s*<summary>Доставка<\/summary>/);
@@ -476,7 +479,7 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsDiagnosticLogDetails" class="card-details"/);
     assert.match(html, /Настройки мониторинга/);
     assert.match(html, /Первая страница \+ глубокая проверка/);
-    assert.match(html, /Скрывать уведомления по/);
+    assert.match(html, /Фильтры уведомлений/);
     assert.match(html, /Прямая проверка/);
     assert.match(html, /id="optionsDiagnosticsDirect"/);
     assert.match(html, /Обновить диагностику/);
@@ -642,11 +645,42 @@ test('options page autosaves quick notification suppressors', () => {
 
     assert.equal(updateMessages.length, 2);
     assert.equal(updateMessages[0].userConfig.notificationSuppressors.ignoreLegalEntityPayment, true);
+    assert.equal(updateMessages[0].userConfig.notificationSuppressors.notifyLegalEntityPaymentOnly, false);
     assert.equal(updateMessages[0].userConfig.notificationSuppressors.ignoreOzon, false);
     assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreLegalEntityPayment, true);
+    assert.equal(updateMessages[1].userConfig.notificationSuppressors.notifyLegalEntityPaymentOnly, false);
     assert.equal(updateMessages[1].userConfig.notificationSuppressors.ignoreOzon, true);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Фильтры уведомлений сохранены.');
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: игнорируются; ОЗОН: игнорируется');
+});
+
+test('options page legal-entity-only filter disables legal entity suppressor', () => {
+    const context = loadOptionsContext({
+        userConfig: {
+            notificationSuppressors: {
+                ignoreLegalEntityPayment: true,
+                notifyLegalEntityPaymentOnly: false,
+                ignoreOzon: false
+            }
+        }
+    });
+    const document = context.__test.document;
+    const legalOnlyToggle = document.getElementById('optionsNotifyLegalEntityPaymentOnly');
+
+    legalOnlyToggle.checked = true;
+    legalOnlyToggle.dispatchEvent({ type: 'change', target: legalOnlyToggle });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(updateMessages[0].userConfig.notificationSuppressors)), {
+        ignoreLegalEntityPayment: false,
+        notifyLegalEntityPaymentOnly: true,
+        ignoreOzon: false
+    });
+    assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
+    assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').disabled, true);
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: только они; ОЗОН: уведомляется');
 });
 
 test('options page disables changed field controls when changed order trigger is off', () => {
