@@ -10,24 +10,25 @@
 0.9.x foundation and stabilization ✅
 1.0.0 stable monitoring release ✅ published
 1.0.1 monitoring/UI patch ✅ published
-1.0.2 UI clarity patch ✅ uploaded; review/delivery not confirmed
-post-1.0.2 Ozon consistency hardening ✅ code/tests prepared
+1.0.2 UI clarity patch ✅ published
+1.0.3 Ozon verification hardening ✅ package prepared; upload pending
 ```
 
 Version state:
 
 ```text
-Manifest version: 1.0.2
+Manifest version: 1.0.3
 Tests: 264 pass / 0 fail
-Submitted 1.0.2 source HEAD: f6664c6
-Submitted 1.0.2 package SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
-Current development code: newer than the submitted 1.0.2 package
+Published 1.0.2 source HEAD: f6664c6
+Published 1.0.2 package SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
+1.0.3 release-preparation base: 107afcc
+Prepared 1.0.3 package SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
 ```
 
-Release rule: patch releases stay small and review-friendly. The next version number is chosen only after the pending 1.0.2 review state and manual smoke are known.
+Release rule: patch releases stay small and review-friendly. Published package identity is immutable; Ozon hardening ships separately as 1.0.3.
 
 
-## Post-1.0.2 — Ozon state consistency hardening ✅
+## 1.0.3 — Ozon verification hardening ✅ package prepared
 
 Prepared:
 
@@ -42,7 +43,18 @@ skipped warehouse rows are grouped by actual reason
 automated regression coverage added
 ```
 
-This hardening is not part of the already uploaded 1.0.2 package unless that submission is explicitly replaced before approval.
+Release package state:
+
+```text
+version: 1.0.3
+release-preparation base: 107afcc
+runtime files: 35
+SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
+baseline: 264 pass / 0 fail
+permissions/host_permissions/data handling: unchanged
+remote code scan: clean
+upload/review/publication: not confirmed
+```
 
 ---
 
@@ -52,8 +64,7 @@ Submitted source/package state:
 
 ```text
 source HEAD: f6664c6
-package uploaded to Chrome Web Store
-review and delivery are not confirmed
+package published in Chrome Web Store as Unlisted
 runtime files: 35
 SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
 baseline: 259 pass / 0 fail
@@ -61,7 +72,7 @@ permissions/host_permissions/data handling: unchanged
 remote code scan: clean
 ```
 
-Included in the submitted 1.0.2 package:
+Included in the published 1.0.2 package:
 
 ```text
 Ozon write/verify button states are visible by text and color
@@ -356,12 +367,12 @@ then decide whether they need filters, presets, reminders or separate views
 Recommended next order:
 
 ```text
-1. Apply and verify the post-1.0.2 hardening archive.
-2. Commit it as one behavior/docs slice after green tests.
+1. Apply and verify the 1.0.3 release-preparation archive.
+2. Commit/push it after green tests.
 3. Manually smoke Ozon recheck transitions and reason-aware skipped labels.
-4. Wait for explicit CWS 1.0.2 review/delivery confirmation.
-5. If published, create/verify the 1.0.2 annotated tag on f6664c6.
-6. Choose the next patch version for the newer hardening code.
+4. Create/verify annotated v1.0.2 on f6664c6 if still missing.
+5. Upload the prepared 1.0.3 package and reviewer note.
+6. Create annotated v1.0.3 only after publication is confirmed.
 7. After legal department QA, design legal workflow only from real requirements.
 ```
 ---

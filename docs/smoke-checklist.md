@@ -1,8 +1,8 @@
 # tab_wanderer — smoke checklist для 1.0.x
 
-Актуально для текущего post-`1.0.2` Ozon consistency hardening при manifest `1.0.2`.
+Актуально для release candidate `1.0.3` — Ozon verification hardening при manifest `1.0.3`.
 
-Цель: проверить основной мониторинг и отдельно подтвердить новые переходы Ozon recheck/state reconciliation до следующего patch-релиза.
+Цель: проверить основной мониторинг и подтвердить новые переходы Ozon recheck/state reconciliation перед загрузкой patch-релиза 1.0.3.
 
 ---
 
@@ -10,7 +10,9 @@ Smoke status:
 
 ```text
 Historical 1.0 manual smoke: passed
-Current Ozon consistency manual smoke: pending user verification
+1.0.2: published in Chrome Web Store / Unlisted
+1.0.3 Ozon consistency manual smoke: pending user verification
+1.0.3 package: prepared, SHA256 ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
 Automated tests: 264 pass / 0 fail
 ```
 

@@ -9,12 +9,13 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: post-1.0.2 Ozon state consistency hardening
-Manifest version: 1.0.2
-Текущий фокус: согласование свежей Ozon-проверки со старым состоянием записи
+Стадия разработки: 1.0.3 release candidate — Ozon verification hardening
+Manifest version: 1.0.3
+Текущий фокус: выпуск проверенного Ozon state-consistency исправления отдельным patch-релизом
 Tests: 264 pass / 0 fail
 Latest checkpoint: fresh Ozon recheck overrides stale apply state; skipped barcodes show actual reasons
-CWS state: 1.0.1 published; 1.0.2 uploaded from f6664c6, review/delivery not confirmed
+CWS state: 1.0.2 published (Unlisted) from f6664c6; 1.0.3 package prepared from base 107afcc
+CWS 1.0.3 package SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
 ```
 
 Документы проекта:

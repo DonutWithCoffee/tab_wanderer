@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: post-`1.0.2` Ozon state consistency hardening.
+Актуально на момент: release candidate `1.0.3` — Ozon verification hardening.
 
 Этот документ заменяет старые message/handoff тексты и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,10 +11,11 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в Amperkot + warehouse/Ozon barcode action layer
-Текущая стадия: post-1.0.2 Ozon state consistency hardening
-Manifest version: 1.0.2
+Текущая стадия: 1.0.3 release candidate — Ozon verification hardening
+Manifest version: 1.0.3
 Tests: 264 pass / 0 fail
 Latest checkpoint: reconcile stale Ozon apply state with fresh recheck + reason-aware skipped barcode UI
+Release-preparation base: 107afcc
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
 ```
@@ -22,10 +23,11 @@ Repo: DonutWithCoffee/tab_wanderer
 Chrome Web Store state:
 
 ```text
-1.0.1: published and delivered
-1.0.2: uploaded from f6664c6; review and delivery are not confirmed
-Current development code: newer than the submitted 1.0.2 package
-Submitted 1.0.2 package SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
+1.0.1: published
+1.0.2: published (Unlisted) from f6664c6
+1.0.3: package prepared; upload/review/publication are not confirmed
+Published 1.0.2 package SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
+Prepared 1.0.3 package SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
 ```
 
 Roadmap position:
@@ -34,17 +36,17 @@ Roadmap position:
 0.9.x foundation and stabilization ✅
 1.0.0 stable release ✅ published
 1.0.1 monitoring/UI patch ✅ published
-1.0.2 UI clarity patch ✅ uploaded, review pending confirmation
-post-1.0.2 Ozon consistency hardening ✅ code/tests prepared
-next release version ⏳ decide only after CWS state and manual smoke are known
+1.0.2 UI clarity patch ✅ published
+1.0.3 Ozon verification hardening ✅ package prepared
+1.0.3 manual smoke / CWS upload ⏳ pending
 ```
 
 Important release invariant:
 
 ```text
-The 1.0.2 package was built from f6664c6.
-If it is published, its annotated tag must point to f6664c6 even when main has moved forward.
-The current hardening belongs to a later patch unless the pending 1.0.2 submission is explicitly replaced.
+The published 1.0.2 package was built from f6664c6.
+Its annotated v1.0.2 tag must point to f6664c6 even though main has moved forward.
+The Ozon hardening is packaged as 1.0.3 and must receive its own release commit and tag.
 ```
 
 ---
@@ -579,14 +581,14 @@ skipped rows are grouped by multi-barcode / non-unit / duplicate / missing-data 
 Current task family:
 
 ```text
-post-1.0.2 Ozon consistency hardening
+1.0.3 Ozon verification hardening release
 ```
 
 Decisions:
 
 ```text
-Keep manifest at 1.0.2 until a separate release-preparation decision.
-Do not treat the current development HEAD as the already submitted 1.0.2 package.
+Manifest and popup release notes are set to 1.0.3.
+Do not treat the 1.0.3 release candidate as the published 1.0.2 package.
 No permission, host permission or data handling expansion.
 Full Ozon session controller extraction remains paused.
 Legal-department-specific workflow remains postponed until real QA.
@@ -595,13 +597,13 @@ Legal-department-specific workflow remains postponed until real QA.
 Immediate roadmap:
 
 ```text
-1. Apply and locally verify the replacement-file archive.
-2. Commit the Ozon state reconciliation, accurate skip reasons, tests and synced docs as one behavior slice.
+1. Apply and locally verify the 1.0.3 release archive.
+2. Commit/push the version, release notes, tests and synced docs after green verification.
 3. Manual smoke the Ozon retry/recheck transitions and skipped reason labels.
-4. Record the final committed HEAD and test baseline.
-5. Wait for explicit 1.0.2 CWS review/delivery confirmation.
-6. If 1.0.2 is published, tag f6664c6; do not tag the newer development HEAD as 1.0.2.
-7. Prepare the next patch release only after manual smoke and release-version decision.
+4. Verify/create annotated v1.0.2 on f6664c6 if it is still missing.
+5. Upload the prepared 1.0.3 runtime package and reviewer note.
+6. Record the final release commit and published package state.
+7. Create annotated v1.0.3 only after publication is confirmed.
 ```
 
 Reminder model remains:

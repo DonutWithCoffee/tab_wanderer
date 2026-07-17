@@ -9,11 +9,12 @@
 ```text
 Repo: DonutWithCoffee/tab_wanderer
 Branch: main
-Manifest version: 1.0.2
-Published release: 1.0.1
-Chrome Web Store 1.0.2: package uploaded; review and user delivery are not confirmed
-Submitted 1.0.2 source HEAD: f6664c6 chore: prepare release 1.0.2
-Development state: post-1.0.2 Ozon state consistency hardening
+Manifest version: 1.0.3
+Published release: 1.0.2 (Chrome Web Store / Unlisted)
+Published 1.0.2 source HEAD: f6664c6 chore: prepare release 1.0.2
+Release-preparation base: 107afcc fix: harden Ozon barcode verification states
+Development state: 1.0.3 release candidate — Ozon verification hardening
+Prepared 1.0.3 package SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
 Expected tests for the current archive: 264 pass / 0 fail
 Distribution: Chrome Web Store / Unlisted
 ```
@@ -34,10 +35,10 @@ permissions, host_permissions and data handling are unchanged
 Release distinction:
 
 ```text
-1.0.1 is confirmed published.
-1.0.2 was uploaded from f6664c6, but approval/delivery is still pending explicit user confirmation.
-The post-1.0.2 hardening in the current archive is newer than the submitted 1.0.2 package.
-Do not retag or silently replace the submitted package without a new release decision.
+1.0.1 and 1.0.2 are confirmed published.
+The published 1.0.2 package is tied to f6664c6 and must keep that release identity.
+The Ozon state-consistency hardening is intentionally released as 1.0.3 rather than rewriting 1.0.2.
+The prepared 1.0.3 package has not yet been confirmed uploaded, approved or published.
 ```
 
 ---
@@ -55,8 +56,8 @@ Expected after the current archive is applied and committed:
 
 ```text
 working tree clean
-HEAD is f6664c6 or newer
-manifest remains 1.0.2 until a separate release-preparation decision
+HEAD is the 1.0.3 release commit based on 107afcc or newer
+manifest is 1.0.3
 npm test → 264 pass / 0 fail
 ```
 
@@ -218,7 +219,7 @@ Stop point:
 
 ```text
 Do not start full Ozon session controller extraction unless it becomes an explicit priority.
-The active next step is manual smoke and release-version planning for the post-1.0.2 hardening.
+The active next step is local verification, manual Ozon smoke and Chrome Web Store submission of 1.0.3.
 ```
 
 ---
@@ -234,18 +235,18 @@ tab_wanderer = локальный мониторинг заказов + отсл
 Current priority:
 
 ```text
-finish the post-1.0.2 Ozon consistency hardening as one coherent behavior slice
+ship the completed Ozon consistency hardening as patch release 1.0.3
 manually smoke the recheck transitions and reason-aware skipped barcode UI
-keep the submitted 1.0.2 package tied to f6664c6 while its review state is unknown
+keep published 1.0.2 tied to f6664c6 and tag that exact commit if the tag is still missing
 avoid permission, host permission and data handling changes in patch releases
 ```
 
 Release rule:
 
 ```text
-Do not create or move a 1.0.2 tag until Chrome Web Store publication is confirmed.
-If 1.0.2 is published, the tag must point to the exact published package source HEAD f6664c6.
-The current hardening must go into a later patch version unless the submitted package is explicitly replaced before approval.
+The annotated v1.0.2 tag must point to the exact published package source HEAD f6664c6.
+Never move v1.0.2 to the newer hardening commit.
+Create the v1.0.3 tag only after the final 1.0.3 package is confirmed published, and point it to the exact release commit.
 ```
 
 ---
@@ -255,16 +256,17 @@ The current hardening must go into a later patch version unless the submitted pa
 Recommended order:
 
 ```text
-1. Apply the replacement-file archive.
+1. Apply the 1.0.3 replacement-file archive.
 2. Run npm test, git status and git diff --stat.
-3. Commit the whole behavior/docs slice only after green local verification.
+3. Commit and push the release-preparation slice only after green local verification.
 4. Smoke warehouse/Ozon flows:
    - unconfirmed write → successful recheck
    - unconfirmed write → partial/missing recheck
    - stale operation error → current successful recheck
    - true multi-barcode vs duplicate/non-unit skip labels
-5. Wait for explicit Chrome Web Store 1.0.2 review/delivery confirmation.
-6. Decide the next patch version and release package from the then-current committed HEAD.
+5. Verify/create annotated v1.0.2 on f6664c6 if it is still missing.
+6. Upload tab_wanderer_cws_package_1.0.3.zip with the prepared reviewer note.
+7. Create v1.0.3 only after publication is confirmed.
 ```
 
 Avoid:
@@ -288,10 +290,11 @@ Current release state:
 ```text
 Distribution channel: Chrome Web Store
 Listing type: Unlisted
-1.0.1: published and delivered
-1.0.2 package: uploaded from f6664c6
-1.0.2 review/delivery: not confirmed
-Current development archive: newer than the submitted 1.0.2 package
+1.0.1: published
+1.0.2: published from f6664c6
+1.0.3 package: prepared from release-preparation base 107afcc
+1.0.3 package SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
+1.0.3 upload/review/publication: not confirmed
 ```
 
 Reusable pre-upload checks:
@@ -308,12 +311,22 @@ SHA256 and runtime file count are recorded
 npm test baseline is recorded
 ```
 
-For the already submitted 1.0.2 package:
+Published 1.0.2 package:
 
 ```text
+Source HEAD: f6664c6
 SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
 Runtime files: 35
 Automated baseline: 259 pass / 0 fail
+```
+
+Prepared 1.0.3 package:
+
+```text
+Release-preparation base: 107afcc
+SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
+Runtime files: 35
+Automated baseline: 264 pass / 0 fail
 Permissions: unchanged
 Host permissions: unchanged
 Data handling: unchanged
