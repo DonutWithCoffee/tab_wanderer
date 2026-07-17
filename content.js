@@ -1657,27 +1657,34 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
                 `${product.productId}${product.productTitle ? ` · ${product.productTitle}` : ''}`,
                 { fontWeight: '600' }
             );
-            appendWarehousePreviewText(
-                item,
-                'div',
-                `штрихкодов: ${product.eligibleCount}, пропущено мультиштрихов: ${product.skippedCount}`,
-                { color: '#667685', fontSize: '12px' }
-            );
+            const productSummaryText = createWarehouseBarcodeProductSummaryText(product);
 
-            if (product.ozonStatus) {
+            if (productSummaryText) {
                 appendWarehousePreviewText(
                     item,
                     'div',
-                    `Ozon: к записи ${product.ozonToAddCount}, уже есть ${product.ozonAlreadyExistsCount}${product.ozonReason ? `, ${product.ozonReason}` : ''}`,
+                    productSummaryText,
+                    { color: '#667685', fontSize: '12px' }
+                );
+            }
+
+            const ozonApplyText = createWarehouseOzonApplyProductText(product);
+            const ozonResolveText = ozonApplyText ? '' : createWarehouseOzonResolveProductText(product);
+
+            if (ozonResolveText) {
+                appendWarehousePreviewText(
+                    item,
+                    'div',
+                    ozonResolveText,
                     { color: product.ozonStatus === 'error' ? '#db2919' : '#667685', fontSize: '12px' }
                 );
             }
 
-            if (product.ozonApplyStatus) {
+            if (ozonApplyText) {
                 appendWarehousePreviewText(
                     item,
                     'div',
-                    createWarehouseOzonApplyProductText(product),
+                    ozonApplyText,
                     { color: product.ozonApplyStatus === 'error' ? '#db2919' : '#667685', fontSize: '12px' }
                 );
             }
@@ -1702,8 +1709,18 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
         : [];
 
     actionList.forEach(action => {
-        const isPrimary = action.variant !== 'secondary';
+        const variant = action.variant || 'primary';
+        const isSecondary = variant === 'secondary';
         const disabled = action.disabled === true;
+        const backgroundByVariant = {
+            primary: '#005bff',
+            success: '#169c46',
+            danger: '#db2919',
+            loading: '#667685'
+        };
+        const buttonBackground = isSecondary ? '#ffffff' : backgroundByVariant[variant] || backgroundByVariant.primary;
+        const buttonColor = isSecondary ? '#005bff' : '#ffffff';
+        const buttonBorder = isSecondary ? '1px solid #005bff' : '0';
         const button = createWarehousePreviewElement('div', {
             id: action.id === 'ozon-resolve' ? WAREHOUSE_OZON_RESOLVE_BUTTON_ID : action.id === 'ozon-ui-apply' ? WAREHOUSE_OZON_APPLY_BUTTON_ID : action.id === 'barcode-list' ? WAREHOUSE_BARCODE_LIST_BUTTON_ID : WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID,
             text: action.label,
@@ -1717,14 +1734,14 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
             styles: {
                 width: '100%',
                 padding: '8px 10px',
-                border: isPrimary ? '0' : '1px solid #005bff',
+                border: buttonBorder,
                 borderRadius: '8px',
-                background: isPrimary ? '#005bff' : '#ffffff',
-                color: isPrimary ? '#ffffff' : '#005bff',
+                background: buttonBackground,
+                color: buttonColor,
                 cursor: disabled ? 'default' : 'pointer',
                 fontWeight: '700',
                 pointerEvents: 'auto',
-                opacity: disabled ? '0.65' : '1',
+                opacity: disabled && variant !== 'success' ? '0.65' : '1',
                 textAlign: 'center',
                 boxSizing: 'border-box',
                 userSelect: 'none',

@@ -53,41 +53,102 @@ function getWarehouseOzonVerifyUnconfirmedFromDetails(details = null) {
         || details?.uiFallback?.details?.verifyUnconfirmed === true;
 }
 
-function shouldShowWarehouseOzonApplyFallbackReason(product = {}) {
-    const missingCount = Number(product.ozonApplyMissingCount) || 0;
-    const verifiedCount = Number(product.ozonApplyVerifiedCount) || 0;
-    const expectedCount = Number(product.eligibleCount) || 0;
+function getWarehouseBarcodeCountNoun(value) {
+    const count = Math.abs(Number(value) || 0);
+    const lastTwoDigits = count % 100;
+    const lastDigit = count % 10;
 
-    return missingCount > 0 || verifiedCount <= 0 || (expectedCount > 0 && verifiedCount < expectedCount);
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+        return 'штрихкодов';
+    }
+
+    if (lastDigit === 1) {
+        return 'штрихкод';
+    }
+
+    if (lastDigit >= 2 && lastDigit <= 4) {
+        return 'штрихкода';
+    }
+
+    return 'штрихкодов';
+}
+
+function formatWarehouseBarcodeCountText(value) {
+    const count = Number(value) || 0;
+
+    return `${formatWarehouseBarcodePreviewCount(count)} ${getWarehouseBarcodeCountNoun(count)}`;
+}
+
+function createWarehouseBarcodeProductSummaryText(product = {}) {
+    const eligibleCount = Number(product.eligibleCount) || 0;
+    const skippedCount = Number(product.skippedCount) || 0;
+    const parts = [];
+
+    if (eligibleCount > 0) {
+        parts.push(formatWarehouseBarcodeCountText(eligibleCount));
+    }
+
+    if (skippedCount > 0) {
+        parts.push(`пропущено мультиштрихов: ${formatWarehouseBarcodePreviewCount(skippedCount)}`);
+    }
+
+    return parts.join(' · ');
+}
+
+function createWarehouseOzonResolveProductText(product = {}) {
+    const toAddCount = Number(product.ozonToAddCount) || 0;
+    const alreadyExistsCount = Number(product.ozonAlreadyExistsCount) || 0;
+
+    if (product.ozonStatus === 'error') {
+        return 'Не удалось проверить в Ozon';
+    }
+
+    if (toAddCount > 0 && alreadyExistsCount > 0) {
+        return `Готово к записи: ${formatWarehouseBarcodeCountText(toAddCount)} · уже в Ozon: ${formatWarehouseBarcodeCountText(alreadyExistsCount)}`;
+    }
+
+    if (toAddCount > 0) {
+        return `Готово к записи: ${formatWarehouseBarcodeCountText(toAddCount)}`;
+    }
+
+    if (alreadyExistsCount > 0) {
+        return `Подтверждено в Ozon: ${formatWarehouseBarcodeCountText(alreadyExistsCount)}`;
+    }
+
+    return '';
 }
 
 function createWarehouseOzonApplyProductText(product = {}) {
-    const applyPrefix = 'Ozon';
-    const fallbackSuffix = product.ozonApplyFallbackReason && shouldShowWarehouseOzonApplyFallbackReason(product)
-        ? `, fallback: ${product.ozonApplyFallbackReason}`
-        : '';
-
-    if (product.ozonApplyStatus === 'ready') {
-        if (product.ozonApplyVerifyUnconfirmed) {
-            return `${applyPrefix}: запись отправлена, проверка не подтвердила ${product.ozonApplyVerifiedCount}/${product.eligibleCount}`;
-        }
-
-        if (product.ozonApplyMissingCount > 0) {
-            return `${applyPrefix}: проверено ${product.ozonApplyVerifiedCount}/${product.eligibleCount}, не найдено ${product.ozonApplyMissingCount}${fallbackSuffix}`;
-        }
-
-        if (product.ozonApplyVerifiedCount > 0) {
-            return `${applyPrefix}: проверено ${product.ozonApplyVerifiedCount}/${product.eligibleCount}${fallbackSuffix}`;
-        }
-
-        return `${applyPrefix}: добавлено ${product.ozonApplyAddedCount}${fallbackSuffix}`;
-    }
+    const verifiedCount = Number(product.ozonApplyVerifiedCount) || 0;
+    const expectedCount = Number(product.ozonApplyExpectedCount) || Number(product.ozonApplyAddedCount) || 0;
 
     if (product.ozonApplyStatus === 'loading') {
-        return 'Ozon: добавляем...';
+        return 'Записываем в Ozon...';
     }
 
-    return `Ozon: ${product.ozonApplyError || 'ошибка записи'}`;
+    if (product.ozonApplyStatus === 'error') {
+        return 'Не удалось записать в Ozon';
+    }
+
+    if (product.ozonApplyStatus !== 'ready') {
+        return '';
+    }
+
+    if (product.ozonApplyVerifyUnconfirmed) {
+        return 'Не удалось подтвердить запись';
+    }
+
+    if (Number(product.ozonApplyMissingCount) > 0) {
+        return expectedCount > 0
+            ? `Подтверждено в Ozon: ${formatWarehouseBarcodePreviewCount(verifiedCount)} из ${formatWarehouseBarcodePreviewCount(expectedCount)}`
+            : 'Не удалось подтвердить запись';
+    }
+
+    if (verifiedCount > 0) {
+        return `Подтверждено в Ozon: ${formatWarehouseBarcodeCountText(verifiedCount)}`;
+    }
+
+    return 'Запись не подтверждена';
 }
 
 function getWarehouseBarcodePreviewOrderId(preview = {}) {
@@ -176,6 +237,9 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
                 ozonApplyError: applyResult ? applyResult.error || '' : '',
                 ozonApplyAddedCount: applyResult ? Number(applyResult.addedCount) || 0 : 0,
                 ...(applyResult ? {
+                    ozonApplyExpectedCount: Array.isArray(applyResult.barcodes) && applyResult.barcodes.length
+                        ? applyResult.barcodes.length
+                        : Number(applyResult.addedCount) || 0,
                     ozonApplyVerifiedCount: Number(applyResult.verifiedCount) || 0,
                     ozonApplyMissingCount: Number(applyResult.missingCount) || 0,
                     ozonApplyWriteMethod: applyResult.writeMethod || '',
@@ -185,6 +249,77 @@ function createWarehouseBarcodePreviewProductRows(productsById = {}, resolvePrev
             };
         })
         .sort((a, b) => a.productId.localeCompare(b.productId));
+}
+
+function createWarehouseOzonApplyAction(summary = {}, ozon = null, ozonApply = null, isOzonBusy = false) {
+    const eligibleCount = Number(summary.eligibleCount) || 0;
+    const ozonSummary = ozon?.plan?.summary || {};
+    const expectedApplyCount = Array.isArray(ozonApply?.barcodes) && ozonApply.barcodes.length
+        ? ozonApply.barcodes.length
+        : eligibleCount;
+    const applyVerified = ozonApply?.status === 'ready'
+        && ozonApply.verifyUnconfirmed !== true
+        && Number(ozonApply.errorCount) === 0
+        && Number(ozonApply.missingCount) === 0
+        && expectedApplyCount > 0
+        && Number(ozonApply.verifiedCount) >= expectedApplyCount;
+    const allAlreadyExists = ozon?.status === 'ready'
+        && Number(ozonSummary.errorProductCount) === 0
+        && Number(ozonSummary.toAddCount) === 0
+        && eligibleCount > 0
+        && Number(ozonSummary.alreadyExistsCount) >= eligibleCount;
+
+    if (ozonApply?.status === 'loading') {
+        return {
+            id: 'ozon-ui-apply',
+            label: 'Записываем в Ozon...',
+            variant: 'loading',
+            disabled: true
+        };
+    }
+
+    if (ozonApply?.status === 'error') {
+        return {
+            id: 'ozon-ui-apply',
+            label: 'Ошибка записи — повторить',
+            variant: 'danger',
+            disabled: false
+        };
+    }
+
+    if (ozonApply?.status === 'ready') {
+        if (applyVerified) {
+            return {
+                id: 'ozon-ui-apply',
+                label: 'Записано и проверено',
+                variant: 'success',
+                disabled: true
+            };
+        }
+
+        return {
+            id: 'ozon-ui-apply',
+            label: 'Не удалось проверить — повторить',
+            variant: 'danger',
+            disabled: false
+        };
+    }
+
+    if (allAlreadyExists) {
+        return {
+            id: 'ozon-ui-apply',
+            label: 'Штрихкоды уже есть в Ozon',
+            variant: 'success',
+            disabled: true
+        };
+    }
+
+    return {
+        id: 'ozon-ui-apply',
+        label: 'Записать в Ozon',
+        variant: 'primary',
+        disabled: isOzonBusy
+    };
 }
 
 function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePreview) {
@@ -231,12 +366,7 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const isOzonBusy = ozon?.status === 'loading' || ozonApply?.status === 'loading';
     const actions = [
         ...(hasEligibleBarcodes ? [
-            {
-                id: 'ozon-ui-apply',
-                label: ozonApply?.status === 'loading' ? 'Записываем в Ozon...' : 'Записать в Ozon',
-                variant: 'primary',
-                disabled: isOzonBusy
-            },
+            createWarehouseOzonApplyAction(summary, ozon, ozonApply, isOzonBusy),
             {
                 id: 'ozon-resolve',
                 label: ozon?.status === 'loading' ? 'Проверяем штрихкоды...' : 'Проверить штрихкоды',
@@ -255,56 +385,49 @@ function createWarehouseBarcodePreviewViewModel(preview = lastWarehouseBarcodePr
     const metrics = [
         { label: 'Заказ', value: orderId },
         { label: 'Товаров', value: formatWarehouseBarcodePreviewCount(summary.productCount) },
-        { label: 'Штрихкодов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) },
-        { label: 'Пропущено мультиштрихов', value: formatWarehouseBarcodePreviewCount(summary.skippedCount) }
+        { label: 'Штрихкодов', value: formatWarehouseBarcodePreviewCount(summary.eligibleCount) }
     ];
 
-    if (ozon?.status === 'ready') {
-        metrics.push(
-            { label: 'К записи', value: formatWarehouseBarcodePreviewCount(ozonSummary.toAddCount) },
-            { label: 'Уже есть', value: formatWarehouseBarcodePreviewCount(ozonSummary.alreadyExistsCount) }
-        );
+    if (Number(summary.skippedCount) > 0) {
+        metrics.push({
+            label: 'Пропущено мультиштрихов',
+            value: formatWarehouseBarcodePreviewCount(summary.skippedCount)
+        });
     }
 
-    if (ozonApply?.status === 'ready') {
-        if (Number(ozonApply.verifiedCount) > 0 || ozonApply.details?.verify) {
-            metrics.push({ label: 'Проверено', value: `${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.barcodes?.length)}` });
-        } else {
-            metrics.push({ label: 'Записано', value: formatWarehouseBarcodePreviewCount(ozonApply.addedCount) });
-        }
-
-        if (Number(ozonApply.productCount) > 1) {
-            metrics.push({ label: 'Товаров Ozon', value: `${formatWarehouseBarcodePreviewCount(ozonApply.successCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.productCount)}` });
-        }
-
-        if (Number(ozonApply.errorCount) > 0) {
-            metrics.push({ label: 'Ошибки Ozon', value: formatWarehouseBarcodePreviewCount(ozonApply.errorCount) });
-        }
-
-        if (ozonApply.writeMethod) {
-            metrics.push({ label: 'Метод', value: ozonApply.writeMethod });
-        }
-    }
-
+    const expectedApplyCount = Array.isArray(ozonApply?.barcodes) && ozonApply.barcodes.length
+        ? ozonApply.barcodes.length
+        : Number(ozonApply?.addedCount) || 0;
     const ozonMessage = ozonApply?.status === 'loading'
-        ? 'Добавляем штрихкоды в Ozon. Не закрывай Ozon worker tab.'
+        ? 'Записываем штрихкоды в Ozon...'
         : ozonApply?.status === 'error'
-            ? `Ozon: ${ozonApply.error || 'ошибка записи'}`
+            ? 'Не удалось записать штрихкоды в Ozon.'
             : ozonApply?.status === 'ready'
                 ? ozonApply.verifyUnconfirmed
-                    ? `Ozon: запись отправлена, проверка не подтвердила ${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.barcodes?.length)}.`
-                    : Number(ozonApply.errorCount) > 0
-                        ? `Ozon: проверено ${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.barcodes?.length)} после записи, ошибок: ${formatWarehouseBarcodePreviewCount(ozonApply.errorCount)}.`
-                        : Number(ozonApply.verifiedCount) > 0 || ozonApply.details?.verify
-                            ? `Ozon: проверено ${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)}/${formatWarehouseBarcodePreviewCount(ozonApply.barcodes?.length)} после записи.`
-                            : `Ozon: добавлено ${formatWarehouseBarcodePreviewCount(ozonApply.addedCount)}.`
+                    ? 'Запись отправлена, но результат не подтверждён.'
+                    : Number(ozonApply.errorCount) > 0 || Number(ozonApply.missingCount) > 0
+                        ? expectedApplyCount > 0
+                            ? `Подтверждено в Ozon: ${formatWarehouseBarcodePreviewCount(ozonApply.verifiedCount)} из ${formatWarehouseBarcodePreviewCount(expectedApplyCount)}.`
+                            : 'Не удалось подтвердить запись в Ozon.'
+                        : Number(ozonApply.verifiedCount) > 0
+                            ? `Подтверждено в Ozon: ${formatWarehouseBarcodeCountText(ozonApply.verifiedCount)}.`
+                            : 'Запись завершена, но результат не подтверждён.'
                 : ozon?.status === 'loading'
-                    ? 'Проверяем карточки Ozon. Записи нет.'
+                    ? 'Проверяем штрихкоды в Ozon...'
                     : ozon?.status === 'error'
-                        ? `Ozon: ${ozon.error || 'ошибка проверки'}`
+                        ? 'Не удалось проверить штрихкоды в Ozon.'
                         : ozon?.status === 'ready'
-                            ? 'Ozon проверен. Записи пока нет.'
-                            : 'Локальный предпросмотр. Записи в Ozon пока нет.';
+                            ? Number(ozonSummary.errorProductCount) > 0
+                                ? 'Не удалось проверить часть штрихкодов в Ozon.'
+                                : Number(ozonSummary.toAddCount) > 0
+                                    ? `Готово к записи: ${formatWarehouseBarcodeCountText(ozonSummary.toAddCount)}.`
+                                    : Number(summary.eligibleCount) > 0
+                                        && Number(ozonSummary.alreadyExistsCount) >= Number(summary.eligibleCount)
+                                        ? 'Все штрихкоды подтверждены в Ozon.'
+                                        : Number(ozonSummary.alreadyExistsCount) > 0
+                                            ? `Подтверждено в Ozon: ${formatWarehouseBarcodeCountText(ozonSummary.alreadyExistsCount)}.`
+                                            : 'Проверка Ozon завершена.'
+                            : 'Готово к проверке Ozon.';
     return {
         ...base,
         status: ozonApply?.status === 'error' || ozon?.status === 'error' ? 'error' : 'ready',

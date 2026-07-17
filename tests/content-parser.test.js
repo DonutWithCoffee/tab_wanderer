@@ -1119,7 +1119,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
             { id: 'barcode-list', label: 'Список ШК', variant: 'secondary', disabled: false }
         ],
         status: 'ready',
-        message: 'Локальный предпросмотр. Записи в Ozon пока нет.',
+        message: 'Готово к проверке Ozon.',
         metrics: [
             { label: 'Заказ', value: '9205-010726' },
             { label: 'Товаров', value: '2' },
@@ -1215,14 +1215,343 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon resolve summary after
         }
     });
 
-    assert.equal(viewModel.message, 'Ozon проверен. Записи пока нет.');
-    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.slice(-2))), [
-        { label: 'К записи', value: '1' },
-        { label: 'Уже есть', value: '2' }
+    assert.equal(viewModel.message, 'Готово к записи: 1 штрихкод.');
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics)), [
+        { label: 'Заказ', value: '9205-010726' },
+        { label: 'Товаров', value: '1' },
+        { label: 'Штрихкодов', value: '2' }
     ]);
+    assert.equal(
+        context.createWarehouseOzonResolveProductText(viewModel.products[0]),
+        'Готово к записи: 1 штрихкод · уже в Ozon: 1 штрихкод'
+    );
     assert.equal(viewModel.products[0].ozonStatus, 'ready');
     assert.equal(viewModel.products[0].ozonToAddCount, 1);
     assert.equal(viewModel.products[0].ozonAlreadyExistsCount, 1);
+});
+
+
+test('Ozon apply action is green and disabled when all barcodes already exist', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 1,
+                errorProductCount: 0
+            },
+            productPlans: [
+                {
+                    status: 'skipped',
+                    productId: '41764825',
+                    ozonSku: 'RP2350-Zero',
+                    existingBarcodes: ['2317613'],
+                    toAdd: [],
+                    alreadyExists: [{ barcode: '2317613' }],
+                    skippedWarehouseBarcodes: []
+                }
+            ]
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '1946-160726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 1,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '1946-160726',
+            productsById: {
+                41764825: {
+                    productId: '41764825',
+                    productTitle: 'Отладочная плата Waveshare RP2350-Zero',
+                    eligibleBarcodes: [{ barcode: '2317613' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.actions[0])), {
+        id: 'ozon-ui-apply',
+        label: 'Штрихкоды уже есть в Ozon',
+        variant: 'success',
+        disabled: true
+    });
+    assert.equal(viewModel.message, 'Все штрихкоды подтверждены в Ozon.');
+    assert.equal(viewModel.metrics.some(item => item.label === 'Пропущено мультиштрихов'), false);
+    assert.equal(
+        context.createWarehouseOzonResolveProductText(viewModel.products[0]),
+        'Подтверждено в Ozon: 1 штрихкод'
+    );
+});
+
+
+test('Ozon apply action is green only after full verification', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '24126456',
+        addedCount: 2,
+        verifiedCount: 2,
+        missingBarcodes: [],
+        barcodes: ['2317613', '2317680'],
+        errorCount: 0,
+        details: {
+            verify: {
+                verifiedCount: 2,
+                missingBarcodes: []
+            }
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 2,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }, { barcode: '2317680' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.actions[0])), {
+        id: 'ozon-ui-apply',
+        label: 'Записано и проверено',
+        variant: 'success',
+        disabled: true
+    });
+});
+
+
+test('Ozon apply action is red and retryable after error or unconfirmed verification', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+    const preview = {
+        ok: true,
+        shopOrder: { id: '5561-010726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 1,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '5561-010726',
+            productsById: {
+                42614044: {
+                    productId: '42614044',
+                    productTitle: 'Плата разработчика',
+                    eligibleBarcodes: [{ barcode: '1111111' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    };
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: false,
+        productId: '42614044',
+        error: 'write failed'
+    }, null, () => {});
+
+    let action = context.createWarehouseBarcodePreviewViewModel(preview).actions[0];
+    assert.deepEqual(JSON.parse(JSON.stringify(action)), {
+        id: 'ozon-ui-apply',
+        label: 'Ошибка записи — повторить',
+        variant: 'danger',
+        disabled: false
+    });
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '42614044',
+        addedCount: 1,
+        verifiedCount: 0,
+        missingBarcodes: ['1111111'],
+        barcodes: ['1111111'],
+        errorCount: 0,
+        details: {
+            verifyUnconfirmed: true,
+            verify: {
+                verifiedCount: 0,
+                missingBarcodes: ['1111111']
+            }
+        }
+    }, null, () => {});
+
+    action = context.createWarehouseBarcodePreviewViewModel(preview).actions[0];
+    assert.deepEqual(JSON.parse(JSON.stringify(action)), {
+        id: 'ozon-ui-apply',
+        label: 'Не удалось проверить — повторить',
+        variant: 'danger',
+        disabled: false
+    });
+});
+
+
+test('warehouse Ozon apply button renders success and danger colors', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub);
+    const preview = {
+        ok: true,
+        shopOrder: { id: '1946-160726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 1,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '1946-160726',
+            productsById: {
+                41764825: {
+                    productId: '41764825',
+                    productTitle: 'Отладочная плата Waveshare RP2350-Zero',
+                    eligibleBarcodes: [{ barcode: '2317613' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    };
+
+    context.setWarehouseBarcodePreviewPanelCollapsed(false);
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 1,
+                errorProductCount: 0
+            },
+            productPlans: []
+        }
+    }, null, () => {});
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    let button = documentStub.getElementById('tab-wanderer-warehouse-ozon-apply');
+    assert.equal(button.style.background, '#169c46');
+    assert.equal(button.style.color, '#ffffff');
+    assert.equal(button.style.opacity, '1');
+    assert.equal(button.getAttribute('aria-disabled'), 'true');
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: false,
+        productId: '41764825',
+        error: 'write failed'
+    }, null, () => {});
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    button = documentStub.getElementById('tab-wanderer-warehouse-ozon-apply');
+    assert.equal(button.style.background, '#db2919');
+    assert.equal(button.style.color, '#ffffff');
+    assert.equal(button.style.opacity, '1');
+    assert.equal(button.getAttribute('aria-disabled'), 'false');
+});
+
+
+test('warehouse product row shows one Ozon status after apply and recheck', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub);
+    const preview = {
+        ok: true,
+        shopOrder: { id: '4113-050726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 1,
+            skippedCount: 0
+        },
+        extraction: {
+            orderId: '4113-050726',
+            productsById: {
+                27466: {
+                    productId: '27466',
+                    productTitle: 'USB-TO-TTL-FT232',
+                    eligibleBarcodes: [{ barcode: '2317613' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    };
+
+    context.setWarehouseBarcodePreviewPanelCollapsed(false);
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '27466',
+        addedCount: 1,
+        verifiedCount: 1,
+        missingBarcodes: [],
+        barcodes: ['2317613'],
+        errorCount: 0,
+        details: {
+            verify: {
+                verifiedCount: 1,
+                missingBarcodes: []
+            }
+        }
+    }, null, () => {});
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 1,
+                errorProductCount: 0
+            },
+            productPlans: [
+                {
+                    status: 'skipped',
+                    productId: '27466',
+                    existingBarcodes: ['2317613'],
+                    toAdd: [],
+                    alreadyExists: [{ barcode: '2317613' }],
+                    skippedWarehouseBarcodes: []
+                }
+            ]
+        }
+    }, null, () => {});
+
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    const panel = documentStub.getElementById('tab-wanderer-warehouse-barcode-preview');
+    const texts = [];
+    const collectTexts = node => {
+        if (!node) {
+            return;
+        }
+        if (node.textContent) {
+            texts.push(node.textContent);
+        }
+        (node.children || []).forEach(collectTexts);
+    };
+    collectTexts(panel);
+
+    assert.equal(
+        texts.filter(text => text === 'Подтверждено в Ozon: 1 штрихкод').length,
+        1
+    );
 });
 
 
@@ -1258,15 +1587,17 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon UI apply result', () 
         }
     });
 
-    assert.equal(viewModel.message, 'Ozon: добавлено 2.');
-    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.slice(-1))), [
-        { label: 'Записано', value: '2' }
+    assert.equal(viewModel.message, 'Запись завершена, но результат не подтверждён.');
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics)), [
+        { label: 'Заказ', value: '9205-010726' },
+        { label: 'Товаров', value: '1' },
+        { label: 'Штрихкодов', value: '2' }
     ]);
     assert.equal(viewModel.products[0].ozonApplyStatus, 'ready');
     assert.equal(viewModel.products[0].ozonApplyAddedCount, 2);
 });
 
-test('Ozon apply product text hides fallback reason when final verification succeeds', () => {
+test('Ozon apply product text shows a compact confirmed result without fallback details', () => {
     const context = loadContentContext(createDocumentStub({ headers: [] }));
 
     context.handleWarehouseRuntimeMessage({
@@ -1310,12 +1641,12 @@ test('Ozon apply product text hides fallback reason when final verification succ
     const product = viewModel.products[0];
     const text = context.createWarehouseOzonApplyProductText(product);
 
-    assert.equal(text, 'Ozon: проверено 2/2');
+    assert.equal(text, 'Подтверждено в Ozon: 2 штрихкода');
     assert.equal(text.includes('api-verify-after-reload-failed'), false);
     assert.equal(viewModel.ozonApply.productResults[0].fallbackReason, 'api-verify-after-reload-failed');
 });
 
-test('Ozon apply product text keeps fallback reason when verification is incomplete', () => {
+test('Ozon apply product text hides technical fallback details when verification is incomplete', () => {
     const context = loadContentContext(createDocumentStub({ headers: [] }));
 
     const text = context.createWarehouseOzonApplyProductText({
@@ -1327,7 +1658,8 @@ test('Ozon apply product text keeps fallback reason when verification is incompl
         ozonApplyFallbackReason: 'api-verify-after-reload-failed'
     });
 
-    assert.equal(text, 'Ozon: проверено 1/2, не найдено 1, fallback: api-verify-after-reload-failed');
+    assert.equal(text, 'Не удалось подтвердить запись');
+    assert.equal(text.includes('api-verify-after-reload-failed'), false);
 });
 
 test('Ozon apply view model reports API write with unconfirmed verify without false added zero error', () => {
@@ -1375,10 +1707,65 @@ test('Ozon apply view model reports API write with unconfirmed verify without fa
     const product = viewModel.products[0];
     const productText = context.createWarehouseOzonApplyProductText(product);
 
-    assert.equal(viewModel.message, 'Ozon: запись отправлена, проверка не подтвердила 0/3.');
-    assert.equal(productText, 'Ozon: запись отправлена, проверка не подтвердила 0/3');
+    assert.equal(viewModel.message, 'Запись отправлена, но результат не подтверждён.');
+    assert.equal(productText, 'Не удалось подтвердить запись');
     assert.equal(viewModel.ozonApply.errorCount, 0);
     assert.equal(viewModel.metrics.some(item => item.label === 'Ошибки Ozon'), false);
+});
+
+
+test('warehouse barcode preview hides zero-value and technical Ozon service text', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub);
+    const preview = {
+        ok: true,
+        shopOrder: { id: '1946-160726' },
+        summary: {
+            productCount: 1,
+            eligibleCount: 0,
+            skippedCount: 1
+        },
+        extraction: {
+            orderId: '1946-160726',
+            productsById: {
+                41764825: {
+                    productId: '41764825',
+                    productTitle: 'Отладочная плата',
+                    eligibleBarcodes: [],
+                    skippedBarcodes: [{ barcode: '2317613' }]
+                }
+            }
+        }
+    };
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 0,
+                errorProductCount: 0
+            },
+            productPlans: [{
+                status: 'skipped',
+                reason: 'noEligibleBarcodes',
+                productId: '41764825',
+                toAdd: [],
+                alreadyExists: []
+            }]
+        }
+    }, null, () => {});
+
+    context.setWarehouseBarcodePreviewPanelCollapsed(false);
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    const panelText = collectElementText(documentStub.getElementById('tab-wanderer-warehouse-barcode-preview'));
+    assert.equal(panelText.includes('noEligibleBarcodes'), false);
+    assert.equal(panelText.includes('к записи 0'), false);
+    assert.equal(panelText.includes('уже есть 0'), false);
+    assert.equal(panelText.includes('пропущено мультиштрихов: 0'), false);
+    assert.equal(panelText.includes('пропущено мультиштрихов: 1'), true);
 });
 
 
