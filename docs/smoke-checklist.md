@@ -1,16 +1,17 @@
-# tab_wanderer — final smoke checklist для 1.0
+# tab_wanderer — smoke checklist для 1.0.x
 
-Актуально для `1.0.0` после watched-orders, Options layout, diagnostics polish, CWS icon metadata и финального smoke.
+Актуально для текущего post-`1.0.2` Ozon consistency hardening при manifest `1.0.2`.
 
-Цель: перед `1.0.0` быстро проверить, что локальная сборка не создаёт ложные уведомления, не мешает рабочим вкладкам менеджера/склада, корректно ведёт watched orders и даёт достаточную диагностику для поддержки.
+Цель: проверить основной мониторинг и отдельно подтвердить новые переходы Ozon recheck/state reconciliation до следующего patch-релиза.
 
 ---
 
 Smoke status:
 
 ```text
-Manual smoke: passed by user before 1.0.0 release prep
-Automated tests: 242 pass / 0 fail
+Historical 1.0 manual smoke: passed
+Current Ozon consistency manual smoke: pending user verification
+Automated tests: 264 pass / 0 fail
 ```
 
 ---
@@ -18,7 +19,7 @@ Automated tests: 242 pass / 0 fail
 ## 0. Перед проверкой
 
 ```text
-npm test → 242 pass / 0 fail
+npm test → 264 pass / 0 fail
 main clean/pushed
 расширение загружено в chrome://extensions как Load unpacked из актуальной папки проекта
 расширение перезагружено после установки новой сборки
@@ -48,7 +49,7 @@ console не содержит наших ReferenceError/runtime.lastError
 3. Нажать “Включить мониторинг”.
 4. Дождаться статуса “работает” или стартовой синхронизации.
 5. Открыть “Отслеживание”.
-6. Раскрыть “Быстрые фильтры уведомлений” и проверить suppressors “Юридические лица” и “ОЗОН”.
+6. Раскрыть быстрые фильтры и проверить группы “Скрывать уведомления” (ОЗОН, Юрлица) и “Уведомлять только” (Заказы юрлиц).
 7. Открыть “Настройки”.
 8. Раскрыть “Поддержка и диагностика” и скачать diagnostic log.
 9. Нажать “Остановить мониторинг”.
@@ -127,7 +128,7 @@ Options autosave работает без отдельной кнопки “Со
 изменения monitorScope сохраняются с debounce
 пустая группа monitorScope означает “все значения этой группы”
 notificationTriggers влияют только на desktop-уведомления
-quick suppressors влияют только на desktop-уведомления
+quick suppressors и legal-only mode влияют только на desktop-уведомления
 изменение scope/mode запускает safe rebaseline, а не notification flood
 ```
 
@@ -398,13 +399,14 @@ diagnostic log показывает recovery/catch-up причину
 5. Для свежей сборки просканировать/собрать заказ штатным складским действием.
 6. Нажать “Собрать заказ”.
 7. Убедиться, что страница не reload-ится.
-8. Проверить, что panel показывает товары, “Штрихкодов” и “Пропущено мультиштрихов”.
+8. Проверить, что panel показывает товары, “Штрихкодов” и общий счётчик “Пропущено”.
 9. Нажать “Список ШК”.
-10. Убедиться, что штрихкоды сгруппированы по товарам и любой штрихкод можно выделить/скопировать.
+10. Убедиться, что штрихкоды сгруппированы по товарам, а пропуски — по фактическим причинам; любой видимый ШК можно выделить/скопировать.
 11. Нажать “Проверить штрихкоды”.
 12. Нажать “Записать в Ozon”.
 13. Проверить, что Ozon worker открывается в фоне и не уводит фокус с рабочей вкладки.
 14. Дождаться результата записи и verify.
+15. Для красного неподтверждённого результата нажать “Проверить штрихкоды” повторно и проверить переход состояния.
 ```
 
 Ожидаемо:
@@ -415,14 +417,18 @@ diagnostic log показывает recovery/catch-up причину
 если warehouse API response содержит пригодный barcode snapshot, используется API
 если API shop_order пойман, но barcode snapshot пустой, используется visible DOM fallback
 manual “Проверить штрихкоды” читает Ozon barcode details API и не пишет в Ozon
-multi-barcode rows не пишутся автоматически и считаются как “Пропущено мультиштрихов”
+multiBarcodeType rows не пишутся автоматически и показываются в группе “Мультиштрихкоды”
+дубликаты, неединичные позиции и отсутствующие данные не называются мультиштрихкодами
 Ozon search идёт по productId/offerId
 API write выполняется через /api/barcode-add-v2
 post-write verify выполняется через /api/sc/barcode-details-by-item-id
 verify body использует item_id как массив
 verify читает response.barcodes[].barcode
 drawer/DOM остаётся fallback
-при неподтверждённом API/verify остаётся UI fallback
+при неподтверждённом API/verify остаётся красное retryable состояние
+успешная повторная проверка заменяет старое красное состояние зелёным подтверждённым
+частичная повторная проверка показывает точный счёт “подтверждено X из Y” и остаётся retryable
+старая ошибка операции не перекрывает свежую успешную проверку
 cookies/tokens/auth данные не попадают в storage/log/export
 ```
 

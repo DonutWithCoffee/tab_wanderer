@@ -1124,7 +1124,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
             { label: 'Заказ', value: '9205-010726' },
             { label: 'Товаров', value: '2' },
             { label: 'Штрихкодов', value: '3' },
-            { label: 'Пропущено мультиштрихов', value: '1' }
+            { label: 'Пропущено', value: '1' }
         ],
         products: [
             {
@@ -1132,6 +1132,13 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 productTitle: 'LED RGB',
                 barcodes: [],
                 skippedBarcodes: ['2049684'],
+                skippedBarcodeGroups: [{
+                    category: 'multiBarcode',
+                    label: 'Мультиштрихкоды',
+                    summaryLabel: 'мультиштрихкоды',
+                    count: 1,
+                    barcodes: ['2049684']
+                }],
                 eligibleCount: 0,
                 skippedCount: 1,
                 ozonStatus: '',
@@ -1142,6 +1149,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 ozonExistingCount: 0,
                 ozonApplyStatus: '',
                 ozonApplyError: '',
+                ozonApplyHasProblem: false,
                 ozonApplyAddedCount: 0
             },
             {
@@ -1149,6 +1157,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 productTitle: 'DC-DC MT3608',
                 barcodes: ['2317613', '2317680'],
                 skippedBarcodes: [],
+                skippedBarcodeGroups: [],
                 eligibleCount: 2,
                 skippedCount: 0,
                 ozonStatus: '',
@@ -1159,6 +1168,7 @@ test('createWarehouseBarcodePreviewViewModel builds compact warehouse barcode pr
                 ozonExistingCount: 0,
                 ozonApplyStatus: '',
                 ozonApplyError: '',
+                ozonApplyHasProblem: false,
                 ozonApplyAddedCount: 0
             }
         ],
@@ -1231,6 +1241,59 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon resolve summary after
 });
 
 
+test('Ozon resolve errors stay visible and retryable', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 0,
+                errorProductCount: 1
+            },
+            productPlans: [{
+                status: 'error',
+                reason: 'ozonProductNotResolved',
+                productId: '41764825',
+                existingBarcodes: [],
+                toAdd: [],
+                alreadyExists: [],
+                skippedWarehouseBarcodes: []
+            }]
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '1946-160726' },
+        summary: { productCount: 1, eligibleCount: 1, skippedCount: 0 },
+        extraction: {
+            orderId: '1946-160726',
+            productsById: {
+                41764825: {
+                    productId: '41764825',
+                    productTitle: 'Отладочная плата',
+                    eligibleBarcodes: [{ barcode: '2317613' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.equal(viewModel.status, 'error');
+    assert.equal(viewModel.message, 'Не удалось проверить часть штрихкодов в Ozon.');
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.actions[0])), {
+        id: 'ozon-ui-apply',
+        label: 'Не удалось проверить — повторить',
+        variant: 'danger',
+        disabled: false
+    });
+    assert.equal(context.createWarehouseOzonResolveProductText(viewModel.products[0]), 'Не удалось проверить в Ozon');
+});
+
+
 test('Ozon apply action is green and disabled when all barcodes already exist', () => {
     const context = loadContentContext(createDocumentStub({ headers: [] }));
 
@@ -1285,7 +1348,7 @@ test('Ozon apply action is green and disabled when all barcodes already exist', 
         disabled: true
     });
     assert.equal(viewModel.message, 'Все штрихкоды подтверждены в Ozon.');
-    assert.equal(viewModel.metrics.some(item => item.label === 'Пропущено мультиштрихов'), false);
+    assert.equal(viewModel.metrics.some(item => item.label === 'Пропущено'), false);
     assert.equal(
         context.createWarehouseOzonResolveProductText(viewModel.products[0]),
         'Подтверждено в Ozon: 1 штрихкод'
@@ -1470,6 +1533,214 @@ test('warehouse Ozon apply button renders success and danger colors', () => {
 });
 
 
+test('successful Ozon recheck replaces stale unconfirmed apply state', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '42614044',
+        addedCount: 2,
+        verifiedCount: 0,
+        missingBarcodes: ['1111111', '2222222'],
+        barcodes: ['1111111', '2222222'],
+        errorCount: 0,
+        details: {
+            writeMethod: 'api',
+            verifyUnconfirmed: true,
+            verify: {
+                verifiedCount: 0,
+                missingBarcodes: ['1111111', '2222222']
+            }
+        }
+    }, null, () => {});
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 2,
+                errorProductCount: 0
+            },
+            productPlans: [{
+                status: 'skipped',
+                productId: '42614044',
+                existingBarcodes: ['1111111', '2222222'],
+                toAdd: [],
+                alreadyExists: [{ barcode: '1111111' }, { barcode: '2222222' }],
+                skippedWarehouseBarcodes: []
+            }]
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '5561-010726' },
+        summary: { productCount: 1, eligibleCount: 2, skippedCount: 0 },
+        extraction: {
+            orderId: '5561-010726',
+            productsById: {
+                42614044: {
+                    productId: '42614044',
+                    productTitle: 'Плата разработчика',
+                    eligibleBarcodes: [{ barcode: '1111111' }, { barcode: '2222222' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.actions[0])), {
+        id: 'ozon-ui-apply',
+        label: 'Записано и проверено',
+        variant: 'success',
+        disabled: true
+    });
+    assert.equal(viewModel.status, 'ready');
+    assert.equal(viewModel.message, 'Подтверждено в Ozon: 2 штрихкода.');
+    assert.equal(viewModel.ozonApply.verifyUnconfirmed, false);
+    assert.equal(viewModel.ozonApply.verifiedCount, 2);
+    assert.equal(viewModel.ozonApply.missingCount, 0);
+    assert.equal(context.createWarehouseOzonApplyProductText(viewModel.products[0]), 'Подтверждено в Ozon: 2 штрихкода');
+});
+
+
+test('partial Ozon recheck replaces unconfirmed state with authoritative missing barcodes', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: true,
+        productId: '42614044',
+        addedCount: 2,
+        verifiedCount: 0,
+        missingBarcodes: ['1111111', '2222222'],
+        barcodes: ['1111111', '2222222'],
+        errorCount: 0,
+        details: {
+            verifyUnconfirmed: true,
+            verify: {
+                verifiedCount: 0,
+                missingBarcodes: ['1111111', '2222222']
+            }
+        }
+    }, null, () => {});
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 1,
+                alreadyExistsCount: 1,
+                errorProductCount: 0
+            },
+            productPlans: [{
+                status: 'ready',
+                productId: '42614044',
+                existingBarcodes: ['1111111'],
+                toAdd: [{ barcode: '2222222' }],
+                alreadyExists: [{ barcode: '1111111' }],
+                skippedWarehouseBarcodes: []
+            }]
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '5561-010726' },
+        summary: { productCount: 1, eligibleCount: 2, skippedCount: 0 },
+        extraction: {
+            orderId: '5561-010726',
+            productsById: {
+                42614044: {
+                    productId: '42614044',
+                    productTitle: 'Плата разработчика',
+                    eligibleBarcodes: [{ barcode: '1111111' }, { barcode: '2222222' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.actions[0])), {
+        id: 'ozon-ui-apply',
+        label: 'Не все штрихкоды найдены — повторить',
+        variant: 'danger',
+        disabled: false
+    });
+    assert.equal(viewModel.status, 'error');
+    assert.equal(viewModel.message, 'Подтверждено в Ozon: 1 из 2.');
+    assert.equal(viewModel.ozonApply.verifyUnconfirmed, false);
+    assert.equal(viewModel.ozonApply.verifiedCount, 1);
+    assert.equal(viewModel.ozonApply.missingCount, 1);
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.ozonApply.missingBarcodes)), ['2222222']);
+    assert.equal(viewModel.products[0].ozonApplyHasProblem, true);
+    assert.equal(context.createWarehouseOzonApplyProductText(viewModel.products[0]), 'Подтверждено в Ozon: 1 из 2');
+});
+
+
+test('successful Ozon recheck clears stale apply error and uses current Ozon state', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_UI_APPLY_RESULT',
+        ok: false,
+        productId: '41764825',
+        error: 'temporary worker error'
+    }, null, () => {});
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        ok: true,
+        plan: {
+            summary: {
+                toAddCount: 0,
+                alreadyExistsCount: 1,
+                errorProductCount: 0
+            },
+            productPlans: [{
+                status: 'skipped',
+                productId: '41764825',
+                existingBarcodes: ['2317613'],
+                toAdd: [],
+                alreadyExists: [{ barcode: '2317613' }],
+                skippedWarehouseBarcodes: []
+            }]
+        }
+    }, null, () => {});
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel({
+        ok: true,
+        shopOrder: { id: '1946-160726' },
+        summary: { productCount: 1, eligibleCount: 1, skippedCount: 0 },
+        extraction: {
+            orderId: '1946-160726',
+            productsById: {
+                41764825: {
+                    productId: '41764825',
+                    productTitle: 'Отладочная плата',
+                    eligibleBarcodes: [{ barcode: '2317613' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    });
+
+    assert.equal(viewModel.ozonApply, null);
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.actions[0])), {
+        id: 'ozon-ui-apply',
+        label: 'Штрихкоды уже есть в Ozon',
+        variant: 'success',
+        disabled: true
+    });
+    assert.equal(viewModel.status, 'ready');
+    assert.equal(viewModel.message, 'Все штрихкоды подтверждены в Ozon.');
+});
+
+
 test('warehouse product row shows one Ozon status after apply and recheck', () => {
     const documentStub = createWarehousePreviewPanelDocumentStub();
     const context = loadContentContext(documentStub);
@@ -1593,7 +1864,9 @@ test('createWarehouseBarcodePreviewViewModel includes Ozon UI apply result', () 
         { label: 'Товаров', value: '1' },
         { label: 'Штрихкодов', value: '2' }
     ]);
+    assert.equal(viewModel.status, 'error');
     assert.equal(viewModel.products[0].ozonApplyStatus, 'ready');
+    assert.equal(viewModel.products[0].ozonApplyHasProblem, true);
     assert.equal(viewModel.products[0].ozonApplyAddedCount, 2);
 });
 
@@ -1764,8 +2037,61 @@ test('warehouse barcode preview hides zero-value and technical Ozon service text
     assert.equal(panelText.includes('noEligibleBarcodes'), false);
     assert.equal(panelText.includes('к записи 0'), false);
     assert.equal(panelText.includes('уже есть 0'), false);
-    assert.equal(panelText.includes('пропущено мультиштрихов: 0'), false);
-    assert.equal(panelText.includes('пропущено мультиштрихов: 1'), true);
+    assert.equal(panelText.includes('мультиштрихкоды'), false);
+    assert.equal(panelText.includes('другие причины: 1'), true);
+});
+
+
+test('warehouse barcode preview groups skipped rows by actual reason', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub);
+    const preview = {
+        ok: true,
+        shopOrder: { id: '9205-010726' },
+        summary: { productCount: 1, eligibleCount: 1, skippedCount: 3 },
+        extraction: {
+            orderId: '9205-010726',
+            productsById: {
+                24126456: {
+                    productId: '24126456',
+                    productTitle: 'DC-DC MT3608',
+                    eligibleBarcodes: [{ barcode: '2317613' }],
+                    skippedBarcodes: [
+                        { barcode: '2049684', reason: 'multiBarcodeType' },
+                        { barcode: '2317613', reason: 'duplicateBarcode' },
+                        { barcode: '2317680', reason: 'nonUnitReservedQuantity' }
+                    ]
+                }
+            }
+        }
+    };
+
+    const viewModel = context.createWarehouseBarcodePreviewViewModel(preview);
+    const product = viewModel.products[0];
+
+    assert.equal(context.createWarehouseBarcodeProductSummaryText(product), '1 штрихкод · мультиштрихкоды: 1, дубликаты: 1, неединичные позиции: 1');
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(product.skippedBarcodeGroups.map(group => ({
+            category: group.category,
+            count: group.count,
+            barcodes: group.barcodes
+        })))),
+        [
+            { category: 'multiBarcode', count: 1, barcodes: ['2049684'] },
+            { category: 'duplicate', count: 1, barcodes: ['2317613'] },
+            { category: 'nonUnitQuantity', count: 1, barcodes: ['2317680'] }
+        ]
+    );
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.at(-1))), { label: 'Пропущено', value: '3' });
+
+    context.setWarehouseBarcodePreviewPanelCollapsed(false);
+    context.setWarehouseBarcodeListExpanded(true);
+    context.renderWarehouseBarcodePreviewPanel(preview);
+
+    const text = collectElementText(documentStub.getElementById('tab-wanderer-warehouse-barcode-preview'));
+    assert.equal(text.includes('Мультиштрихкоды (1):'), true);
+    assert.equal(text.includes('Дубликаты (1):'), true);
+    assert.equal(text.includes('Неединичные позиции (1):'), true);
 });
 
 
@@ -1851,7 +2177,7 @@ test('warehouse barcode preview panel toggles selectable barcode list', () => {
     assert.equal(text.includes('Список штрихкодов'), true);
     assert.equal(text.includes('2317613'), true);
     assert.equal(text.includes('2317680'), true);
-    assert.equal(text.includes('Мультиштрихи'), true);
+    assert.equal(text.includes('Мультиштрихкоды (1):'), true);
     assert.equal(text.includes('2049684'), true);
 });
 

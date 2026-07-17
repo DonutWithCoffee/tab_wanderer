@@ -7,48 +7,77 @@
 ## Current position
 
 ```text
-0.9.5 — Stabilization + Test Hardening ✅
-0.9.6 — Deep Collection ✅
-0.9.7 — Scope UX + Event/History Foundation ✅
-0.9.8 — Observability + Refactor ✅
-0.9.9 — Product completion QA before UI polish ✅
-Pre-1.0 — Product simplification + reminders + notification polish + Ozon/warehouse ✅
-1.0 RC ✅ smoke passed
-1.0 Stable Monitoring Release ✅ current
-Chrome Web Store release ✅ published
+0.9.x foundation and stabilization ✅
+1.0.0 stable monitoring release ✅ published
+1.0.1 monitoring/UI patch ✅ published
+1.0.2 UI clarity patch ✅ uploaded; review/delivery not confirmed
+post-1.0.2 Ozon consistency hardening ✅ code/tests prepared
 ```
 
 Version state:
 
 ```text
 Manifest version: 1.0.2
-Tests: 259 pass / 0 fail
-Latest checkpoint: patch: clearer Ozon barcode states + compact service text + separated quick notification filters
-Distribution target: Chrome Web Store / Unlisted listing released
+Tests: 264 pass / 0 fail
+Submitted 1.0.2 source HEAD: f6664c6
+Submitted 1.0.2 package SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
+Current development code: newer than the submitted 1.0.2 package
 ```
 
-Решение по версии: после чистого smoke проект переводится в `1.0.0`; дальнейшие исправления для Chrome Web Store идут отдельными patch/minor версиями.
+Release rule: patch releases stay small and review-friendly. The next version number is chosen only after the pending 1.0.2 review state and manual smoke are known.
 
+
+## Post-1.0.2 — Ozon state consistency hardening ✅
+
+Prepared:
+
+```text
+fresh successful recheck replaces stale verifyUnconfirmed state
+fresh partial recheck records exact verified and missing barcodes
+successful recheck clears stale operation errors
+resolve failures remain red and retryable
+product/global error styling follows the effective current state
+skipped warehouse rows are grouped by actual reason
+“Мультиштрихкоды” is reserved for real multiBarcodeType rows
+automated regression coverage added
+```
+
+This hardening is not part of the already uploaded 1.0.2 package unless that submission is explicitly replaced before approval.
+
+---
 
 ## 1.0.2 — Ozon status clarity + quick filter grouping ✅
 
-Сделано:
+Submitted source/package state:
 
 ```text
-кнопка записи в Ozon показывает состояние цветом и понятным текстом
-успешно подтверждённая запись отображается зелёным состоянием
-ошибка или неподтверждённая запись отображается красным состоянием с повтором
-технический Ozon-текст сокращён, нулевые показатели и внутренние причины скрыты
-повторная проверка не создаёт дублирующий пользовательский статус
-быстрые фильтры разделены на “Скрывать уведомления” и “Уведомлять только”
-режим “только юрлица” по-прежнему автоматически выключает скрытие юрлиц
-popup release notes обновлены для 1.0.2
+source HEAD: f6664c6
+package uploaded to Chrome Web Store
+review and delivery are not confirmed
+runtime files: 35
+SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
+baseline: 259 pass / 0 fail
+permissions/host_permissions/data handling: unchanged
+remote code scan: clean
 ```
 
-Chrome Web Store note для загрузки:
+Included in the submitted 1.0.2 package:
 
 ```text
-UI clarity and bugfix patch only. No permission, host permission, or data handling changes.
+Ozon write/verify button states are visible by text and color
+successful confirmed write is green and disabled
+error or unconfirmed write is red and retryable
+technical Ozon details and zero-value service text are hidden
+repeated verification does not add a duplicate user-facing status line
+quick filters are split into “Скрывать уведомления” and “Уведомлять только”
+legal-only mode still disables the conflicting hide-legal-entities filter
+popup release notes describe 1.0.2
+```
+
+Chrome Web Store note:
+
+```text
+UI clarity and bugfix release. Improves Ozon barcode recording/verification status, removes duplicate and technical service messages, and separates quick notification filters into “Hide notifications” and “Notify only” groups. No permission, host permission, or data handling changes.
 ```
 
 ---
@@ -246,7 +275,7 @@ async validation UI no longer shows premature success or hangs on rejected order
 form metadata cleanup for popup/options/watched-orders controls
 Options layout polished: monitoring mode → collection scope → notifications dropdown → current settings → monitor diagnostics → diagnostic log
 Options no longer duplicates watched-orders entry point; popup remains the entry point
-final smoke checklist passed before 1.0.0 release prep
+release-specific smoke checklist and automated baseline recorded
 ```
 
 Сделано по warehouse/Ozon action layer:
@@ -304,7 +333,7 @@ fired reminder notification smoke passed
 notification click-through to order page smoke passed
 Orders/Tracking UI polish is complete
 Options diagnostics panel polish is complete
-continue with Chrome Web Store submission prep
+Chrome Web Store submission was completed for the initial release
 ```
 
 Reminder MVP non-goals:
@@ -327,16 +356,17 @@ then decide whether they need filters, presets, reminders or separate views
 Recommended next order:
 
 ```text
-1. Commit the 1.0.0 release metadata/docs slice after green tests.
-2. Build final Chrome Web Store package from 1.0.0.
-3. Prepare privacy policy URL, listing screenshots, permission justifications and reviewer notes.
-4. Submit as Unlisted Chrome Web Store listing.
-5. After legal department QA, design legal workflow if needed.
+1. Apply and verify the post-1.0.2 hardening archive.
+2. Commit it as one behavior/docs slice after green tests.
+3. Manually smoke Ozon recheck transitions and reason-aware skipped labels.
+4. Wait for explicit CWS 1.0.2 review/delivery confirmation.
+5. If published, create/verify the 1.0.2 annotated tag on f6664c6.
+6. Choose the next patch version for the newer hardening code.
+7. After legal department QA, design legal workflow only from real requirements.
 ```
-
 ---
 
-## Release Readiness — Chrome Web Store ⏳ next
+## Chrome Web Store release process — reusable checklist
 
 Решение по каналу распространения:
 
@@ -357,7 +387,7 @@ Manual archive distribution remains dev/QA-only after 1.0; staff distribution ta
 подготовить privacy policy и staff install/update flow
 ```
 
-Обязательные задачи перед отправкой:
+Reusable checks before each upload:
 
 ```text
 release packaging script / checklist
@@ -372,7 +402,7 @@ screenshots for popup/options/orders/Ozon warehouse flow
 staff install/update instructions
 review notes: extension is not officially affiliated with Ozon or Amperkot unless separately approved
 check no remote code, eval, CDN scripts or dynamic code loading
-final smoke checklist passed before 1.0.0 release prep
+release-specific smoke checklist and automated baseline recorded
 plan for Google review feedback / resubmission
 ```
 
@@ -385,12 +415,12 @@ broad host permissions increase review risk; keep them narrow
 notifications/alarms/tabs/storage permissions must be justified by visible user-facing features
 ```
 
-## 1.0 RC ✅ smoke passed
+## 1.0 RC ✅ historical smoke passed
 
 RC checklist result:
 
 ```text
-npm test baseline passed: 242 pass / 0 fail
+historical npm test baseline passed: 242 pass / 0 fail
 manual smoke checklist passed by user
 popup/options/orders pages verified
 startup/recovery/catch-up behavior verified
@@ -398,7 +428,7 @@ deep sync and page return to page 1 verified
 diagnostic log/export verified
 Ozon/warehouse flow verified by smoke
 release packaging candidate verified without .git, docs/private, node_modules or temp archives
-Chrome Web Store readiness remains operational submission work
+Chrome Web Store submission work was completed for the initial release
 ```
 
 Post-1.0 / CWS feedback cleanup candidates:
@@ -413,7 +443,7 @@ small UI text polish if user requests
 
 ---
 
-## 1.0 Stable Monitoring Release ✅ current
+## 1.0 Stable Monitoring Release ✅ published foundation
 
 Scope:
 

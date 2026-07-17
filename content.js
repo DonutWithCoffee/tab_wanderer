@@ -1044,7 +1044,7 @@ function createWarehouseAssemblyActionDebugLine() {
         debug.reloadTimerState === 'fired' ? `чтение завершено: ${debug.reloadFallbackReason || 'snapshot refresh'}` : '',
         debug.reloadTimerState === 'cleared' ? `ожидание завершено: ${debug.reloadTimerClearReason || 'unknown'}` : '',
         debug.lastResponseSource ? `source: ${debug.lastResponseSource}` : '',
-        debug.lastSummary ? `кандидаты ${debug.lastSummary.eligibleCount || 0}, мультиштрихов ${debug.lastSummary.skippedCount || 0}` : '',
+        debug.lastSummary ? `кандидаты ${debug.lastSummary.eligibleCount || 0}, пропущено ${debug.lastSummary.skippedCount || 0}` : '',
         debug.lastBridgeApiResult ? `api: ${debug.lastBridgeApiResult}` : '',
         Number(debug.lastBridgeApiResponseCount) > 0 ? `api responses: ${debug.lastBridgeApiResponseCount}` : ''
     ].filter(Boolean);
@@ -1539,19 +1539,24 @@ function renderWarehouseBarcodeListDropdown(panel, products = []) {
             });
         }
 
-        if (product.skippedBarcodes.length) {
-            appendWarehousePreviewText(item, 'div', 'Мультиштрихи:', {
-                color: '#667685',
-                fontSize: '12px',
-                marginTop: '4px',
-                userSelect: 'text'
-            });
-            appendWarehousePreviewText(item, 'div', product.skippedBarcodes.join('\n'), {
-                whiteSpace: 'pre-wrap',
-                fontFamily: 'Consolas, "Courier New", monospace',
-                fontSize: '12px',
-                lineHeight: '18px',
-                userSelect: 'text'
+        if (Array.isArray(product.skippedBarcodeGroups) && product.skippedBarcodeGroups.length) {
+            product.skippedBarcodeGroups.forEach(group => {
+                appendWarehousePreviewText(item, 'div', `${group.label} (${group.count}):`, {
+                    color: '#667685',
+                    fontSize: '12px',
+                    marginTop: '4px',
+                    userSelect: 'text'
+                });
+
+                if (group.barcodes.length) {
+                    appendWarehousePreviewText(item, 'div', group.barcodes.join('\n'), {
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'Consolas, "Courier New", monospace',
+                        fontSize: '12px',
+                        lineHeight: '18px',
+                        userSelect: 'text'
+                    });
+                }
             });
         }
 
@@ -1685,7 +1690,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
                     item,
                     'div',
                     ozonApplyText,
-                    { color: product.ozonApplyStatus === 'error' ? '#db2919' : '#667685', fontSize: '12px' }
+                    { color: product.ozonApplyHasProblem ? '#db2919' : '#667685', fontSize: '12px' }
                 );
             }
 
@@ -1863,6 +1868,10 @@ function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
     if (msg?.type === 'OZON_RESOLVE_PREVIEW_RESULT') {
         if (msg.ok && msg.plan) {
             lastWarehouseOzonResolvePreview = createWarehouseOzonResolveReady(msg.plan);
+            lastWarehouseOzonUiApply = reconcileWarehouseOzonUiApplyWithResolvePlan(
+                lastWarehouseOzonUiApply,
+                lastWarehouseOzonResolvePreview
+            );
             log('INFO', 'WAREHOUSE_OZON', 'ozon resolve preview ready', msg.plan.summary);
         } else {
             lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(msg.error || 'Ozon resolve failed');

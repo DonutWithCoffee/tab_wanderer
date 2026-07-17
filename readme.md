@@ -9,12 +9,12 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 1.0.2 stable UI clarity patch
+Стадия разработки: post-1.0.2 Ozon state consistency hardening
 Manifest version: 1.0.2
-Текущий фокус: review-friendly patch release
-Tests: 259 pass / 0 fail
-Latest checkpoint: patch: clearer Ozon barcode states + compact service text + separated quick notification filters
-Distribution target: Chrome Web Store / Unlisted listing released
+Текущий фокус: согласование свежей Ozon-проверки со старым состоянием записи
+Tests: 264 pass / 0 fail
+Latest checkpoint: fresh Ozon recheck overrides stale apply state; skipped barcodes show actual reasons
+CWS state: 1.0.1 published; 1.0.2 uploaded from f6664c6, review/delivery not confirmed
 ```
 
 Документы проекта:
@@ -38,7 +38,7 @@ Listing type: Unlisted
 Manual archive installs: только dev/QA до 1.0
 ```
 
-Перед отправкой в Chrome Web Store остаётся операционная release-readiness подготовка:
+Для каждой следующей загрузки в Chrome Web Store повторяется release-readiness проверка:
 
 ```text
 release package без .git / docs/private / node_modules / временных архивов
@@ -428,7 +428,7 @@ Rules:
 не хранить Ozon cookies/tokens/auth/session data
 Ozon worker открывается inactive/background
 multi-barcode warehouse rows не пишутся автоматически
-multi-barcode rows показываются как “Пропущено мультиштрихов”
+пропущенные строки группируются по фактической причине; “Мультиштрихкоды” показываются только для multiBarcodeType
 UI fallback остаётся доступным при сбоях API write/verify
 ```
 
@@ -471,7 +471,7 @@ npm test
 Expected baseline:
 
 ```text
-242 pass / 0 fail
+264 pass / 0 fail
 ```
 
 Before commit for code/test changes:

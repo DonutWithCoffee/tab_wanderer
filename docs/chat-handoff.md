@@ -9,39 +9,35 @@
 ```text
 Repo: DonutWithCoffee/tab_wanderer
 Branch: main
-Manifest version: 1.0.0
-Stage: 1.0 stable monitoring release / Chrome Web Store submission prep
-Latest checkpoint: release: prepare 1.0.0 stable monitoring release
-Expected tests: 242 pass / 0 fail
-Distribution target: Chrome Web Store / Unlisted listing
-Working tree expected: clean
+Manifest version: 1.0.2
+Published release: 1.0.1
+Chrome Web Store 1.0.2: package uploaded; review and user delivery are not confirmed
+Submitted 1.0.2 source HEAD: f6664c6 chore: prepare release 1.0.2
+Development state: post-1.0.2 Ozon state consistency hardening
+Expected tests for the current archive: 264 pass / 0 fail
+Distribution: Chrome Web Store / Unlisted
 ```
 
-Recent important commits:
+Current behavior checkpoint:
 
 ```text
-0c5c09e fix(ozon): verify barcode binding through barcode details API
-0c19488 feat(warehouse): add collapsible barcode preview panel
-5b9dfa1 refactor(warehouse): extract Ozon preview view model
-d9c38f9 refactor(ozon): extract UI apply result helpers
-9f75fe1 refactor(ozon): use extracted apply result helpers
-d1eb0d3 refactor(ozon): extract session utility helpers
-1466ec1 refactor(ozon): extract warehouse result messaging
-c854afe docs(project): sync workflow and current handoff context
-ui(orders): hide user-facing order history lookup
-ui(options): hide low-value monitor scope filters
-feat(notifications): include full order context
-feat(watched-orders): add reminder core model
-feat(watched-orders): schedule reminder alarms
-feat(watched-orders): add reminder UI
-feat(watched-orders): polish management UI and stabilize validation
-fix(ui): add form metadata to extension controls
-feat(options): polish settings layout and diagnostics sections
-ui(watched-orders): refine cards and inline comments
-ui(copy): simplify pre-RC user-facing text
-fix: harden startup guard on worker creation failure
-chore: add Chrome Web Store icon metadata
-release: prepare 1.0.0 stable monitoring release
+fresh Ozon recheck overrides stale write/verify UI state
+unconfirmed write becomes green only after all expected barcodes are found
+partial recheck keeps a red retryable state with an exact verified/missing count
+successful recheck clears stale operation errors and uses current Ozon state
+skipped warehouse rows are grouped by actual reason
+“Мультиштрихкоды” is shown only for multiBarcodeType rows
+technical fallback reasons remain diagnostic-only
+permissions, host_permissions and data handling are unchanged
+```
+
+Release distinction:
+
+```text
+1.0.1 is confirmed published.
+1.0.2 was uploaded from f6664c6, but approval/delivery is still pending explicit user confirmation.
+The post-1.0.2 hardening in the current archive is newer than the submitted 1.0.2 package.
+Do not retag or silently replace the submitted package without a new release decision.
 ```
 
 ---
@@ -55,13 +51,13 @@ git log --oneline -8
 npm test
 ```
 
-Expected:
+Expected after the current archive is applied and committed:
 
 ```text
 working tree clean
-latest commit includes:
-  release: prepare 1.0.0 stable monitoring release
-npm test → 242 pass / 0 fail
+HEAD is f6664c6 or newer
+manifest remains 1.0.2 until a separate release-preparation decision
+npm test → 264 pass / 0 fail
 ```
 
 If dependencies are missing:
@@ -167,7 +163,7 @@ Already assembled warehouse orders must show initial barcode preview on page ope
 Ozon worker tab opens inactive/background.
 Do not store Ozon cookies/tokens/auth/session data.
 Multi-barcode warehouse rows are skipped automatically.
-Skipped rows are surfaced as “Пропущено мультиштрихов”.
+Skipped rows are grouped by actual reason; “Мультиштрихкоды” is used only for multiBarcodeType.
 Warehouse panel is collapsed by default.
 The panel can show selectable barcode lists grouped by product.
 ```
@@ -221,8 +217,8 @@ content.js is lighter, but still owns DOM rendering/runtime messaging
 Stop point:
 
 ```text
-Do not start full Ozon session controller extraction unless it is the active priority.
-The next priority after this cleanup is product simplification, notification polish and watched-order reminders.
+Do not start full Ozon session controller extraction unless it becomes an explicit priority.
+The active next step is manual smoke and release-version planning for the post-1.0.2 hardening.
 ```
 
 ---
@@ -232,16 +228,24 @@ The next priority after this cleanup is product simplification, notification pol
 Product frame:
 
 ```text
-tab_wanderer = уведомления о новых/изменённых заказах + отслеживаемые заказы с напоминаниями + Ozon/warehouse модуль штрихкодов
+tab_wanderer = локальный мониторинг заказов + отслеживаемые заказы/напоминания + warehouse/Ozon helper
 ```
 
 Current priority:
 
 ```text
-1.0 stable monitoring release; next operational step is Chrome Web Store submission.
-Legal entity department work is postponed until QA with that department.
-Watched order reminders are required regardless of legal workflow.
-Chrome Web Store is the chosen distribution channel for 1.0+; listing should be Unlisted.
+finish the post-1.0.2 Ozon consistency hardening as one coherent behavior slice
+manually smoke the recheck transitions and reason-aware skipped barcode UI
+keep the submitted 1.0.2 package tied to f6664c6 while its review state is unknown
+avoid permission, host permission and data handling changes in patch releases
+```
+
+Release rule:
+
+```text
+Do not create or move a 1.0.2 tag until Chrome Web Store publication is confirmed.
+If 1.0.2 is published, the tag must point to the exact published package source HEAD f6664c6.
+The current hardening must go into a later patch version unless the submitted package is explicitly replaced before approval.
 ```
 
 ---
@@ -251,56 +255,67 @@ Chrome Web Store is the chosen distribution channel for 1.0+; listing should be 
 Recommended order:
 
 ```text
-1. Commit the 1.0.0 release metadata/docs slice after green tests.
-2. Build final Chrome Web Store package from 1.0.0.
-3. Prepare privacy policy URL, listing screenshots, permission justifications and reviewer notes.
-4. Submit as Unlisted Chrome Web Store listing.
-5. After legal department QA, design legal workflow from real process.
+1. Apply the replacement-file archive.
+2. Run npm test, git status and git diff --stat.
+3. Commit the whole behavior/docs slice only after green local verification.
+4. Smoke warehouse/Ozon flows:
+   - unconfirmed write → successful recheck
+   - unconfirmed write → partial/missing recheck
+   - stale operation error → current successful recheck
+   - true multi-barcode vs duplicate/non-unit skip labels
+5. Wait for explicit Chrome Web Store 1.0.2 review/delivery confirmation.
+6. Decide the next patch version and release package from the then-current committed HEAD.
 ```
 
 Avoid:
 
 ```text
 Large background.js rewrite without a focused reason.
-Full Ozon session controller extraction unless it becomes explicit priority.
 Mixing Ozon action code into order-monitor semantics.
-Centralized collector before local 1.0 is stable.
-Legal workflow assumptions before QA.
-Recurring reminder complexity in the first reminder MVP.
+Changing permissions/host_permissions in a small patch without a separate review decision.
+Tagging a release from a HEAD that differs from the package actually published.
+Centralized collector work before the local extension remains stable.
 Storing Ozon auth/session data.
 Committing private admin samples or temporary archives.
 ```
-
 
 ---
 
 ## 10. Chrome Web Store Release Readiness
 
+Current release state:
+
 ```text
 Distribution channel: Chrome Web Store
 Listing type: Unlisted
-Developer registration fee: paid
-Manual zip/archive distribution remains for dev/QA only; staff distribution target is Chrome Web Store
+1.0.1: published and delivered
+1.0.2 package: uploaded from f6664c6
+1.0.2 review/delivery: not confirmed
+Current development archive: newer than the submitted 1.0.2 package
 ```
 
-Before Chrome Web Store submission, prepare:
+Reusable pre-upload checks:
 
 ```text
-release package without .git, docs/private, node_modules, temp archives or local samples
-privacy policy
-permissions justification
-host_permissions audit
-single purpose listing description
-screenshots
-staff install/update instructions
-final smoke checklist
-review-response plan for Google feedback
+release package excludes .git, tests, docs, node_modules, temp archives and local samples
+manifest version matches the intended release
+permissions and host_permissions are unchanged unless explicitly approved
+no remote code, eval, CDN scripts or dynamic executable loading
+privacy policy matches local-first behavior
+single-purpose listing text stays accurate
+reviewer note states whether permissions/data handling changed
+SHA256 and runtime file count are recorded
+npm test baseline is recorded
 ```
 
-Policy-sensitive wording:
+For the already submitted 1.0.2 package:
 
 ```text
-Do not imply official Ozon or Amperkot endorsement unless separately approved.
-Describe Ozon support as local workflow automation/helper functionality.
-State honestly that order/admin data is processed locally for notifications, watched orders, reminders and barcode workflow.
+SHA256: 46971aa963497ced32f13ec9e652235f24d1673dcb39f1a5245c036a44ee93de
+Runtime files: 35
+Automated baseline: 259 pass / 0 fail
+Permissions: unchanged
+Host permissions: unchanged
+Data handling: unchanged
+Remote code scan: clean
 ```
