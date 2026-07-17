@@ -817,3 +817,16 @@ test('options page shows load error when GET_CONFIG fails', () => {
         'Ошибка загрузки настроек.'
     );
 });
+
+test('options separates hidden notification filters from legal-only mode', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+    const hideGroup = html.match(/data-filter-group="hide"[\s\S]*?data-filter-group="only"/)?.[0] || '';
+    const onlyGroup = html.match(/data-filter-group="only"[\s\S]*?<\/div>\s*<\/div>\s*<\/details>/)?.[0] || '';
+
+    assert.match(hideGroup, /Скрывать уведомления/);
+    assert.match(hideGroup, /optionsSuppressOzon/);
+    assert.match(hideGroup, /optionsSuppressLegalEntityPayment/);
+    assert.doesNotMatch(hideGroup, /optionsNotifyLegalEntityPaymentOnly/);
+    assert.match(onlyGroup, /Уведомлять только/);
+    assert.match(onlyGroup, /optionsNotifyLegalEntityPaymentOnly/);
+});

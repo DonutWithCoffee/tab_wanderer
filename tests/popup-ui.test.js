@@ -633,3 +633,16 @@ test('popup downloads diagnostic log from quick action', () => {
     assert.match(decodeURIComponent(createdLinks[0].href), /CONTROL START/);
     assert.equal(document.getElementById('diagnosticLogStatus').innerText, 'Лог готов.');
 });
+
+test('popup separates hidden notification filters from legal-only mode', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'popup.html'), 'utf8');
+    const hideGroup = html.match(/data-filter-group="hide"[\s\S]*?data-filter-group="only"/)?.[0] || '';
+    const onlyGroup = html.match(/data-filter-group="only"[\s\S]*?quickSuppressStatus/)?.[0] || '';
+
+    assert.match(hideGroup, /Скрывать уведомления/);
+    assert.match(hideGroup, /popupIgnoreOzon/);
+    assert.match(hideGroup, /popupIgnoreLegalEntityPayment/);
+    assert.doesNotMatch(hideGroup, /popupNotifyLegalEntityPaymentOnly/);
+    assert.match(onlyGroup, /Уведомлять только/);
+    assert.match(onlyGroup, /popupNotifyLegalEntityPaymentOnly/);
+});

@@ -584,28 +584,36 @@
                     <p class="muted">
                         Эти правила меняют только уведомления. Заказы остаются в сборе и истории.
                     </p>
-                    <div class="checkbox-list">
-                        <label class="checkbox-row">
-                            <input type="checkbox" id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off">
-                            <span class="checkbox-copy">
-                                <span class="checkbox-title">Юрлица</span>
-                                <span class="checkbox-note">Безналичная оплата для юрлиц.</span>
-                            </span>
-                        </label>
-                        <label class="checkbox-row">
-                            <input type="checkbox" id="optionsNotifyLegalEntityPaymentOnly" name="optionsNotifyLegalEntityPaymentOnly" autocomplete="off">
-                            <span class="checkbox-copy">
-                                <span class="checkbox-title">Только юрлица</span>
-                                <span class="checkbox-note">Уведомлять только о безналичной оплате для юрлиц.</span>
-                            </span>
-                        </label>
-                        <label class="checkbox-row">
-                            <input type="checkbox" id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off">
-                            <span class="checkbox-copy">
-                                <span class="checkbox-title">ОЗОН</span>
-                                <span class="checkbox-note">Заказы ОЗОН.</span>
-                            </span>
-                        </label>
+                    <div class="filter-group" data-filter-group="hide">
+                        <p class="filter-group-title">Скрывать уведомления</p>
+                        <div class="checkbox-list">
+                            <label class="checkbox-row">
+                                <input type="checkbox" id="optionsSuppressOzon" name="optionsSuppressOzon" autocomplete="off">
+                                <span class="checkbox-copy">
+                                    <span class="checkbox-title">ОЗОН</span>
+                                    <span class="checkbox-note">Не уведомлять о заказах ОЗОН.</span>
+                                </span>
+                            </label>
+                            <label class="checkbox-row">
+                                <input type="checkbox" id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off">
+                                <span class="checkbox-copy">
+                                    <span class="checkbox-title">Юрлица</span>
+                                    <span class="checkbox-note">Не уведомлять о безналичной оплате для юрлиц.</span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="filter-group" data-filter-group="only">
+                        <p class="filter-group-title">Уведомлять только</p>
+                        <div class="checkbox-list">
+                            <label class="checkbox-row">
+                                <input type="checkbox" id="optionsNotifyLegalEntityPaymentOnly" name="optionsNotifyLegalEntityPaymentOnly" autocomplete="off">
+                                <span class="checkbox-copy">
+                                    <span class="checkbox-title">Заказы юрлиц</span>
+                                    <span class="checkbox-note">Уведомлять только о безналичной оплате для юрлиц.</span>
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </details>

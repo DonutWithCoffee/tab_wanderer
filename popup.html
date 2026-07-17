@@ -365,6 +365,24 @@
             gap: 8px;
         }
 
+        .filter-group {
+            display: grid;
+            gap: 8px;
+        }
+
+        .filter-group + .filter-group {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .filter-group-title {
+            margin: 0;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--muted);
+        }
+
         .checkbox-row {
             display: flex;
             align-items: flex-start;
@@ -487,28 +505,36 @@
         <summary>Фильтры уведомлений</summary>
         <div class="support-body">
             <p class="section-description">Фильтры меняют только уведомления. Заказы всё равно собираются, история обновляется.</p>
-            <div class="checkbox-list">
-                <label class="checkbox-row">
-                    <input type="checkbox" id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off">
-                    <span class="checkbox-copy">
-                        <span class="checkbox-title">Юрлица</span>
-                        <span class="checkbox-note">Безналичная оплата для юрлиц.</span>
-                    </span>
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="popupNotifyLegalEntityPaymentOnly" name="popupNotifyLegalEntityPaymentOnly" autocomplete="off">
-                    <span class="checkbox-copy">
-                        <span class="checkbox-title">Только юрлица</span>
-                        <span class="checkbox-note">Уведомлять только о безналичной оплате для юрлиц.</span>
-                    </span>
-                </label>
-                <label class="checkbox-row">
-                    <input type="checkbox" id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off">
-                    <span class="checkbox-copy">
-                        <span class="checkbox-title">ОЗОН</span>
-                        <span class="checkbox-note">Заказы ОЗОН.</span>
-                    </span>
-                </label>
+            <div class="filter-group" data-filter-group="hide">
+                <p class="filter-group-title">Скрывать уведомления</p>
+                <div class="checkbox-list">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="popupIgnoreOzon" name="popupIgnoreOzon" autocomplete="off">
+                        <span class="checkbox-copy">
+                            <span class="checkbox-title">ОЗОН</span>
+                            <span class="checkbox-note">Не уведомлять о заказах ОЗОН.</span>
+                        </span>
+                    </label>
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off">
+                        <span class="checkbox-copy">
+                            <span class="checkbox-title">Юрлица</span>
+                            <span class="checkbox-note">Не уведомлять о безналичной оплате для юрлиц.</span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+            <div class="filter-group" data-filter-group="only">
+                <p class="filter-group-title">Уведомлять только</p>
+                <div class="checkbox-list">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="popupNotifyLegalEntityPaymentOnly" name="popupNotifyLegalEntityPaymentOnly" autocomplete="off">
+                        <span class="checkbox-copy">
+                            <span class="checkbox-title">Заказы юрлиц</span>
+                            <span class="checkbox-note">Уведомлять только о безналичной оплате для юрлиц.</span>
+                        </span>
+                    </label>
+                </div>
             </div>
             <div id="quickSuppressStatus" class="hint">Загрузка фильтров...</div>
         </div>
