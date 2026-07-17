@@ -9,11 +9,11 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 1.0.1 stable monitoring patch
-Manifest version: 1.0.1
+Стадия разработки: 1.0.2 stable UI clarity patch
+Manifest version: 1.0.2
 Текущий фокус: review-friendly patch release
-Tests: 249 pass / 0 fail
-Latest checkpoint: patch: legal-entity-only filter + per-order follow-up toggle + popup release notes
+Tests: 259 pass / 0 fail
+Latest checkpoint: patch: clearer Ozon barcode states + compact service text + separated quick notification filters
 Distribution target: Chrome Web Store / Unlisted listing released
 ```
 

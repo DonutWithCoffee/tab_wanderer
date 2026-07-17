@@ -21,13 +21,37 @@ Chrome Web Store release ✅ published
 Version state:
 
 ```text
-Manifest version: 1.0.1
-Tests: 249 pass / 0 fail
-Latest checkpoint: patch: legal-entity-only filter + per-order follow-up toggle + popup release notes
+Manifest version: 1.0.2
+Tests: 259 pass / 0 fail
+Latest checkpoint: patch: clearer Ozon barcode states + compact service text + separated quick notification filters
 Distribution target: Chrome Web Store / Unlisted listing released
 ```
 
 Решение по версии: после чистого smoke проект переводится в `1.0.0`; дальнейшие исправления для Chrome Web Store идут отдельными patch/minor версиями.
+
+
+## 1.0.2 — Ozon status clarity + quick filter grouping ✅
+
+Сделано:
+
+```text
+кнопка записи в Ozon показывает состояние цветом и понятным текстом
+успешно подтверждённая запись отображается зелёным состоянием
+ошибка или неподтверждённая запись отображается красным состоянием с повтором
+технический Ozon-текст сокращён, нулевые показатели и внутренние причины скрыты
+повторная проверка не создаёт дублирующий пользовательский статус
+быстрые фильтры разделены на “Скрывать уведомления” и “Уведомлять только”
+режим “только юрлица” по-прежнему автоматически выключает скрытие юрлиц
+popup release notes обновлены для 1.0.2
+```
+
+Chrome Web Store note для загрузки:
+
+```text
+UI clarity and bugfix patch only. No permission, host permission, or data handling changes.
+```
+
+---
 
 ## 1.0.1 — Legal entity filter + watched-order follow-up toggle ✅
 

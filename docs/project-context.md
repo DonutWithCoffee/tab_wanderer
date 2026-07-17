@@ -1,6 +1,6 @@
 # tab_wanderer — Project Context Contract
 
-Актуально на момент: `1.0.1 stable monitoring patch`.
+Актуально на момент: `1.0.2 stable UI clarity patch`.
 
 Этот документ заменяет старые message/handoff тексты и используется как living document для переноса контекста между чатами. Если загружен актуальный архив кода, код из архива является источником истины по реализации.
 
@@ -11,10 +11,10 @@
 ```text
 Проект: tab_wanderer
 Назначение: Chrome extension для мониторинга заказов в админке Amperkot + warehouse/Ozon barcode action layer
-Текущая стадия: 1.0.1 stable monitoring patch
-Manifest version: 1.0.1
-Tests: 249 pass / 0 fail
-Latest checkpoint: patch: legal-entity-only filter + per-order follow-up toggle + popup release notes
+Текущая стадия: 1.0.2 stable UI clarity patch
+Manifest version: 1.0.2
+Tests: 259 pass / 0 fail
+Latest checkpoint: patch: clearer Ozon barcode states + compact service text + separated quick notification filters
 Distribution target: Chrome Web Store / Unlisted listing released
 Branch: main
 Repo: DonutWithCoffee/tab_wanderer
@@ -61,6 +61,8 @@ fix: harden startup guard on worker creation failure
 chore: add Chrome Web Store icon metadata
 release: prepare 1.0.0 stable monitoring release
 patch: legal-entity-only filter + per-order follow-up toggle
+fix: clarify Ozon barcode status
+fix: separate quick notification filters
 ```
 
 ---
