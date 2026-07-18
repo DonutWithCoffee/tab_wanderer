@@ -9,13 +9,14 @@ Chrome extension для мониторинга заказов в админке 
 ## Текущий статус
 
 ```text
-Стадия разработки: 1.0.3 release candidate — Ozon verification hardening
-Manifest version: 1.0.3
-Текущий фокус: выпуск проверенного Ozon state-consistency исправления отдельным patch-релизом
-Tests: 264 pass / 0 fail
-Latest checkpoint: fresh Ozon recheck overrides stale apply state; skipped barcodes show actual reasons
-CWS state: 1.0.2 published (Unlisted) from f6664c6; 1.0.3 package prepared from base 107afcc
-CWS 1.0.3 package SHA256: ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
+Стадия разработки: 1.0.4 release candidate — automatic update + quick-filter precedence
+Manifest version: 1.0.4
+Текущий стабильный CWS-релиз: 1.0.3 (Unlisted)
+Published 1.0.3 release commit/tag: f496d36 / v1.0.3
+Tests: 267 pass / 0 fail
+Latest checkpoint: downloaded CWS updates auto-apply at a safe moment; legal-only mode overrides both hide filters
+Prepared CWS 1.0.4 package SHA256: 6465c9a0aa84e86d4607e757403d91b47127d1b3abe06ad9aa0cfb363d85debd
+Permissions / host_permissions / data handling: unchanged
 ```
 
 Документы проекта:
@@ -37,6 +38,18 @@ docs/smoke-checklist.md
 Chrome Web Store
 Listing type: Unlisted
 Manual archive installs: только dev/QA до 1.0
+```
+
+
+Обновления CWS:
+
+```text
+Chrome сам скачивает опубликованные обновления.
+runtime.onUpdateAvailable фиксирует готовый пакет.
+Если Ozon/direct-операция не идёт, расширение вызывает runtime.reload() и применяет пакет.
+Если критическая операция активна, обновление откладывается одноразовым alarm до безопасного момента.
+Основной monitoring collection не блокирует обновление: recovery/rebaseline восстанавливают состояние после reload.
+requestUpdateCheck по таймеру не используется.
 ```
 
 Для каждой следующей загрузки в Chrome Web Store повторяется release-readiness проверка:
@@ -104,9 +117,10 @@ Start / Stop
 статус мониторинга
 добавить заказ в отслеживаемые по полному orderId
 открыть страницу “Отслеживаемые заказы”
-быстрые suppressors под dropdown:
-  - Игнорировать юриков
-  - Игнорировать ОЗОН
+быстрые фильтры под dropdown:
+  - Скрывать уведомления: ОЗОН / Юрлица
+  - Уведомлять только: Заказы юрлиц
+  - режим “Заказы юрлиц” очищает и блокирует оба конфликтующих hide-фильтра
 открыть настройки
 скачать diagnostic log
 ```
@@ -472,7 +486,7 @@ npm test
 Expected baseline:
 
 ```text
-264 pass / 0 fail
+267 pass / 0 fail
 ```
 
 Before commit for code/test changes:

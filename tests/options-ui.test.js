@@ -654,13 +654,13 @@ test('options page autosaves quick notification suppressors', () => {
     assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: игнорируются; ОЗОН: игнорируется');
 });
 
-test('options page legal-entity-only filter disables legal entity suppressor', () => {
+test('options page legal-entity-only filter disables conflicting suppressors', () => {
     const context = loadOptionsContext({
         userConfig: {
             notificationSuppressors: {
                 ignoreLegalEntityPayment: true,
                 notifyLegalEntityPaymentOnly: false,
-                ignoreOzon: false
+                ignoreOzon: true
             }
         }
     });
@@ -680,7 +680,9 @@ test('options page legal-entity-only filter disables legal entity suppressor', (
     });
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').disabled, true);
-    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: только они; ОЗОН: уведомляется');
+    assert.equal(document.getElementById('optionsSuppressOzon').checked, false);
+    assert.equal(document.getElementById('optionsSuppressOzon').disabled, true);
+    assert.equal(document.getElementById('optionsNotificationSummary').innerText, 'Новые заказы: включены; Изменения заказов: включены; Поля изменений: 4 включено; Юрики: только они; ОЗОН: фильтр не применяется');
 });
 
 test('options page disables changed field controls when changed order trigger is off', () => {

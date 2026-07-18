@@ -459,7 +459,9 @@ function getNotificationSummary(config = {}) {
         `Изменения заказов: ${triggers.changedOrders ? 'включены' : 'выключены'}`,
         `Поля изменений: ${enabledFields} включено`,
         `Юрики: ${getLegalEntityNotificationModeLabel(suppressors)}`,
-        `ОЗОН: ${suppressors.ignoreOzon ? 'игнорируется' : 'уведомляется'}`
+        `ОЗОН: ${suppressors.notifyLegalEntityPaymentOnly
+            ? 'фильтр не применяется'
+            : (suppressors.ignoreOzon ? 'игнорируется' : 'уведомляется')}`
     ].join('; ');
 }
 
@@ -582,6 +584,7 @@ function normalizeOptionsNotificationSuppressors(suppressors = {}) {
 
     if (normalized.notifyLegalEntityPaymentOnly) {
         normalized.ignoreLegalEntityPayment = false;
+        normalized.ignoreOzon = false;
     }
 
     return normalized;
@@ -608,6 +611,7 @@ function renderSettings(config = {}) {
     }
 
     setDisabled('optionsSuppressLegalEntityPayment', suppressors.notifyLegalEntityPaymentOnly);
+    setDisabled('optionsSuppressOzon', suppressors.notifyLegalEntityPaymentOnly);
     setNotificationFieldControlsDisabled(!triggers.changedOrders);
 }
 

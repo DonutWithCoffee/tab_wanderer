@@ -255,6 +255,7 @@ function normalizePopupNotificationSuppressors(suppressors = {}) {
 
     if (normalized.notifyLegalEntityPaymentOnly) {
         normalized.ignoreLegalEntityPayment = false;
+        normalized.ignoreOzon = false;
     }
 
     return normalized;
@@ -268,6 +269,7 @@ function updateQuickSuppressorControls(config = {}) {
     }
 
     setDisabled('popupIgnoreLegalEntityPayment', suppressors.notifyLegalEntityPaymentOnly);
+    setDisabled('popupIgnoreOzon', suppressors.notifyLegalEntityPaymentOnly);
 }
 
 function loadPopupConfig() {

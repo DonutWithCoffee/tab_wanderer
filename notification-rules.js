@@ -155,9 +155,11 @@ function normalizeNotificationSuppressors(suppressors = {}) {
                 ? defaultSuppressors.ignoreLegalEntityPayment
                 : Boolean(safeSuppressors.ignoreLegalEntityPayment)),
         notifyLegalEntityPaymentOnly,
-        ignoreOzon: safeSuppressors.ignoreOzon === undefined
-            ? defaultSuppressors.ignoreOzon
-            : Boolean(safeSuppressors.ignoreOzon)
+        ignoreOzon: notifyLegalEntityPaymentOnly
+            ? false
+            : (safeSuppressors.ignoreOzon === undefined
+                ? defaultSuppressors.ignoreOzon
+                : Boolean(safeSuppressors.ignoreOzon))
     };
 }
 
@@ -240,13 +242,17 @@ function isOzonOrder(order = {}) {
 function evaluateNotificationSuppressors(order = {}, context = {}, effectiveConfig) {
     const suppressors = effectiveConfig.notificationSuppressors || DEFAULT_CONFIG.notificationSuppressors;
 
-    if (suppressors.notifyLegalEntityPaymentOnly && !isLegalEntityPaymentOrder(order)) {
-        return buildTriggerDecision(
-            'notification-filter-legal-entity-payment-only',
-            'Only legal entity payment notifications are enabled by user setting',
-            context,
-            effectiveConfig
-        );
+    if (suppressors.notifyLegalEntityPaymentOnly) {
+        if (!isLegalEntityPaymentOrder(order)) {
+            return buildTriggerDecision(
+                'notification-filter-legal-entity-payment-only',
+                'Only legal entity payment notifications are enabled by user setting',
+                context,
+                effectiveConfig
+            );
+        }
+
+        return null;
     }
 
     if (suppressors.ignoreLegalEntityPayment && isLegalEntityPaymentOrder(order)) {

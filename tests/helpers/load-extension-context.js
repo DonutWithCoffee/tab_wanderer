@@ -35,7 +35,7 @@ function createChromeStub(testState) {
                 set: async (payload) => {
                     testState.storageSetCalls.push(payload);
                 },
-                get: async () => ({})
+                get: async () => ({ ...(testState.storageGetResult || {}) })
             }
         },
         notifications: {
@@ -78,6 +78,14 @@ function createChromeStub(testState) {
         },
         runtime: {
             lastError: null,
+            reload: () => {
+                testState.runtimeReloadCalls += 1;
+            },
+            onUpdateAvailable: {
+                addListener: (listener) => {
+                    testState.runtimeOnUpdateAvailableListener = listener;
+                }
+            },
             onMessage: {
                 addListener: (listener) => {
                     testState.runtimeMessageListener = listener;
@@ -115,7 +123,10 @@ function createBaseContext(overrides = {}) {
         alarmListener: null,
         alarmCreateCalls: [],
         alarmClearCalls: [],
-        alarms: {}
+        alarms: {},
+        storageGetResult: {},
+        runtimeOnUpdateAvailableListener: null,
+        runtimeReloadCalls: 0
     };
 
     const activeTimeouts = [];
@@ -234,6 +245,7 @@ function setBackgroundState(context, state = {}) {
         directWorkerTabId = __testState.directWorkerTabId ?? null;
         ozonWorkerTabId = __testState.ozonWorkerTabId ?? null;
         ozonResolveSession = __testState.ozonResolveSession ?? null;
+        ozonUiApplySession = __testState.ozonUiApplySession ?? null;
         directFollowUpState = __testState.directFollowUpState ?? normalizeDirectFollowUpState();
         directFollowUpOrdersDB = __testState.directFollowUpOrdersDB || {};
         directFollowUpHashDB = __testState.directFollowUpHashDB || {};
@@ -251,6 +263,8 @@ function setBackgroundState(context, state = {}) {
         diagnosticLog = Array.isArray(__testState.diagnosticLog) ? __testState.diagnosticLog : [];
         diagnosticLogDroppedEntries = __testState.diagnosticLogDroppedEntries ?? 0;
         isDiagnosticLogReady = __testState.isDiagnosticLogReady ?? true;
+        pendingWatchedOrderAdd = __testState.pendingWatchedOrderAdd ?? null;
+        pendingExtensionUpdate = __testState.pendingExtensionUpdate ?? null;
     `);
 
     delete context.__testState;
@@ -267,6 +281,7 @@ function getBackgroundState(context) {
         directWorkerTabId,
         ozonWorkerTabId,
         ozonResolveSession,
+        ozonUiApplySession,
         directFollowUpState,
         directFollowUpOrdersDB,
         directFollowUpHashDB,
@@ -282,7 +297,9 @@ function getBackgroundState(context) {
         lastCollectionMetadata,
         eventJournal,
         diagnosticLog,
-        diagnosticLogDroppedEntries
+        diagnosticLogDroppedEntries,
+        pendingWatchedOrderAdd,
+        pendingExtensionUpdate
     })`);
 
     return JSON.parse(snapshot);

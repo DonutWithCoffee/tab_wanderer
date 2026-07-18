@@ -1,6 +1,53 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadBackgroundContext, sendRuntimeMessage } = require('./helpers/load-extension-context');
+const { loadBackgroundContext, settleBackgroundContext, sendRuntimeMessage, runExpression } = require('./helpers/load-extension-context');
+
+
+
+test('downloaded extension update reloads immediately when no critical operation is active', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    assert.equal(typeof context.__test.runtimeOnUpdateAvailableListener, 'function');
+
+    const result = await context.queueExtensionUpdate({ version: '9.9.9' });
+
+    assert.equal(result.applied, true);
+    assert.equal(result.version, '9.9.9');
+    assert.equal(context.__test.runtimeReloadCalls, 1);
+    assert.equal(context.__test.alarmClearCalls.includes('tab_wanderer_apply_extension_update'), true);
+});
+
+test('downloaded extension update waits for Ozon operation and applies after it completes', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    context.__testBusySession = { status: 'writing' };
+    runExpression(context, 'ozonUiApplySession = __testBusySession');
+    delete context.__testBusySession;
+
+    const deferred = await context.queueExtensionUpdate({ version: '9.9.9' });
+
+    assert.equal(deferred.applied, false);
+    assert.equal(deferred.reason, 'busy');
+    assert.deepEqual([...deferred.blockers], ['ozon-ui-apply']);
+    assert.equal(context.__test.runtimeReloadCalls, 0);
+    assert.equal(Boolean(context.__test.alarms.tab_wanderer_apply_extension_update), true);
+
+    runExpression(context, 'ozonUiApplySession = null');
+    const applied = await context.tryApplyPendingExtensionUpdate('test-complete');
+
+    assert.equal(applied.applied, true);
+    assert.equal(context.__test.runtimeReloadCalls, 1);
+});
+
+test('extension version comparison handles patch versions numerically', () => {
+    const context = loadBackgroundContext();
+
+    assert.equal(context.compareExtensionVersions('1.0.10', '1.0.9'), 1);
+    assert.equal(context.compareExtensionVersions('1.0.4', '1.0.4.0'), 0);
+    assert.equal(context.compareExtensionVersions('1.0.3', '1.0.4'), -1);
+});
 
 test('buildOrdersUrl builds config-driven worker URL with query params and marker', () => {
     const context = loadBackgroundContext();

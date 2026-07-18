@@ -447,13 +447,13 @@ test('popup quick suppressor toggles update config only for notifications', () =
     assert.equal(document.getElementById('quickSuppressStatus').innerText, 'Фильтры сохранены.');
 });
 
-test('popup legal-entity-only filter disables legal entity suppressor', () => {
+test('popup legal-entity-only filter disables conflicting suppressors', () => {
     const context = loadPopupContext({
         userConfig: {
             notificationSuppressors: {
                 ignoreLegalEntityPayment: true,
                 notifyLegalEntityPaymentOnly: false,
-                ignoreOzon: false
+                ignoreOzon: true
             },
             watchedOrders: {
                 items: []
@@ -475,6 +475,8 @@ test('popup legal-entity-only filter disables legal entity suppressor', () => {
     });
     assert.equal(document.getElementById('popupIgnoreLegalEntityPayment').checked, false);
     assert.equal(document.getElementById('popupIgnoreLegalEntityPayment').disabled, true);
+    assert.equal(document.getElementById('popupIgnoreOzon').checked, false);
+    assert.equal(document.getElementById('popupIgnoreOzon').disabled, true);
 });
 
 test('popup shows release notes until current version is acknowledged', () => {

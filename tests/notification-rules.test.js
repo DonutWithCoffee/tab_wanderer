@@ -336,7 +336,7 @@ test('getEffectiveConfig normalizes notification suppressor defaults', () => {
     });
 });
 
-test('getEffectiveConfig disables legal entity ignore when legal-entity-only filter is enabled', () => {
+test('getEffectiveConfig disables conflicting suppressors when legal-entity-only filter is enabled', () => {
     const context = loadRulesContext();
 
     const config = context.getEffectiveConfig({
@@ -350,7 +350,7 @@ test('getEffectiveConfig disables legal entity ignore when legal-entity-only fil
     assert.deepEqual(JSON.parse(JSON.stringify(config.notificationSuppressors)), {
         ignoreLegalEntityPayment: false,
         notifyLegalEntityPaymentOnly: true,
-        ignoreOzon: true
+        ignoreOzon: false
     });
 });
 
@@ -398,11 +398,16 @@ test('evaluateNotification notifies only legal entity payment orders when legal-
         }
     );
     const legalDecision = context.evaluateNotification(
-        createOrder({ payment: 'Безналичный расчет для юридических лиц' }),
+        createOrder({
+            payment: 'Безналичный расчет для юридических лиц',
+            contractor: 'OZON (ОЗОН)'
+        }),
         eventContext,
         {
             notificationSuppressors: {
-                notifyLegalEntityPaymentOnly: true
+                notifyLegalEntityPaymentOnly: true,
+                ignoreLegalEntityPayment: true,
+                ignoreOzon: true
             }
         }
     );

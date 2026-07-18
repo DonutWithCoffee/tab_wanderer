@@ -33,6 +33,7 @@ let diagnosticLogFlushTimer = null;
 let isDiagnosticLogReady = false;
 let pendingWatchedOrderAdd = null;
 let lastWatchedOrderAddResult = null;
+let pendingExtensionUpdate = null;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -56,6 +57,143 @@ const FAST_POLL_INTERVAL_MS = 15000;
 const DEEP_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const COLLECTION_TIMEOUT_MS = 60000;
 const COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER = 2;
+const EXTENSION_UPDATE_RETRY_ALARM = 'tab_wanderer_apply_extension_update';
+const EXTENSION_UPDATE_RETRY_DELAY_MINUTES = 1;
+
+function normalizeExtensionVersionParts(value) {
+    return String(value || '')
+        .split('.')
+        .map((part) => {
+            const numeric = Number.parseInt(part, 10);
+            return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0;
+        });
+}
+
+function compareExtensionVersions(left, right) {
+    const leftParts = normalizeExtensionVersionParts(left);
+    const rightParts = normalizeExtensionVersionParts(right);
+    const length = Math.max(leftParts.length, rightParts.length);
+
+    for (let index = 0; index < length; index += 1) {
+        const leftPart = leftParts[index] || 0;
+        const rightPart = rightParts[index] || 0;
+
+        if (leftPart !== rightPart) {
+            return leftPart > rightPart ? 1 : -1;
+        }
+    }
+
+    return 0;
+}
+
+function normalizePendingExtensionUpdate(value = {}) {
+    const version = String(value?.version || '').trim();
+
+    if (!version) {
+        return null;
+    }
+
+    return {
+        version,
+        availableAt: Number(value?.availableAt) || Date.now()
+    };
+}
+
+function getExtensionUpdateBlockers() {
+    const blockers = [];
+
+    if (ozonUiApplySession) {
+        blockers.push('ozon-ui-apply');
+    }
+
+    if (ozonResolveSession) {
+        blockers.push('ozon-resolve');
+    }
+
+    if (pendingWatchedOrderAdd) {
+        blockers.push('watched-order-add');
+    }
+
+    if (directWorkerTabId || directFollowUpState?.currentOrderId) {
+        blockers.push('direct-follow-up');
+    }
+
+    return blockers;
+}
+
+async function persistPendingExtensionUpdate() {
+    await chrome.storage.local.set({ pendingExtensionUpdate });
+}
+
+async function scheduleExtensionUpdateRetry() {
+    await chrome.alarms.create(EXTENSION_UPDATE_RETRY_ALARM, {
+        delayInMinutes: EXTENSION_UPDATE_RETRY_DELAY_MINUTES
+    });
+}
+
+async function clearPendingExtensionUpdate() {
+    pendingExtensionUpdate = null;
+    await chrome.storage.local.set({ pendingExtensionUpdate: null });
+    await chrome.alarms.clear(EXTENSION_UPDATE_RETRY_ALARM);
+}
+
+async function tryApplyPendingExtensionUpdate(trigger = 'unknown') {
+    if (!pendingExtensionUpdate) {
+        return { applied: false, reason: 'no-pending-update' };
+    }
+
+    const currentVersion = String(VERSION?.version || '0');
+
+    if (compareExtensionVersions(pendingExtensionUpdate.version, currentVersion) <= 0) {
+        const staleVersion = pendingExtensionUpdate.version;
+        await clearPendingExtensionUpdate();
+        log('INFO', 'UPDATE', 'cleared stale pending extension update', {
+            trigger,
+            currentVersion,
+            pendingVersion: staleVersion
+        });
+        return { applied: false, reason: 'stale-update' };
+    }
+
+    const blockers = getExtensionUpdateBlockers();
+
+    if (blockers.length) {
+        await scheduleExtensionUpdateRetry();
+        log('INFO', 'UPDATE', 'extension update deferred until safe state', {
+            trigger,
+            version: pendingExtensionUpdate.version,
+            blockers
+        });
+        return { applied: false, reason: 'busy', blockers };
+    }
+
+    const nextVersion = pendingExtensionUpdate.version;
+    await clearPendingExtensionUpdate();
+    log('INFO', 'UPDATE', 'applying downloaded extension update', {
+        trigger,
+        currentVersion,
+        nextVersion
+    });
+    chrome.runtime.reload();
+
+    return { applied: true, version: nextVersion };
+}
+
+async function queueExtensionUpdate(details = {}) {
+    const next = normalizePendingExtensionUpdate({
+        version: details?.version,
+        availableAt: Date.now()
+    });
+
+    if (!next) {
+        return { applied: false, reason: 'invalid-update' };
+    }
+
+    pendingExtensionUpdate = next;
+    await persistPendingExtensionUpdate();
+
+    return tryApplyPendingExtensionUpdate('onUpdateAvailable');
+}
 
 function getConfiguredWatchedOrderFollowUpIntervalMinutes() {
     if (typeof normalizeWatchedOrderFollowUpIntervalMinutes === 'function') {
@@ -1236,7 +1374,8 @@ async function load() {
         'eventJournalDroppedEntries',
         'diagnosticLog',
         'diagnosticLogDroppedEntries',
-        'lastWatchedOrderAddResult'
+        'lastWatchedOrderAddResult',
+        'pendingExtensionUpdate'
     ]);
 
     knownOrdersDB = d.knownOrdersDB || {};
@@ -1265,6 +1404,7 @@ async function load() {
     lastWatchedOrderAddResult = d.lastWatchedOrderAddResult && typeof d.lastWatchedOrderAddResult === 'object'
         ? d.lastWatchedOrderAddResult
         : null;
+    pendingExtensionUpdate = normalizePendingExtensionUpdate(d.pendingExtensionUpdate);
     isDiagnosticLogReady = true;
 
     directWorkerTabId = null;
@@ -1306,6 +1446,14 @@ async function load() {
         setTimeout(() => {
             ensureWorkerTab();
         }, 1000);
+    }
+
+    if (pendingExtensionUpdate) {
+        setTimeout(() => {
+            tryApplyPendingExtensionUpdate('service-worker-load').catch((err) => {
+                log('ERROR', 'UPDATE', err?.message || err);
+            });
+        }, 0);
     }
 }
 
@@ -1436,6 +1584,15 @@ async function ensureWorkerTab() {
     } finally {
         isCreatingWorker = false;
     }
+}
+
+// ---------- EXTENSION UPDATE ----------
+if (chrome?.runtime?.onUpdateAvailable?.addListener) {
+    chrome.runtime.onUpdateAvailable.addListener((details) => {
+        queueExtensionUpdate(details).catch((err) => {
+            log('ERROR', 'UPDATE', err?.message || err);
+        });
+    });
 }
 
 // ---------- TAB EVENTS ----------
@@ -1804,6 +1961,13 @@ chrome.notifications.onClosed.addListener(async (notificationId) => {
 
 if (chrome?.alarms?.onAlarm?.addListener) {
     chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm?.name === EXTENSION_UPDATE_RETRY_ALARM) {
+            tryApplyPendingExtensionUpdate('retry-alarm').catch((err) => {
+                log('ERROR', 'UPDATE', err?.message || err);
+            });
+            return;
+        }
+
         handleWatchedOrderReminderAlarm(alarm).catch((err) => {
             log('ERROR', 'REMINDER', err?.message || err);
         });
