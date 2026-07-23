@@ -18,8 +18,9 @@
 1.0.1 published
 1.0.2 published
 1.0.3 published and tagged v1.0.3
-Current code: unpublished post-1.0.3 hardening + order-aware Ozon automation
-Manifest remains 1.0.3
+Current candidate: 1.0.4 — lifecycle/security hardening + order-aware Ozon automation
+Manifest: 1.0.4
+Publication/tag: pending
 Automated baseline: 322 pass / 0 fail
 ```
 

@@ -6,14 +6,14 @@
 
 ```text
 Публичная стабильная версия: 1.0.3 (Chrome Web Store / Unlisted)
-Release commit: f496d36
-Annotated tag: v1.0.3
-Manifest version в текущей ветке: 1.0.3
-Текущая разработка: неопубликованный post-1.0.3 hardening + order-aware Ozon automation
+Published release commit: f496d36
+Published annotated tag: v1.0.3
+Текущий release candidate: 1.0.4
+Release commit/tag: ожидают commit, публикацию и подтверждение
 Tests: 322 pass / 0 fail
 ```
 
-Текущий `main` новее опубликованной 1.0.3, но версия намеренно не повышена. CWS package для следующего релиза не подготовлен.
+Версия 1.0.4 подготовлена как release candidate. Публичной остаётся 1.0.3; тег `v1.0.4` создаётся только после подтверждённой публикации точного CWS-пакета.
 
 ## Назначение
 

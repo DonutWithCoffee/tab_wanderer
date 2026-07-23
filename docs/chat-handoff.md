@@ -9,13 +9,13 @@ Public stable CWS release: 1.0.3 / Unlisted
 Published release commit: f496d36
 Published annotated tag: v1.0.3
 Current development base before this hardening: 981a9b5
-Manifest version: 1.0.3
-Development state: unpublished post-1.0.3 full hardening + order-aware Ozon automation
+Manifest version: 1.0.4
+Development state: 1.0.4 release candidate prepared; release commit and publication pending
 Expected automated baseline: 322 pass / 0 fail
-Next CWS version: not assigned/prepared
+Next CWS version: 1.0.4
 ```
 
-1.0.3 опубликована и закрыта. Текущий `main` содержит более новые изменения, но это не релиз 1.0.4 и не CWS candidate.
+1.0.3 остаётся публичной стабильной версией. 1.0.4 подготовлена как release candidate, но ещё не опубликована и не помечена тегом.
 
 ## 2. What Is In The Current Hardening
 
@@ -172,8 +172,8 @@ tests/ozon-product-bridge.test.js
 
 ## 6. Release Discipline
 
-- Не повышать версию до завершения кода и manual smoke.
-- Не создавать CWS package заранее.
+- Версия повышена до 1.0.4 только после завершения кода и успешного live smoke.
+- Загружать только точный проверенный CWS package с совпадающим SHA256.
 - Маленькие patch releases без новых permissions/host permissions предпочтительны.
 - Удаление permission допустимо, но требует smoke в установленной unpacked-сборке.
 - Tag создаётся только после подтверждённой публикации.
@@ -193,7 +193,7 @@ tests/ozon-product-bridge.test.js
 ## 8. Next Step After Applying This Archive
 
 1. Пользователь запускает `npm test`, `git status`, `git diff --stat`.
-2. Затем выполняется manual smoke из `docs/smoke-checklist.md`.
-3. Проверяется manager-tab classification и автоматический Ozon flow по разделам smoke checklist.
-4. Только после подтверждения можно коммитить интегрированный срез.
-5. Следующий релиз формируется позже вместе с достаточным набором пользовательских изменений.
+2. Проверяет manifest/popup version 1.0.4 и выполняет финальный smoke из `docs/smoke-checklist.md`.
+3. После подтверждения коммитит и пушит release-preparation metadata.
+4. Загружает точный проверенный CWS ZIP из release artifacts.
+5. Создаёт annotated tag `v1.0.4` только после подтверждённой публикации.

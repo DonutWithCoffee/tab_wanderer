@@ -1,8 +1,8 @@
 const VERSION = {
-    version: '1.0.3',
-    build: '1.0.3.0',
-    stage: 'Ozon verification hardening patch',
-    date: '2026-07-17'
+    version: '1.0.4',
+    build: '1.0.4.0',
+    stage: 'order-aware Ozon automation and lifecycle hardening',
+    date: '2026-07-23'
 };
 
 const CHANGELOG = {
@@ -19,5 +19,6 @@ const CHANGELOG = {
     '1.0.0': 'stable monitoring release: local-first order monitoring, watched orders with reminders, diagnostics, Chrome Web Store icon metadata and warehouse/Ozon barcode helper',
     '1.0.1': 'monitoring patch: notify only about legal entity payment orders, toggle per-order follow-up and show local popup release notes without changing permissions or data handling',
     '1.0.2': 'UI clarity patch: clearer Ozon barcode result states, compact service text and separated quick notification filters',
-    '1.0.3': 'Ozon verification hardening: fresh rechecks override stale states and skipped barcode reasons stay accurate'
+    '1.0.3': 'Ozon verification hardening: fresh rechecks override stale states and skipped barcode reasons stay accurate',
+    '1.0.4': 'order-aware Ozon automation, safe full-reload recovery, configurable auto-add and lifecycle/security hardening'
 };

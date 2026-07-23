@@ -409,7 +409,7 @@ test('manifest keeps least-privilege runtime permissions after hardening', () =>
     const path = require('node:path');
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 
-    assert.equal(manifest.version, '1.0.3');
+    assert.equal(manifest.version, '1.0.4');
     assert.deepEqual(manifest.permissions, ['storage', 'notifications', 'alarms']);
     assert.equal(manifest.permissions.includes('tabs'), false);
     assert.deepEqual(manifest.host_permissions, [

@@ -10,7 +10,7 @@ Tag: v1.0.3
 Release baseline: 264 pass / 0 fail
 ```
 
-## Current unpublished development
+## Current 1.0.4 release candidate
 
 Base commit before full hardening:
 
@@ -18,7 +18,7 @@ Base commit before full hardening:
 981a9b5 feat: improve extension updates and legal-only filters
 ```
 
-Current integrated hardening:
+Included release scope:
 
 - [x] legal-only mode overrides both hide filters;
 - [x] downloaded CWS update applies at a safe moment;
@@ -52,13 +52,13 @@ Current automated baseline:
 322 pass / 0 fail
 ```
 
-No version bump and no CWS package are part of this work.
+Manifest and release notes are prepared for 1.0.4. Publication and annotated tag are still pending.
 
-## Before the next release
+## 1.0.4 release completion
 
-- [ ] Apply replacement files to a clean local project.
+- [ ] Apply the 1.0.4 release-preparation replacement files.
 - [ ] Run the full automated suite.
-- [ ] Complete manual smoke from `docs/smoke-checklist.md`.
+- [ ] Complete final manual smoke from `docs/smoke-checklist.md`.
 - [ ] Verify worker creation/adoption without `tabs` permission.
 - [ ] Verify automatic update flow on a real CWS transition when a future version exists.
 - [ ] Verify Ozon/legal/physical manager cards classify correctly in real Amperkot.
@@ -66,8 +66,9 @@ No version bump and no CWS package are part of this work.
 - [ ] Verify enabled auto-add + trusted `$ctrl.confirm()` warehouse action triggers one automatic write only after fresh barcodes.
 - [ ] Verify disabled auto-add never opens Ozon automatically while manual buttons remain available.
 - [ ] Verify ordinary orders never open an Ozon worker automatically and manual buttons still work.
-- [ ] Collect enough user-facing improvements for a meaningful patch.
-- [ ] Only then choose the next version and prepare release notes/package.
+- [ ] Commit and push the release-preparation metadata.
+- [ ] Upload the exact verified 1.0.4 CWS ZIP.
+- [ ] After confirmed publication, create and push annotated tag `v1.0.4`.
 
 ## Candidate product improvements
 

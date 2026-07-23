@@ -175,7 +175,7 @@ function loadPopupContext(overrides = {}) {
         ]
     };
     const storageState = {
-        lastSeenReleaseNotesVersion: '1.0.3',
+        lastSeenReleaseNotesVersion: '1.0.4',
         ...(overrides.storageState || {})
     };
 
@@ -482,28 +482,28 @@ test('popup legal-entity-only filter disables conflicting suppressors', () => {
 test('popup shows release notes until current version is acknowledged', () => {
     const context = loadPopupContext({
         storageState: {
-            lastSeenReleaseNotesVersion: '1.0.2'
+            lastSeenReleaseNotesVersion: '1.0.3'
         }
     });
     const document = context.__test.document;
 
     assert.equal(document.getElementById('popupReleaseNotes').hidden, false);
-    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Что нового в 1.0.3');
-    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /Успешная повторная проверка Ozon/);
+    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Что нового в 1.0.4');
+    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /штрихкоды после сборки теперь могут добавляться автоматически/);
 
     document.getElementById('dismissReleaseNotes').dispatchEvent({
         type: 'click',
         target: document.getElementById('dismissReleaseNotes')
     });
 
-    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.3');
+    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.4');
     assert.equal(document.getElementById('popupReleaseNotes').hidden, true);
 });
 
 test('popup keeps release notes hidden after acknowledgement', () => {
     const context = loadPopupContext({
         storageState: {
-            lastSeenReleaseNotesVersion: '1.0.3'
+            lastSeenReleaseNotesVersion: '1.0.4'
         }
     });
     const document = context.__test.document;

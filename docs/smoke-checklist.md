@@ -1,10 +1,11 @@
-# tab_wanderer — post-1.0.3 hardening smoke checklist
+# tab_wanderer — 1.0.4 release candidate smoke checklist
 
-Текущая manifest version остаётся `1.0.3`. Это проверка неопубликованного hardening, а не release candidate и не CWS package.
+Текущая manifest version — `1.0.4`. Это финальная проверка release candidate перед загрузкой в Chrome Web Store.
 
 ```text
 Expected automated baseline: 322 pass / 0 fail
 Public CWS release: 1.0.3 / f496d36 / v1.0.3
+Candidate: 1.0.4 / release commit pending / tag after publication
 ```
 
 ## 0. Подготовка
@@ -21,7 +22,7 @@ npm test зелёный
 Проверить в `chrome://extensions`:
 
 ```text
-Version: 1.0.3
+Version: 1.0.4
 Permissions: storage, notifications, alarms
 Нет permission tabs
 Нет ошибок service worker
@@ -287,13 +288,13 @@ Permissions: storage, notifications, alarms
 - после safe point происходит reload;
 - monitoring восстанавливается без notification flood.
 
-## 12. Финальная проверка перед будущим релизом
+## 12. Финальная проверка release candidate
 
 - [ ] Все пункты выше пройдены.
 - [ ] `npm test` зелёный.
 - [ ] Runtime JS проходит `node --check`.
 - [ ] Нет remote code/eval/new Function.
 - [ ] `docs/private`, `.git`, tests и docs не входят в CWS runtime ZIP.
-- [ ] Version/release notes повышаются только после smoke.
+- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4`.
 - [ ] Permissions и host permissions отдельно зафиксированы в build report.
 - [ ] Annotated tag создаётся только после публикации.
