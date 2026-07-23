@@ -230,9 +230,9 @@ function createWarehouseOzonApplyProductText(product = {}) {
 
 function getWarehouseBarcodePreviewOrderId(preview = {}) {
     return normalizeWarehouseBridgeText(
-        preview?.shopOrder?.id
-        || preview?.shopOrder?.number
+        preview?.shopOrder?.number
         || preview?.extraction?.orderId
+        || preview?.shopOrder?.id
         || ''
     );
 }

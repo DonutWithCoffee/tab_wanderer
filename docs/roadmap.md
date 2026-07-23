@@ -37,12 +37,19 @@ Current integrated hardening:
 - [x] storage access restricted to trusted extension contexts;
 - [x] `tabs` permission removed;
 - [x] lifecycle/security/performance regression tests;
+- [x] strict manager-tab classification of Ozon / regular / unknown orders;
+- [x] 24-hour bounded order-kind cache without customer payloads;
+- [x] Ozon-only Warehouse panel auto-expand;
+- [x] explicit unknown guidance to refresh the manager order card;
+- [x] trusted post-assembly automatic Ozon write with background enforcement;
+- [x] regular/unknown orders never auto-open Ozon while manual controls stay available;
+- [x] unsuccessful Warehouse API responses cannot confirm automatic transfer;
 - [x] project documents synchronized.
 
 Current automated baseline:
 
 ```text
-290 pass / 0 fail
+310 pass / 0 fail
 ```
 
 No version bump and no CWS package are part of this work.
@@ -54,6 +61,10 @@ No version bump and no CWS package are part of this work.
 - [ ] Complete manual smoke from `docs/smoke-checklist.md`.
 - [ ] Verify worker creation/adoption without `tabs` permission.
 - [ ] Verify automatic update flow on a real CWS transition when a future version exists.
+- [ ] Verify Ozon/legal/physical manager cards classify correctly in real Amperkot.
+- [ ] Verify Ozon panel auto-expands and regular/unknown panels stay collapsed.
+- [ ] Verify trusted warehouse assembly triggers one automatic write only after fresh barcodes.
+- [ ] Verify ordinary orders never open an Ozon worker automatically and manual buttons still work.
 - [ ] Collect enough user-facing improvements for a meaningful patch.
 - [ ] Only then choose the next version and prepare release notes/package.
 

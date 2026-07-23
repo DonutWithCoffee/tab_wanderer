@@ -85,6 +85,7 @@
     window.__TAB_WANDERER_WAREHOUSE_BRIDGE_INSTALLED__ = true;
 
     let warehouseApiCaptureArmedUntil = 0;
+    let warehouseApiCaptureGeneration = 0;
     let lastApiShopOrderSnapshot = null;
 
     function getDebug() {
@@ -848,10 +849,16 @@
     }
 
     function armWarehouseApiCapture(durationMs = API_CAPTURE_WINDOW_MS) {
+        warehouseApiCaptureGeneration += 1;
         warehouseApiCaptureArmedUntil = getCurrentTime() + Math.max(1000, Number(durationMs) || API_CAPTURE_WINDOW_MS);
+        lastApiShopOrderSnapshot = null;
         getDebug().lastApiCaptureArmedUntil = warehouseApiCaptureArmedUntil;
         getDebug().lastApiResult = 'armed';
-        pushApiDebugEvent({ type: 'capture-armed', durationMs: Math.max(1000, Number(durationMs) || API_CAPTURE_WINDOW_MS) });
+        pushApiDebugEvent({
+            type: 'capture-armed',
+            durationMs: Math.max(1000, Number(durationMs) || API_CAPTURE_WINDOW_MS),
+            generation: warehouseApiCaptureGeneration
+        });
         persistDebug();
         return warehouseApiCaptureArmedUntil;
     }
@@ -874,10 +881,21 @@
         return '';
     }
 
+    function isWarehouseApiUrlCandidate(url = '') {
+        return !!url && WAREHOUSE_API_URL_PATTERN.test(String(url));
+    }
+
     function shouldInspectWarehouseApiResponse(url = '') {
-        return isWarehouseApiCaptureArmed()
-            && !!url
-            && WAREHOUSE_API_URL_PATTERN.test(String(url));
+        return isWarehouseApiCaptureArmed() && isWarehouseApiUrlCandidate(url);
+    }
+
+    function isSuccessfulWarehouseApiStatus(value) {
+        if (value === undefined || value === null || value === '') {
+            return true;
+        }
+
+        const status = Number(value);
+        return Number.isFinite(status) && status >= 200 && status < 300;
     }
 
     function parseJsonPayload(text) {
@@ -1005,16 +1023,18 @@
         }
     }
 
-    async function inspectFetchResponseForShopOrder(response, url = '') {
+    async function inspectFetchResponseForShopOrder(response, url = '', captureGeneration = 0) {
         const responseUrl = String(url || response?.url || '');
 
         if (!response) {
             return false;
         }
 
-        if (!shouldInspectWarehouseApiResponse(responseUrl)) {
+        if (!captureGeneration
+            || captureGeneration !== warehouseApiCaptureGeneration
+            || !isWarehouseApiUrlCandidate(responseUrl)) {
             if (isWarehouseApiCaptureArmed()) {
-                pushApiDebugEvent({ type: 'fetch-skip', url: responseUrl, reason: 'url-filter' });
+                pushApiDebugEvent({ type: 'fetch-skip', url: responseUrl, reason: 'request-not-captured' });
             }
             return false;
         }
@@ -1023,6 +1043,17 @@
         debug.lastApiResponseCount += 1;
         debug.lastApiCandidateUrl = responseUrl;
         pushApiDebugEvent({ type: 'fetch-inspect', url: responseUrl, status: response.status || 0 });
+
+        if (!isSuccessfulWarehouseApiStatus(response.status)) {
+            debug.lastApiResult = 'API response skipped: unsuccessful status';
+            pushApiDebugEvent({
+                type: 'fetch-skip',
+                url: responseUrl,
+                reason: 'unsuccessful-status',
+                status: Number(response.status) || 0
+            });
+            return false;
+        }
 
         try {
             const clone = response.clone?.();
@@ -1042,16 +1073,18 @@
         }
     }
 
-    function inspectXhrResponseForShopOrder(xhr, url = '') {
+    function inspectXhrResponseForShopOrder(xhr, url = '', captureGeneration = 0) {
         const responseUrl = String(url || xhr?.responseURL || '');
 
         if (!xhr) {
             return false;
         }
 
-        if (!shouldInspectWarehouseApiResponse(responseUrl)) {
+        if (!captureGeneration
+            || captureGeneration !== warehouseApiCaptureGeneration
+            || !isWarehouseApiUrlCandidate(responseUrl)) {
             if (isWarehouseApiCaptureArmed()) {
-                pushApiDebugEvent({ type: 'xhr-skip', url: responseUrl, reason: 'url-filter' });
+                pushApiDebugEvent({ type: 'xhr-skip', url: responseUrl, reason: 'request-not-captured' });
             }
             return false;
         }
@@ -1060,6 +1093,17 @@
         debug.lastApiResponseCount += 1;
         debug.lastApiCandidateUrl = responseUrl;
         pushApiDebugEvent({ type: 'xhr-inspect', url: responseUrl, status: xhr.status || 0 });
+
+        if (!isSuccessfulWarehouseApiStatus(xhr.status)) {
+            debug.lastApiResult = 'XHR response skipped: unsuccessful status';
+            pushApiDebugEvent({
+                type: 'xhr-skip',
+                url: responseUrl,
+                reason: 'unsuccessful-status',
+                status: Number(xhr.status) || 0
+            });
+            return false;
+        }
 
         try {
             const payload = typeof xhr.response === 'object' && xhr.response !== null
@@ -1088,10 +1132,17 @@
 
         function patchedFetch(input, init) {
             const url = getRequestUrl(input);
+            const captureGeneration = shouldInspectWarehouseApiResponse(url)
+                ? warehouseApiCaptureGeneration
+                : 0;
 
             return originalFetch.apply(this, arguments)
                 .then(response => {
-                    inspectFetchResponseForShopOrder(response, url || response?.url || '');
+                    inspectFetchResponseForShopOrder(
+                        response,
+                        url || response?.url || '',
+                        captureGeneration
+                    );
                     return response;
                 });
         }
@@ -1124,9 +1175,18 @@
         };
 
         proto.send = function patchedSend() {
+            const requestUrl = this.__tabWandererWarehouseUrl || this.responseURL || '';
+            const captureGeneration = shouldInspectWarehouseApiResponse(requestUrl)
+                ? warehouseApiCaptureGeneration
+                : 0;
+
             try {
                 this.addEventListener?.('loadend', () => {
-                    inspectXhrResponseForShopOrder(this, this.__tabWandererWarehouseUrl || this.responseURL || '');
+                    inspectXhrResponseForShopOrder(
+                        this,
+                        this.__tabWandererWarehouseUrl || this.responseURL || '',
+                        captureGeneration
+                    );
                 });
             } catch {}
 

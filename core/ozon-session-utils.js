@@ -1,3 +1,12 @@
+function normalizeOzonSessionOrderId(value) {
+    if (typeof normalizeOrderKindOrderId === 'function') {
+        return normalizeOrderKindOrderId(value);
+    }
+
+    const normalized = String(value || '').trim();
+    return /^\d{4}-\d{6}$/.test(normalized) ? normalized : '';
+}
+
 function normalizeOzonResolveId(value) {
     return String(value || '')
         .replace(/\s+/g, '')
@@ -39,9 +48,10 @@ function buildOzonResolveWorkerUrl(productId, options = {}) {
     return url.toString();
 }
 
-function createOzonResolveSessionState({ warehouseTabId, warehouseExtraction = {}, productIds = [], now = Date.now() } = {}) {
+function createOzonResolveSessionState({ warehouseTabId, orderId = '', warehouseExtraction = {}, productIds = [], now = Date.now() } = {}) {
     return {
         warehouseTabId,
+        orderId: normalizeOzonSessionOrderId(orderId),
         warehouseExtraction,
         productIds,
         index: 0,
@@ -58,13 +68,23 @@ function buildOzonUiApplyWorkerUrl(productId, options = {}) {
     return buildOzonProductSearchUrl(productId, options.productsUrl || OZON_PRODUCTS_URL);
 }
 
-function createOzonUiApplySessionState({ warehouseTabId, productRequests = [], now = Date.now() } = {}) {
+function createOzonUiApplySessionState({
+    warehouseTabId,
+    orderId = '',
+    productRequests = [],
+    trigger = 'manual',
+    actionId = '',
+    now = Date.now()
+} = {}) {
     return {
         warehouseTabId,
+        orderId: normalizeOzonSessionOrderId(orderId),
         productRequests,
         index: 0,
         results: [],
         status: 'opening',
+        trigger: trigger === 'automatic' ? 'automatic' : 'manual',
+        actionId: String(actionId || '').slice(0, 160),
         startedAt: now
     };
 }

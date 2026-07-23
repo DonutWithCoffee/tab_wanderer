@@ -121,6 +121,7 @@ function createMonitorStatusSnapshot(state = {}) {
         windowOrdersCount: countObjectKeys(state.windowOrdersDB),
         windowHashesCount: countObjectKeys(state.windowOrdersHashDB),
         notificationTargetsCount: countObjectKeys(state.notificationTargets),
+        orderKindsCount: countObjectKeys(state.orderKindsDB),
         watchedOrdersCount,
         eventJournalCount: eventJournal.length,
         eventJournalDroppedEntries: Number(state.eventJournalDroppedEntries) || 0,

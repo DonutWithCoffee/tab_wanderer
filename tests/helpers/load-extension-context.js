@@ -179,6 +179,7 @@ function createBaseContext(overrides = {}) {
 
     const context = {
         URL,
+        URLSearchParams,
         console: {
             log: () => {},
             warn: () => {},
@@ -251,6 +252,7 @@ function loadRulesContext(overrides = {}) {
 function loadBackgroundContext(overrides = {}) {
     const context = createBaseContext(overrides);
     runScript('version.js', context);
+    runScript('core/order-kind.js', context);
     runScript('core/watched-orders.js', context);
     runScript('core/direct-follow-up.js', context);
     runScript('notification-rules.js', context);
@@ -287,6 +289,7 @@ function setBackgroundState(context, state = {}) {
         windowOrdersDB = __testState.windowOrdersDB || {};
         windowOrdersHashDB = __testState.windowOrdersHashDB || {};
         notificationTargets = __testState.notificationTargets || {};
+        orderKindsDB = __testState.orderKindsDB || {};
         workerTabId = __testState.workerTabId ?? null;
         directWorkerTabId = __testState.directWorkerTabId ?? null;
         ozonWorkerTabId = __testState.ozonWorkerTabId ?? null;
@@ -324,6 +327,7 @@ function getBackgroundState(context) {
         windowOrdersDB,
         windowOrdersHashDB,
         notificationTargets,
+        orderKindsDB,
         workerTabId,
         directWorkerTabId,
         ozonWorkerTabId,

@@ -62,8 +62,13 @@ function createXhrStub(responsePayloadByUrl = {}) {
         }
 
         send() {
-            const payload = responsePayloadByUrl[this.url] || responsePayloadByUrl.default || null;
-            this.status = payload ? 200 : 404;
+            const responseConfig = responsePayloadByUrl[this.url] || responsePayloadByUrl.default || null;
+            const wrapped = responseConfig
+                && typeof responseConfig === 'object'
+                && Object.prototype.hasOwnProperty.call(responseConfig, 'httpStatus')
+                && Object.prototype.hasOwnProperty.call(responseConfig, 'payload');
+            const payload = wrapped ? responseConfig.payload : responseConfig;
+            this.status = wrapped ? Number(responseConfig.httpStatus) || 0 : payload ? 200 : 404;
             this.responseText = payload ? JSON.stringify(payload) : '';
 
             for (const listener of this.listeners.loadend || []) {
@@ -274,5 +279,187 @@ test('warehouse bridge prefers Angular barcode snapshot over stored API shell wi
     const lastResponse = responses.at(-1);
     assert.equal(lastResponse.ok, true);
     assert.equal(lastResponse.source, 'angular-snapshot');
+    assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '2486831');
+});
+
+test('warehouse bridge ignores unsuccessful API responses before using barcode snapshots', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const barcodeNode = new ElementStub({ tagName: 'SPAN', text: '2486831' });
+    const card = new ElementStub({
+        tagName: 'DIV',
+        text: 'Промышленный модуль ID: 43150731, Собрано 1/1 2486831',
+        children: [barcodeNode]
+    });
+    const context = loadBridgeContext(createDocumentStub([card]), {
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                httpStatus: 500,
+                payload: {
+                    shop_order: {
+                        number: '5147-290626',
+                        assembly: [
+                            {
+                                quantity: 1,
+                                product_item: {
+                                    barcode: '9999999',
+                                    type: 0,
+                                    product_id: '43150731'
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm', {
+        detail: { durationMs: 5000 }
+    }));
+
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('POST', apiUrl);
+    xhr.send();
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+
+    const lastResponse = responses.at(-1);
+    assert.equal(lastResponse.ok, true);
+    assert.equal(lastResponse.source, 'warehouse-dom-visible');
+    assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '2486831');
+    assert.match(
+        context.window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__.lastApiResult,
+        /unsuccessful status/
+    );
+});
+
+test('warehouse bridge clears an older API snapshot when a new assembly action is armed', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const barcodeNode = new ElementStub({ tagName: 'SPAN', text: '9999999' });
+    const card = new ElementStub({
+        tagName: 'DIV',
+        text: 'Промышленный модуль ID: 43150731, Собрано 1/1 9999999',
+        children: [barcodeNode]
+    });
+    const context = loadBridgeContext(createDocumentStub([card]), {
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                shop_order: {
+                    number: '5147-290626',
+                    assembly: [{
+                        quantity: 1,
+                        product_item: {
+                            barcode: '2486831',
+                            type: 0,
+                            product_id: '43150731'
+                        }
+                    }]
+                }
+            }
+        }
+    });
+    const responses = [];
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm'));
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('POST', apiUrl);
+    xhr.send();
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm'));
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+
+    const lastResponse = responses.at(-1);
+    assert.equal(lastResponse.source, 'warehouse-dom-visible');
+    assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '9999999');
+});
+
+test('warehouse bridge ignores API requests that started before capture was armed', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const barcodeNode = new ElementStub({ tagName: 'SPAN', text: '9999999' });
+    const card = new ElementStub({
+        tagName: 'DIV',
+        text: 'Промышленный модуль ID: 43150731, Собрано 1/1 9999999',
+        children: [barcodeNode]
+    });
+    const context = loadBridgeContext(createDocumentStub([card]), {
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                shop_order: {
+                    number: '5147-290626',
+                    assembly: [{
+                        quantity: 1,
+                        product_item: {
+                            barcode: '2486831',
+                            type: 0,
+                            product_id: '43150731'
+                        }
+                    }]
+                }
+            }
+        }
+    });
+    const responses = [];
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('POST', apiUrl);
+    xhr.send();
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm'));
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+
+    const lastResponse = responses.at(-1);
+    assert.equal(lastResponse.source, 'warehouse-dom-visible');
+    assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '9999999');
+});
+
+test('warehouse bridge treats status zero as unsuccessful on a real XHR object', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const barcodeNode = new ElementStub({ tagName: 'SPAN', text: '2486831' });
+    const card = new ElementStub({
+        tagName: 'DIV',
+        text: 'Промышленный модуль ID: 43150731, Собрано 1/1 2486831',
+        children: [barcodeNode]
+    });
+    const context = loadBridgeContext(createDocumentStub([card]), {
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                httpStatus: 0,
+                payload: {
+                    shop_order: {
+                        number: '5147-290626',
+                        assembly: [{
+                            quantity: 1,
+                            product_item: {
+                                barcode: '9999999',
+                                type: 0,
+                                product_id: '43150731'
+                            }
+                        }]
+                    }
+                }
+            }
+        }
+    });
+    const responses = [];
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm'));
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('POST', apiUrl);
+    xhr.send();
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+
+    const lastResponse = responses.at(-1);
+    assert.equal(lastResponse.source, 'warehouse-dom-visible');
     assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '2486831');
 });

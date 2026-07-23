@@ -773,6 +773,219 @@ function initDirectWorker() {
 }
 
 
+
+// ---------- ORDER KIND OBSERVATION ----------
+const ORDER_KIND_REPORT_RETRY_DELAYS_MS = [0, 500, 1500, 3000];
+let orderKindObservationObserver = null;
+let orderKindObservationTimers = [];
+let lastOrderKindObservationSignature = '';
+let lastAcceptedOrderKindObservationSignature = '';
+let confirmedOrderKindObservation = false;
+let orderKindObservationInFlight = false;
+
+function isAmperkotOrderDetailsPageUrl(href = window.location.href) {
+    try {
+        const url = new URL(href);
+        return url.protocol === 'https:'
+            && url.hostname === 'amperkot.ru'
+            && /^\/admin\/orders\/\d{4}-\d{6}\/?$/.test(url.pathname);
+    } catch {
+        return false;
+    }
+}
+
+function getOrderDetailsLinks() {
+    return Array.from(document.querySelectorAll?.('a[href]') || []);
+}
+
+function getOrderDetailsLinkUrl(link) {
+    const raw = link?.getAttribute?.('href') || link?.href || '';
+    try {
+        return new URL(String(raw || ''), 'https://amperkot.ru').toString();
+    } catch {
+        return '';
+    }
+}
+
+function findOrderOzonShipActionUrl(orderId) {
+    const normalizedId = normalizeAmperkotOrderId(orderId);
+    if (!normalizedId) {
+        return '';
+    }
+
+    const pattern = new RegExp(`^/admin/_api/shop-orders/${normalizedId}/ozon/\\d+/posting/fbs/ship/?$`);
+
+    for (const link of getOrderDetailsLinks()) {
+        const urlText = getOrderDetailsLinkUrl(link);
+        if (!urlText) {
+            continue;
+        }
+
+        try {
+            const url = new URL(urlText);
+            if (url.protocol === 'https:'
+                && url.hostname === 'amperkot.ru'
+                && pattern.test(url.pathname)) {
+                url.hash = '';
+                url.search = '';
+                return url.toString();
+            }
+        } catch {}
+    }
+
+    return '';
+}
+
+function hasOrderWarehouseActionLink(orderId) {
+    const normalizedId = normalizeAmperkotOrderId(orderId);
+    if (!normalizedId) {
+        return false;
+    }
+
+    return getOrderDetailsLinks().some(link => {
+        const raw = link?.getAttribute?.('href') || link?.href || '';
+        return String(raw || '').includes(`/web-apps/wh3/#/wh/shop-orders/actions?order=${normalizedId}`);
+    });
+}
+
+function createOrderKindObservation() {
+    const orderId = normalizeAmperkotOrderId(getOrderIdFromLocation());
+    if (!orderId || !isAmperkotOrderDetailsPageUrl()) {
+        return null;
+    }
+
+    const source = findSectionDetailValue('Информация о заказе', ['Источник']);
+    const contractor = findSectionDetailValue(
+        'Данные заказа',
+        ['Клиент', 'Контрагент', 'Юридическое лицо'],
+        ['Клиент', 'Контрагент', 'Юридическое лицо']
+    );
+    const ozonShipActionUrl = findOrderOzonShipActionUrl(orderId);
+    const hasStatus = Boolean(document.querySelector?.('#shop-order-status'));
+    const hasWarehouseAction = hasOrderWarehouseActionLink(orderId);
+
+    return {
+        orderId,
+        evidence: {
+            source: normalizeCellText(source).slice(0, 160),
+            contractor: normalizeCellText(contractor).slice(0, 200),
+            ozonShipActionUrl,
+            pageComplete: hasStatus && hasWarehouseAction
+        }
+    };
+}
+
+function clearOrderKindObservationTimers() {
+    orderKindObservationTimers.forEach(timerId => {
+        try {
+            clearTimeout(timerId);
+        } catch {}
+    });
+    orderKindObservationTimers = [];
+}
+
+function stopOrderKindObservation() {
+    clearOrderKindObservationTimers();
+    try {
+        orderKindObservationObserver?.disconnect?.();
+    } catch {}
+    orderKindObservationObserver = null;
+}
+
+function reportOrderKindObservation({ force = false } = {}) {
+    if (orderKindObservationInFlight) {
+        return false;
+    }
+
+    const observation = createOrderKindObservation();
+    if (!observation) {
+        return false;
+    }
+
+    const signature = JSON.stringify(observation);
+    if (!force && signature === lastAcceptedOrderKindObservationSignature) {
+        return true;
+    }
+
+    lastOrderKindObservationSignature = signature;
+    orderKindObservationInFlight = true;
+
+    const sent = sendRuntimeMessage({
+        type: 'REPORT_ORDER_KIND',
+        ...observation
+    }, (response) => {
+        orderKindObservationInFlight = false;
+        const runtimeError = getRuntimeLastError();
+        if (runtimeError) {
+            handleRuntimeMessagingError('ORDER_KIND', runtimeError);
+            return;
+        }
+
+        lastAcceptedOrderKindObservationSignature = signature;
+        const kind = response?.orderKind?.kind || 'unknown';
+        confirmedOrderKindObservation = kind === 'ozon' || kind === 'regular';
+
+        if (confirmedOrderKindObservation) {
+            stopOrderKindObservation();
+        }
+    }, 'ORDER_KIND');
+
+    if (!sent) {
+        orderKindObservationInFlight = false;
+    }
+
+    return sent;
+}
+
+function initOrderKindObservation() {
+    if (!isAmperkotOrderDetailsPageUrl()) {
+        return false;
+    }
+
+    const orderId = normalizeAmperkotOrderId(getOrderIdFromLocation());
+    const pageText = normalizeCellText(document.body?.innerText || '');
+    const hasOrderPageShell = Boolean(document.querySelector?.('#shop-order-status'))
+        || pageText.includes(`Заказ №${orderId}`)
+        || pageText.includes(`Информация по заказу №${orderId}`);
+
+    if (!hasOrderPageShell) {
+        return false;
+    }
+
+    clearOrderKindObservationTimers();
+    confirmedOrderKindObservation = false;
+
+    ORDER_KIND_REPORT_RETRY_DELAYS_MS.forEach(delayMs => {
+        const timerId = setTimeout(() => {
+            orderKindObservationTimers = orderKindObservationTimers.filter(id => id !== timerId);
+            if (!confirmedOrderKindObservation) {
+                reportOrderKindObservation({ force: delayMs === 0 });
+            }
+        }, delayMs);
+        orderKindObservationTimers.push(timerId);
+    });
+
+    if (typeof MutationObserver === 'function' && document.body) {
+        try {
+            orderKindObservationObserver = new MutationObserver(() => {
+                if (!confirmedOrderKindObservation) {
+                    reportOrderKindObservation();
+                }
+            });
+            orderKindObservationObserver.observe(document.body, { childList: true, subtree: true });
+        } catch {}
+    }
+
+    window.addEventListener?.('pageshow', () => reportOrderKindObservation({ force: true }));
+    document.addEventListener?.('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !confirmedOrderKindObservation) {
+            reportOrderKindObservation({ force: true });
+        }
+    });
+
+    return true;
+}
+
 // ---------- WAREHOUSE OZON BARCODE BRIDGE ----------
 const WAREHOUSE_BRIDGE_SCRIPT_ID = 'tab-wanderer-warehouse-barcode-bridge';
 const WAREHOUSE_SHOP_ORDER_REQUEST_EVENT = 'tab_wanderer:warehouse-shop-order-request';
@@ -795,7 +1008,9 @@ const OZON_WORKER_READY_FALLBACK_MS = 3000;
 const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
 const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
 const WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS = [350, 1200, 2500];
+const WAREHOUSE_API_CAPTURE_WINDOW_MS = 12000;
 const WAREHOUSE_ASSEMBLY_ACTION_DEBUG_STORAGE_KEY = 'tab_wanderer_warehouse_action_debug_v1';
+const WAREHOUSE_AUTO_APPLY_TIMEOUT_MS = 10 * 60 * 1000;
 
 let lastWarehouseBarcodePreview = null;
 let lastWarehouseOzonResolvePreview = null;
@@ -804,6 +1019,11 @@ let warehouseBarcodeBridgeInitialized = false;
 let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
 let warehouseBarcodePreviewCollapsed = true;
+let warehouseBarcodePreviewCollapseTouched = false;
+let warehouseOrderKindRecord = null;
+let warehouseOrderKindRequestId = '';
+let warehouseAutoApplyIntent = null;
+let warehouseAutoApplySequence = 0;
 let warehouseBarcodeListExpanded = false;
 let warehouseBarcodePreviewPanelElement = null;
 let lastWarehouseRouteHref = '';
@@ -813,6 +1033,8 @@ let warehouseShopOrderRetryTimer = null;
 let warehouseAssemblyActionRefreshTimers = [];
 let warehouseAssemblyActionDebug = readWarehouseAssemblyActionDebugFromSession();
 let warehouseAssemblyActionListenersInitialized = false;
+let lastWarehouseAssemblyActionSignature = '';
+let lastWarehouseAssemblyActionAt = 0;
 let ozonProductBridgeInitialized = false;
 let ozonRuntimeMessageListenerInitialized = false;
 let ozonResolvedSellerId = '';
@@ -839,6 +1061,157 @@ function isWarehouseAssemblyPageUrl(href = window.location.href) {
     } catch {
         return false;
     }
+}
+
+
+function getWarehouseOrderIdFromUrl(href = window.location.href) {
+    try {
+        const url = new URL(href);
+        if (!isWarehouseAppPageUrl(href)) {
+            return '';
+        }
+
+        const hash = String(url.hash || '').replace(/^#/, '');
+        const queryIndex = hash.indexOf('?');
+        if (queryIndex < 0) {
+            return '';
+        }
+
+        const params = new URLSearchParams(hash.slice(queryIndex + 1));
+        return normalizeAmperkotOrderId(params.get('order'));
+    } catch {
+        return '';
+    }
+}
+
+function createUnknownWarehouseOrderKindRecord(orderId = getWarehouseOrderIdFromUrl(), reason = 'not-observed') {
+    return {
+        orderId: normalizeAmperkotOrderId(orderId),
+        kind: 'unknown',
+        reason,
+        observedAt: 0,
+        expiresAt: 0
+    };
+}
+
+function normalizeWarehouseOrderKindRecord(value = {}, expectedOrderId = getWarehouseOrderIdFromUrl()) {
+    const orderId = normalizeAmperkotOrderId(value?.orderId || expectedOrderId);
+    const expectedId = normalizeAmperkotOrderId(expectedOrderId);
+    const kind = ['ozon', 'regular'].includes(String(value?.kind || '').toLowerCase())
+        ? String(value.kind).toLowerCase()
+        : 'unknown';
+
+    if (!orderId || (expectedId && orderId !== expectedId)) {
+        return createUnknownWarehouseOrderKindRecord(expectedId, 'order-mismatch');
+    }
+
+    return {
+        orderId,
+        kind,
+        reason: String(value?.reason || '').slice(0, 80),
+        observedAt: Math.max(0, Number(value?.observedAt) || 0),
+        expiresAt: Math.max(0, Number(value?.expiresAt) || 0)
+    };
+}
+
+function getWarehouseOrderKindDisplay(record = warehouseOrderKindRecord) {
+    const kind = record?.kind || 'unknown';
+
+    if (kind === 'ozon') {
+        return {
+            kind,
+            text: 'OZON · автозапись после сборки',
+            color: '#169c46'
+        };
+    }
+
+    if (kind === 'regular') {
+        return {
+            kind,
+            text: 'Обычный заказ · только вручную',
+            color: '#667685'
+        };
+    }
+
+    return {
+        kind: 'unknown',
+        text: 'Тип не определён — обновите карточку заказа',
+        color: '#b26a00'
+    };
+}
+
+function getWarehouseOrderKindRecord() {
+    return warehouseOrderKindRecord || createUnknownWarehouseOrderKindRecord();
+}
+
+function getWarehouseAutoApplyIntent() {
+    return warehouseAutoApplyIntent ? { ...warehouseAutoApplyIntent } : null;
+}
+
+function applyWarehouseOrderKindRecord(value = {}, { render = true } = {}) {
+    const currentOrderId = getWarehouseOrderIdFromUrl();
+    const record = normalizeWarehouseOrderKindRecord(value, currentOrderId);
+
+    warehouseOrderKindRecord = record;
+    warehouseOrderKindRequestId = currentOrderId;
+
+    if (!warehouseBarcodePreviewCollapseTouched) {
+        warehouseBarcodePreviewCollapsed = record.kind !== 'ozon';
+    }
+
+    if (record.kind !== 'ozon') {
+        warehouseAutoApplyIntent = null;
+    }
+
+    if (render) {
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    }
+
+    return record;
+}
+
+function requestWarehouseOrderKind({ force = false } = {}) {
+    const orderId = getWarehouseOrderIdFromUrl();
+    if (!orderId) {
+        applyWarehouseOrderKindRecord(createUnknownWarehouseOrderKindRecord('', 'invalid-order-id'));
+        return false;
+    }
+
+    if (!force && warehouseOrderKindRequestId === orderId && warehouseOrderKindRecord?.kind !== 'unknown') {
+        return true;
+    }
+
+    warehouseOrderKindRequestId = orderId;
+    warehouseOrderKindRecord = createUnknownWarehouseOrderKindRecord(orderId);
+
+    return sendRuntimeMessage({
+        type: 'GET_ORDER_KIND',
+        orderId
+    }, (response) => {
+        if (getWarehouseOrderIdFromUrl() !== orderId || warehouseOrderKindRequestId !== orderId) {
+            return;
+        }
+
+        const runtimeError = getRuntimeLastError();
+        if (runtimeError) {
+            handleRuntimeMessagingError('WAREHOUSE_ORDER_KIND', runtimeError);
+            applyWarehouseOrderKindRecord(createUnknownWarehouseOrderKindRecord(orderId, 'runtime-error'));
+            return;
+        }
+
+        applyWarehouseOrderKindRecord(response?.orderKind || createUnknownWarehouseOrderKindRecord(orderId));
+    }, 'WAREHOUSE_ORDER_KIND');
+}
+
+function resetWarehouseOrderContext() {
+    warehouseBarcodePreviewCollapseTouched = false;
+    warehouseBarcodePreviewCollapsed = true;
+    warehouseBarcodeListExpanded = false;
+    warehouseOrderKindRequestId = '';
+    warehouseOrderKindRecord = createUnknownWarehouseOrderKindRecord(getWarehouseOrderIdFromUrl());
+    warehouseAutoApplyIntent = null;
+    lastWarehouseAssemblyActionSignature = '';
+    lastWarehouseAssemblyActionAt = 0;
 }
 
 function normalizeWarehouseBridgeText(value) {
@@ -1094,13 +1467,22 @@ function getWarehouseAssemblyActionControl(target) {
 }
 
 function getWarehouseAssemblyActionControlText(control) {
-    return normalizeWarehouseBridgeText([
+    const candidates = [
         control?.innerText,
         control?.textContent,
         control?.value,
         control?.getAttribute?.('aria-label'),
         control?.getAttribute?.('title')
-    ].filter(Boolean).join(' ')).toLowerCase();
+    ];
+
+    for (const candidate of candidates) {
+        const text = normalizeWarehouseBridgeText(candidate).toLowerCase();
+        if (text) {
+            return text;
+        }
+    }
+
+    return '';
 }
 
 function isWarehouseAssemblyActionControl(control) {
@@ -1113,18 +1495,137 @@ function isWarehouseAssemblyActionControl(control) {
     return !!text && /(?:собрать(?:\s+заказ)?|завершить\s+сборку|подтвердить\s+сборку)/i.test(text);
 }
 
+function isWarehouseAutoApplyActionControl(control) {
+    if (!isWarehouseAssemblyActionControl(control)) {
+        return false;
+    }
+
+    const text = getWarehouseAssemblyActionControlText(control);
+    return /^(?:собрать\s+заказ|завершить\s+сборку|подтвердить\s+сборку)$/i.test(text);
+}
+
 function dispatchWarehouseApiCaptureArm(reason = 'warehouse-assembly-action') {
     try {
         window.dispatchEvent(new CustomEvent(WAREHOUSE_API_CAPTURE_ARM_EVENT, {
             detail: {
                 reason,
-                durationMs: Math.max(...WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS)
+                durationMs: WAREHOUSE_API_CAPTURE_WINDOW_MS
             }
         }));
         return true;
     } catch {
         return false;
     }
+}
+
+
+function getWarehouseBarcodePreviewFingerprint(preview = lastWarehouseBarcodePreview) {
+    const barcodes = Array.isArray(preview?.extraction?.eligibleBarcodes)
+        ? preview.extraction.eligibleBarcodes
+            .map(entry => normalizeWarehouseBridgeId(entry?.barcode))
+            .filter(Boolean)
+            .sort()
+        : [];
+
+    return barcodes.join('|');
+}
+
+function startWarehouseAutoApplyIntent(control = null, now = Date.now()) {
+    const orderId = getWarehouseOrderIdFromUrl();
+    const kind = warehouseOrderKindRecord?.kind || 'unknown';
+
+    if (!orderId || kind !== 'ozon') {
+        warehouseAutoApplyIntent = null;
+        return null;
+    }
+
+    if (warehouseAutoApplyIntent
+        && warehouseAutoApplyIntent.orderId === orderId
+        && ['waiting', 'starting', 'started'].includes(warehouseAutoApplyIntent.status)
+        && now - warehouseAutoApplyIntent.startedAt < WAREHOUSE_AUTO_APPLY_TIMEOUT_MS) {
+        return warehouseAutoApplyIntent;
+    }
+
+    warehouseAutoApplySequence += 1;
+    warehouseAutoApplyIntent = {
+        actionId: `${orderId}:${now}:${warehouseAutoApplySequence}`,
+        orderId,
+        actionText: getWarehouseAssemblyActionControlText(control),
+        startedAt: now,
+        expiresAt: now + WAREHOUSE_AUTO_APPLY_TIMEOUT_MS,
+        baselineFingerprint: getWarehouseBarcodePreviewFingerprint(),
+        baselineKnown: lastWarehouseBarcodePreview?.ok === true,
+        status: 'waiting',
+        trigger: 'warehouse-assembly-action'
+    };
+
+    return warehouseAutoApplyIntent;
+}
+
+function isWarehouseAutoApplySnapshotFresh(preview = {}, responseSource = '', now = Date.now()) {
+    const intent = warehouseAutoApplyIntent;
+    if (!intent || intent.status !== 'waiting' || now > intent.expiresAt) {
+        return false;
+    }
+
+    const previewOrderId = normalizeAmperkotOrderId(getWarehouseBarcodePreviewOrderId(preview));
+    if (!previewOrderId || previewOrderId !== intent.orderId || getWarehouseOrderIdFromUrl() !== intent.orderId) {
+        return false;
+    }
+
+    const eligibleCount = Number(preview?.summary?.eligibleCount || preview?.extraction?.summary?.eligibleCount) || 0;
+    if (eligibleCount <= 0) {
+        return false;
+    }
+
+    if (responseSource === 'warehouse-api-response') {
+        return true;
+    }
+
+    if (intent.baselineKnown !== true) {
+        return false;
+    }
+
+    const nextFingerprint = getWarehouseBarcodePreviewFingerprint(preview);
+    return Boolean(nextFingerprint && nextFingerprint !== intent.baselineFingerprint);
+}
+
+function maybeStartWarehouseAutoApply(preview = {}, responseSource = '', now = Date.now()) {
+    const intent = warehouseAutoApplyIntent;
+    if (!intent) {
+        return false;
+    }
+
+    if (now > intent.expiresAt) {
+        intent.status = 'expired';
+        return false;
+    }
+
+    if (warehouseOrderKindRecord?.kind !== 'ozon') {
+        intent.status = 'cancelled';
+        return false;
+    }
+
+    if (!isWarehouseAutoApplySnapshotFresh(preview, responseSource, now)) {
+        return false;
+    }
+
+    intent.status = 'starting';
+    intent.snapshotSource = responseSource;
+    intent.snapshotAt = now;
+
+    const started = requestWarehouseOzonUiApply({
+        trigger: 'automatic',
+        actionId: intent.actionId
+    });
+
+    if (!started) {
+        intent.status = 'failed';
+    } else if (intent.status === 'starting') {
+        intent.status = 'started';
+    }
+
+    return started;
 }
 
 function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
@@ -1180,12 +1681,29 @@ function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
 }
 
 function handleWarehouseAssemblyActionEvent(event) {
+    if (event?.isTrusted !== true) {
+        return;
+    }
+
     const control = getWarehouseAssemblyActionControl(event?.target);
 
     if (!isWarehouseAssemblyActionControl(control)) {
         return;
     }
 
+    const now = Date.now();
+    const actionSignature = `${getWarehouseOrderIdFromUrl()}|${getWarehouseAssemblyActionControlText(control)}`;
+    if (actionSignature === lastWarehouseAssemblyActionSignature
+        && now - lastWarehouseAssemblyActionAt < 750) {
+        return;
+    }
+
+    lastWarehouseAssemblyActionSignature = actionSignature;
+    lastWarehouseAssemblyActionAt = now;
+
+    if (isWarehouseAutoApplyActionControl(control)) {
+        startWarehouseAutoApplyIntent(control, now);
+    }
     scheduleWarehouseSnapshotAfterAssemblyAction(control);
 }
 
@@ -1365,14 +1883,21 @@ function clearWarehousePreviewPanel(panel) {
     }
 }
 
-function setWarehouseBarcodePreviewPanelCollapsed(collapsed) {
+function setWarehouseBarcodePreviewPanelCollapsed(collapsed, options = {}) {
     warehouseBarcodePreviewCollapsed = collapsed === true;
+    if (options.userInitiated === true) {
+        warehouseBarcodePreviewCollapseTouched = true;
+    }
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
     return warehouseBarcodePreviewCollapsed;
 }
 
+function isWarehouseBarcodePreviewPanelCollapsed() {
+    return warehouseBarcodePreviewCollapsed;
+}
+
 function toggleWarehouseBarcodePreviewPanel() {
-    return setWarehouseBarcodePreviewPanelCollapsed(!warehouseBarcodePreviewCollapsed);
+    return setWarehouseBarcodePreviewPanelCollapsed(!warehouseBarcodePreviewCollapsed, { userInitiated: true });
 }
 
 function setWarehouseBarcodeListExpanded(expanded) {
@@ -1503,7 +2028,7 @@ function handleWarehousePreviewActionEvent(event) {
     }
 
     if (action === WAREHOUSE_BARCODE_LIST_TOGGLE_ACTION || action === 'barcode-list') {
-        setWarehouseBarcodePreviewPanelCollapsed(false);
+        setWarehouseBarcodePreviewPanelCollapsed(false, { userInitiated: true });
         toggleWarehouseBarcodeList();
         return;
     }
@@ -1652,10 +2177,18 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
     applyWarehouseBarcodePreviewPanelLayout(panel);
     renderWarehouseBarcodePreviewHeader(panel, viewModel);
 
+    const orderKindDisplay = getWarehouseOrderKindDisplay();
+    appendWarehousePreviewText(panel, 'div', orderKindDisplay.text, {
+        color: orderKindDisplay.color,
+        marginTop: '6px',
+        fontSize: '12px',
+        fontWeight: '700'
+    });
+
     if (warehouseBarcodePreviewCollapsed) {
         appendWarehousePreviewText(panel, 'div', viewModel.message, {
             color: viewModel.status === 'error' ? '#db2919' : '#667685',
-            marginTop: '6px',
+            marginTop: '2px',
             fontSize: '12px',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -1667,7 +2200,7 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
 
     appendWarehousePreviewText(panel, 'div', viewModel.message, {
         color: viewModel.status === 'error' ? '#db2919' : '#667685',
-        marginTop: '6px',
+        marginTop: '4px',
         marginBottom: '10px'
     });
 
@@ -1852,11 +2385,30 @@ function getWarehouseOzonResolveRequestPayload() {
 
 
 
-function requestWarehouseOzonUiApply() {
+function requestWarehouseOzonUiApply(options = {}) {
     const payload = getWarehouseOzonResolveRequestPayload();
+    const trigger = options.trigger === 'automatic' ? 'automatic' : 'manual';
+    const actionId = trigger === 'automatic'
+        ? String(options.actionId || '').slice(0, 160)
+        : '';
+
+    function getMatchingAutoApplyIntent() {
+        if (trigger !== 'automatic' || !actionId) {
+            return null;
+        }
+
+        return warehouseAutoApplyIntent?.actionId === actionId
+            ? warehouseAutoApplyIntent
+            : null;
+    }
 
     if (!payload) {
         lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError('Сначала прочитай штрихкоды склада.');
+        const matchingIntent = getMatchingAutoApplyIntent();
+        if (matchingIntent) {
+            matchingIntent.status = 'failed';
+            matchingIntent.error = 'warehouse barcode preview unavailable';
+        }
         renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
         return false;
     }
@@ -1864,29 +2416,59 @@ function requestWarehouseOzonUiApply() {
     lastWarehouseOzonUiApply = createWarehouseOzonUiApplyLoading();
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
-    sendRuntimeMessage({
+    const sent = sendRuntimeMessage({
         type: 'OZON_UI_APPLY_REQUEST',
+        trigger,
+        actionId,
         ...payload
     }, (response) => {
         const runtimeError = getRuntimeLastError();
+        const matchingIntent = getMatchingAutoApplyIntent();
 
         if (runtimeError) {
             if (!handleRuntimeMessagingError('WAREHOUSE_OZON', runtimeError)) {
                 lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError(runtimeError.message || 'Ozon worker unavailable');
+                if (matchingIntent) {
+                    matchingIntent.status = 'failed';
+                    matchingIntent.error = runtimeError.message || 'Ozon worker unavailable';
+                }
                 renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
                 log('WARN', 'WAREHOUSE_OZON', 'ozon UI apply request failed', runtimeError.message);
             }
             return;
         }
 
+        const responseOrderId = normalizeAmperkotOrderId(response?.orderId);
+        if (responseOrderId && responseOrderId !== getWarehouseOrderIdFromUrl()) {
+            return;
+        }
+
         if (!response?.ok) {
             lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError(response?.error || 'Ozon UI apply request failed');
+            if (matchingIntent) {
+                matchingIntent.status = 'failed';
+                matchingIntent.error = response?.error || 'Ozon UI apply request failed';
+            }
             renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
             return;
         }
 
-        log('INFO', 'WAREHOUSE_OZON', 'ozon UI apply started', response);
+        if (matchingIntent) {
+            matchingIntent.status = 'started';
+        }
+        log('INFO', 'WAREHOUSE_OZON', 'ozon UI apply started', { ...response, trigger });
     }, 'WAREHOUSE_OZON');
+
+    if (!sent) {
+        lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError('Не удалось отправить запрос в background.');
+        const matchingIntent = getMatchingAutoApplyIntent();
+        if (matchingIntent) {
+            matchingIntent.status = 'failed';
+            matchingIntent.error = 'background request was not sent';
+        }
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+        return false;
+    }
 
     return true;
 }
@@ -1918,6 +2500,11 @@ function requestWarehouseOzonResolvePreview() {
             return;
         }
 
+        const responseOrderId = normalizeAmperkotOrderId(response?.orderId);
+        if (responseOrderId && responseOrderId !== getWarehouseOrderIdFromUrl()) {
+            return;
+        }
+
         if (!response?.ok) {
             lastWarehouseOzonResolvePreview = createWarehouseOzonResolveError(response?.error || 'Ozon resolve request failed');
             renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
@@ -1937,7 +2524,27 @@ function requestWarehouseOzonResolvePreview() {
 }
 
 function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
+    if (msg?.type === 'ORDER_KIND_UPDATED') {
+        const currentOrderId = getWarehouseOrderIdFromUrl();
+        if (normalizeAmperkotOrderId(msg?.orderKind?.orderId) === currentOrderId) {
+            applyWarehouseOrderKindRecord(msg.orderKind);
+        }
+
+        if (typeof sendResponse === 'function') {
+            sendResponse({ ok: true });
+        }
+
+        return true;
+    }
+
     if (msg?.type === 'OZON_RESOLVE_PREVIEW_RESULT') {
+        if (normalizeAmperkotOrderId(msg.orderId) !== getWarehouseOrderIdFromUrl()) {
+            if (typeof sendResponse === 'function') {
+                sendResponse({ ok: true, ignored: true });
+            }
+            return true;
+        }
+
         if (msg.ok && msg.plan) {
             lastWarehouseOzonResolvePreview = createWarehouseOzonResolveReady(msg.plan);
             lastWarehouseOzonUiApply = reconcileWarehouseOzonUiApplyWithResolvePlan(
@@ -1960,14 +2567,35 @@ function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
     }
 
     if (msg?.type === 'OZON_UI_APPLY_RESULT') {
+        if (normalizeAmperkotOrderId(msg.orderId) !== getWarehouseOrderIdFromUrl()) {
+            if (typeof sendResponse === 'function') {
+                sendResponse({ ok: true, ignored: true });
+            }
+            return true;
+        }
+
+        const resultActionId = String(msg.actionId || '');
+        const matchingAutoIntent = resultActionId
+            && warehouseAutoApplyIntent?.actionId === resultActionId
+            ? warehouseAutoApplyIntent
+            : null;
+
         if (msg.ok) {
             lastWarehouseOzonUiApply = createWarehouseOzonUiApplyReady(msg);
+            if (matchingAutoIntent?.status === 'started') {
+                matchingAutoIntent.status = 'completed';
+                matchingAutoIntent.completedAt = Date.now();
+            }
             log('INFO', 'WAREHOUSE_OZON', 'ozon UI apply ready', {
                 productId: lastWarehouseOzonUiApply.productId,
                 addedCount: lastWarehouseOzonUiApply.addedCount
             });
         } else {
             lastWarehouseOzonUiApply = createWarehouseOzonUiApplyError(msg.error || 'Ozon UI apply failed', msg.productId);
+            if (matchingAutoIntent?.status === 'started') {
+                matchingAutoIntent.status = 'failed';
+                matchingAutoIntent.error = msg.error || 'Ozon UI apply failed';
+            }
             log('WARN', 'WAREHOUSE_OZON', 'ozon UI apply failed', lastWarehouseOzonUiApply.error);
         }
 
@@ -2196,11 +2824,13 @@ function handleWarehouseShopOrderBridgeResponse(event) {
 
     lastWarehouseOzonResolvePreview = null;
     lastWarehouseOzonUiApply = null;
+    const autoApplyStarted = maybeStartWarehouseAutoApply(lastWarehouseBarcodePreview, responseSource);
     renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
 
     log(lastWarehouseBarcodePreview.ok ? 'INFO' : 'WARN', 'WAREHOUSE_OZON', 'barcode preview ready', {
         summary: lastWarehouseBarcodePreview.summary,
-        warehouseRefresh: getWarehouseAssemblyActionDebugPublicSnapshot()
+        warehouseRefresh: getWarehouseAssemblyActionDebugPublicSnapshot(),
+        autoApplyStarted
     });
 
     return lastWarehouseBarcodePreview;
@@ -2241,6 +2871,7 @@ function initWarehouseBarcodeBridge() {
         warehouseBarcodeBridgeInitialized = true;
     }
 
+    requestWarehouseOrderKind({ force: warehouseOrderKindRecord?.kind === 'unknown' });
     requestWarehouseShopOrderSnapshot();
 
     return true;
@@ -2253,9 +2884,15 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
         return false;
     }
 
+    const previousOrderId = getWarehouseOrderIdFromUrl(lastWarehouseRouteHref);
+    const nextOrderId = getWarehouseOrderIdFromUrl(href);
+    const orderChanged = previousOrderId !== nextOrderId;
     lastWarehouseRouteHref = href;
 
     if (isWarehouseAssemblyPageUrl(href)) {
+        if (orderChanged || !warehouseOrderKindRecord) {
+            resetWarehouseOrderContext();
+        }
         return initWarehouseBarcodeBridge();
     }
 
@@ -2265,6 +2902,7 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     lastWarehouseBarcodePreview = null;
     lastWarehouseOzonResolvePreview = null;
     lastWarehouseOzonUiApply = null;
+    resetWarehouseOrderContext();
     removeWarehouseBarcodePreviewPanel();
     return false;
 }
@@ -2660,6 +3298,8 @@ function init() {
         initOzonProductResolveWorker();
         return;
     }
+
+    initOrderKindObservation();
 
     sendRuntimeMessage({ type: 'CHECK_WORKER' }, (res) => {
         const runtimeError = getRuntimeLastError();

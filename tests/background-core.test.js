@@ -741,6 +741,10 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
         notificationTargets: {
             'notification-1': { orderId: '1000' }
         },
+        orderKindsDB: {
+            '1000-010101': { orderId: '1000-010101', kind: 'regular' },
+            '2000-020202': { orderId: '2000-020202', kind: 'ozon' }
+        },
         workerTabId: 42,
         lastBaselineDate: 'Wed Jun 10 2026',
         isRunning: true,
@@ -805,6 +809,7 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
     assert.equal(snapshot.windowOrdersCount, 1);
     assert.equal(snapshot.windowHashesCount, 1);
     assert.equal(snapshot.notificationTargetsCount, 1);
+    assert.equal(snapshot.orderKindsCount, 2);
     assert.equal(snapshot.eventJournalCount, 2);
     assert.equal(snapshot.eventJournalDroppedEntries, 7);
     assert.equal(snapshot.lastBaselineDate, 'Wed Jun 10 2026');
@@ -832,6 +837,7 @@ test('monitor status snapshot handles empty state safely', () => {
     assert.equal(snapshot.pendingSyncAction, null);
     assert.equal(snapshot.knownOrdersCount, 0);
     assert.equal(snapshot.windowOrdersCount, 0);
+    assert.equal(snapshot.orderKindsCount, 0);
     assert.equal(snapshot.eventJournalCount, 0);
     assert.equal(snapshot.eventJournalDroppedEntries, 0);
     assert.equal(snapshot.collectionSession, null);
@@ -2241,4 +2247,257 @@ test('Ozon UI apply processes multiple products sequentially', async () => {
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[2].message.barcodes)), ['987654321', '123456789', '123456780']);
     assert.deepEqual(JSON.parse(JSON.stringify(context.__test.tabMessages[2].message.productResults.map(item => item.productId))), ['24260137', '42608563']);
     assert.deepEqual(context.__test.removedTabs, [1]);
+});
+
+test('manager order tab records Ozon kind and warehouse tab can read it', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const reportResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'REPORT_ORDER_KIND',
+            orderId: '7001-010126',
+            evidence: {
+                pageComplete: true,
+                source: 'OZON',
+                contractor: 'OZON (ОЗОН)',
+                ozonShipActionUrl: '/admin/_api/shop-orders/7001-010126/ozon/123456/posting/fbs/ship'
+            }
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/7001-010126/'
+            }
+        }
+    );
+
+    assert.equal(reportResponse.ok, true);
+    assert.equal(reportResponse.orderKind.kind, 'ozon');
+    assert.equal(reportResponse.orderKind.orderId, '7001-010126');
+
+    const readResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'GET_ORDER_KIND',
+            orderId: '7001-010126'
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=7001-010126'
+            }
+        }
+    );
+
+    assert.equal(readResponse.ok, true);
+    assert.equal(readResponse.orderKind.kind, 'ozon');
+});
+
+test('order kind messages reject mismatched manager and warehouse order ids', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const reportResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'REPORT_ORDER_KIND',
+            orderId: '7002-010126',
+            evidence: {
+                pageComplete: true,
+                source: 'OZON',
+                ozonShipActionUrl: '/admin/_api/shop-orders/7002-010126/ozon/123456/posting/fbs/ship'
+            }
+        },
+        {
+            tab: {
+                id: 77,
+                url: 'https://amperkot.ru/admin/orders/7001-010126/'
+            }
+        }
+    );
+
+    assert.equal(reportResponse.ignored, true);
+
+    const readResponse = await sendRuntimeMessage(
+        context,
+        {
+            type: 'GET_ORDER_KIND',
+            orderId: '7002-010126'
+        },
+        {
+            tab: {
+                id: 88,
+                url: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=7001-010126'
+            }
+        }
+    );
+
+    assert.equal(readResponse.ignored, true);
+});
+
+test('incomplete observations preserve confirmed type while complete regular observations fail closed', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const sender = {
+        tab: {
+            id: 77,
+            url: 'https://amperkot.ru/admin/orders/7001-010126/'
+        }
+    };
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId: '7001-010126',
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: '/admin/_api/shop-orders/7001-010126/ozon/123456/posting/fbs/ship'
+        }
+    }, sender);
+
+    const partial = await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId: '7001-010126',
+        evidence: {
+            pageComplete: false,
+            source: ''
+        }
+    }, sender);
+
+    const regular = await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId: '7001-010126',
+        evidence: {
+            pageComplete: true,
+            source: 'Основной сайт'
+        }
+    }, sender);
+
+    assert.equal(partial.orderKind.kind, 'ozon');
+    assert.equal(regular.orderKind.kind, 'regular');
+
+    const conflicting = await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId: '7001-010126',
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)'
+        }
+    }, sender);
+
+    assert.equal(conflicting.orderKind.kind, 'unknown');
+    assert.equal(conflicting.orderKind.reason, 'conflicting-ozon-markers');
+});
+
+test('order kind retention drops expired records and keeps the newest bounded set', () => {
+    const context = loadBackgroundContext();
+    const now = 10_000_000;
+    const records = {};
+
+    records['1000-010101'] = {
+        orderId: '1000-010101',
+        kind: 'regular',
+        observedAt: 0,
+        expiresAt: now - 1
+    };
+
+    const maxRecords = runExpression(context, 'MAX_ORDER_KIND_RECORDS');
+    const ttlMs = runExpression(context, 'ORDER_KIND_TTL_MS');
+
+    records['1000-010101'].observedAt = now - ttlMs - 1;
+    records['1000-010101'].expiresAt = now - 1;
+
+    for (let index = 0; index < maxRecords + 10; index += 1) {
+        const id = `${String(2000 + index).padStart(4, '0')}-010101`;
+        records[id] = {
+            orderId: id,
+            kind: 'regular',
+            observedAt: now + index,
+            expiresAt: now + ttlMs
+        };
+    }
+
+    context.__orderKinds = records;
+    runExpression(context, 'orderKindsDB = __orderKinds');
+    delete context.__orderKinds;
+
+    context.applyOrderKindRetention(now);
+    const count = runExpression(context, 'Object.keys(orderKindsDB).length');
+    const hasExpired = runExpression(context, "Boolean(orderKindsDB['1000-010101'])");
+
+    assert.equal(count, maxRecords);
+    assert.equal(hasExpired, false);
+});
+
+test('automatic Ozon apply is allowed only for a confirmed Ozon order', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const warehouseExtraction = {
+        orderId: '7001-010126',
+        productsById: {
+            10000001: {
+                productId: '10000001',
+                productTitle: 'Модуль защиты',
+                eligibleBarcodes: [{ barcode: '123456789', productId: '10000001' }],
+                skippedBarcodes: []
+            }
+        }
+    };
+    const warehouseSender = {
+        tab: {
+            id: 7,
+            url: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=7001-010126'
+        }
+    };
+
+    const rejected = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        trigger: 'automatic',
+        orderId: '7001-010126',
+        warehouseExtraction
+    }, warehouseSender);
+
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error, /confirmed Ozon order/);
+    assert.equal(context.__test.createdTabs.length, 0);
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId: '7001-010126',
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: '/admin/_api/shop-orders/7001-010126/ozon/123456/posting/fbs/ship'
+        }
+    }, {
+        tab: {
+            id: 77,
+            url: 'https://amperkot.ru/admin/orders/7001-010126/'
+        }
+    });
+
+    const accepted = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        trigger: 'automatic',
+        actionId: '7001-010126:trusted-action',
+        orderId: '7001-010126',
+        warehouseExtraction
+    }, warehouseSender);
+
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.started, true);
+    assert.equal(accepted.orderId, '7001-010126');
+    assert.equal(accepted.trigger, 'automatic');
+    assert.equal(accepted.actionId, '7001-010126:trusted-action');
+    assert.equal(context.__test.createdTabs.length, 1);
 });

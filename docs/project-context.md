@@ -18,9 +18,9 @@
 1.0.1 published
 1.0.2 published
 1.0.3 published and tagged v1.0.3
-Current code: unpublished post-1.0.3 hardening
+Current code: unpublished post-1.0.3 hardening + order-aware Ozon automation
 Manifest remains 1.0.3
-Automated baseline: 290 pass / 0 fail
+Automated baseline: 310 pass / 0 fail
 ```
 
 ## Monitoring model
@@ -42,6 +42,9 @@ eventJournal
 
 diagnosticLog
 → локальная техническая диагностика
+
+orderKindsDB
+→ краткоживущая классификация ozon / regular / unknown по номеру заказа
 ```
 
 ### Fast/deep policy
@@ -80,6 +83,7 @@ Retention:
 ```text
 known orders: max 5000
 notification targets: max 500, TTL 7 days
+order kinds: max 500, TTL 24 hours
 watched/current/direct orders: protected
 journals: own count/byte retention
 ```
@@ -89,7 +93,8 @@ Options diagnostics показывают:
 - bytes in use;
 - последнюю storage error;
 - время проверки/успешной записи;
-- количество удалённых known orders и notification targets.
+- количество удалённых known orders и notification targets;
+- количество сохранённых классификаций заказов.
 
 `chrome.storage.local` ограничен `TRUSTED_CONTEXTS`, поэтому page content scripts не получают прямой API-доступ к локальной базе расширения.
 
@@ -103,12 +108,46 @@ Options diagnostics показывают:
 - Worker marker принимается только на ожидаемом origin/path.
 - Warehouse/Ozon request принимается только от `https://amperkot.ru/web-apps/wh3/...`.
 - Notification click повторно строит canonical URL, а не доверяет сохранённой строке.
+- Наблюдение типа заказа принимается от обычной вкладки менеджера только при точном `/admin/orders/<id>/` и совпадении sender URL с payload order ID.
+- Warehouse читает тип только для order ID из собственного доверенного hash URL.
 
 ### Ozon write
 
 Preview/check не изменяет данные. Write flow требует `event.isTrusted === true` в content script. Синтетический click из page context блокируется.
 
 Background дополнительно связывает Ozon session с ожидаемыми warehouse/Ozon tab IDs и product IDs.
+
+### Order-aware automatic write
+
+Открытая менеджером карточка сообщает background только компактные ограниченные поля:
+
+```text
+orderId
+source
+contractor
+ozonShipActionUrl
+pageComplete
+```
+
+Background валидирует URL и сохраняет в `orderKindsDB` только итоговый тип, reason, timestamps и три boolean evidence-флага. Личные данные и содержимое заказа в эту базу не копируются.
+
+Классификация:
+
+- `ozon`: полная карточка, точный источник `OZON` и доверенная `/ozon/<seller>/posting/fbs/ship` ссылка того же заказа;
+- `regular`: полная карточка без Ozon-маркеров;
+- `unknown`: отсутствующая, просроченная, частичная или конфликтующая информация.
+
+Свежий `unknown` не затирает подтверждённый тип. `regular` не понижает ещё действующий `ozon`.
+
+Warehouse UI использует тип только для начального состояния и автоматики:
+
+- Ozon раскрывает панель;
+- regular/unknown оставляет её свернутой;
+- пользовательское ручное состояние сохраняется до смены заказа;
+- неизвестный тип показывает `Тип не определён — обновите карточку заказа`;
+- manual preview/check/write доступен всегда.
+
+Trusted click по складской сборке создаёт одноразовый `actionId`. Automatic apply запускается только после свежего успешного snapshot того же заказа с подходящими штрихкодами. Background повторно проверяет подтверждённый тип Ozon. Неуспешные Warehouse API responses и синтетические события не запускают запись.
 
 ### Remote code
 

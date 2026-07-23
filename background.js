@@ -1,10 +1,11 @@
-importScripts('version.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js');
+importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
 let windowOrdersDB = {};
 let windowOrdersHashDB = {};
 let notificationTargets = {};
+let orderKindsDB = {};
 let workerTabId = null;
 let directWorkerTabId = null;
 let ozonWorkerTabId = null;
@@ -81,6 +82,8 @@ const DIRECT_FOLLOW_UP_PERIOD_MINUTES = 1;
 const STORAGE_MAINTENANCE_PERIOD_MINUTES = 30;
 const MAX_KNOWN_ORDERS = 5000;
 const MAX_NOTIFICATION_TARGETS = 500;
+const MAX_ORDER_KIND_RECORDS = 500;
+const ORDER_KIND_TTL_MS = 24 * 60 * 60 * 1000;
 const NOTIFICATION_TARGET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const STORAGE_USAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_ORDER_BATCH_SIZE = 1000;
@@ -130,6 +133,169 @@ function isMarkedOzonWorkerUrl(value) {
         && url.pathname.startsWith('/app/products')
         && url.hash === OZON_WORKER_MARK
     );
+}
+
+
+function getTrustedAmperkotOrderPageId(value) {
+    const url = parseTrustedUrl(value);
+    if (!url || url.protocol !== 'https:' || url.hostname !== 'amperkot.ru') {
+        return '';
+    }
+
+    const match = url.pathname.match(/^\/admin\/orders\/(\d{4}-\d{6})\/?$/);
+    return match ? normalizeOrderKindOrderId(match[1]) : '';
+}
+
+function getWarehouseOrderIdFromTabUrl(value) {
+    const url = parseTrustedUrl(value);
+    if (!url
+        || url.protocol !== 'https:'
+        || url.hostname !== 'amperkot.ru'
+        || !url.pathname.startsWith('/web-apps/wh3/')) {
+        return '';
+    }
+
+    const hash = String(url.hash || '').replace(/^#/, '');
+    const queryIndex = hash.indexOf('?');
+    if (queryIndex < 0) {
+        return '';
+    }
+
+    const params = new URLSearchParams(hash.slice(queryIndex + 1));
+    return normalizeOrderKindOrderId(params.get('order'));
+}
+
+function createUnknownOrderKindRecord(orderId = '', reason = 'not-observed') {
+    return {
+        orderId: normalizeOrderKindOrderId(orderId),
+        kind: ORDER_KIND_UNKNOWN,
+        reason,
+        observedAt: 0,
+        expiresAt: 0,
+        evidence: {
+            sourceOzon: false,
+            contractorOzon: false,
+            actionOzon: false
+        }
+    };
+}
+
+function normalizeStoredOrderKindRecord(value = {}, fallbackOrderId = '', now = Date.now()) {
+    const orderId = normalizeOrderKindOrderId(value?.orderId || fallbackOrderId);
+    const kind = normalizeOrderKindValue(value?.kind);
+    const observedAt = Math.max(0, Number(value?.observedAt) || 0);
+    const expiresAt = Math.max(observedAt, Number(value?.expiresAt) || (observedAt + ORDER_KIND_TTL_MS));
+
+    if (!orderId || !observedAt || expiresAt <= now) {
+        return null;
+    }
+
+    return {
+        orderId,
+        kind,
+        reason: String(value?.reason || '').slice(0, 80),
+        observedAt,
+        expiresAt,
+        evidence: {
+            sourceOzon: value?.evidence?.sourceOzon === true,
+            contractorOzon: value?.evidence?.contractorOzon === true,
+            actionOzon: value?.evidence?.actionOzon === true
+        }
+    };
+}
+
+function applyOrderKindRetention(now = Date.now()) {
+    const records = Object.entries(orderKindsDB || {})
+        .map(([fallbackOrderId, rawRecord]) => normalizeStoredOrderKindRecord(rawRecord, fallbackOrderId, now))
+        .filter(Boolean)
+        .sort((left, right) => left.observedAt - right.observedAt)
+        .slice(-MAX_ORDER_KIND_RECORDS);
+
+    const next = {};
+    records.forEach(record => {
+        next[record.orderId] = record;
+    });
+
+    const dropped = Math.max(0, Object.keys(orderKindsDB || {}).length - records.length);
+    orderKindsDB = next;
+    return dropped;
+}
+
+function getOrderKindRecord(orderId, now = Date.now()) {
+    const normalizedId = normalizeOrderKindOrderId(orderId);
+    if (!normalizedId) {
+        return createUnknownOrderKindRecord('', 'invalid-order-id');
+    }
+
+    const record = normalizeStoredOrderKindRecord(orderKindsDB?.[normalizedId], normalizedId, now);
+    if (!record) {
+        delete orderKindsDB[normalizedId];
+        return createUnknownOrderKindRecord(normalizedId, 'not-observed');
+    }
+
+    return record;
+}
+
+function upsertOrderKindObservation(orderId, rawEvidence = {}, now = Date.now()) {
+    const normalizedId = normalizeOrderKindOrderId(orderId);
+    if (!normalizedId) {
+        return createUnknownOrderKindRecord('', 'invalid-order-id');
+    }
+
+    const classification = classifyOrderKind({
+        ...rawEvidence,
+        orderId: normalizedId
+    }, normalizedId);
+    const current = getOrderKindRecord(normalizedId, now);
+
+    if (classification.kind === ORDER_KIND_UNKNOWN
+        && classification.reason === 'incomplete-order-page'
+        && current.kind !== ORDER_KIND_UNKNOWN) {
+        return current;
+    }
+
+    const record = {
+        orderId: normalizedId,
+        kind: classification.kind,
+        reason: classification.reason,
+        observedAt: now,
+        expiresAt: now + ORDER_KIND_TTL_MS,
+        evidence: {
+            sourceOzon: classification.evidence.sourceOzon === true,
+            contractorOzon: classification.evidence.contractorOzon === true,
+            actionOzon: classification.evidence.actionOzon === true
+        }
+    };
+
+    orderKindsDB[normalizedId] = record;
+    applyOrderKindRetention(now);
+    return record;
+}
+
+async function notifyWarehouseOrderKindUpdated(record = {}) {
+    const orderId = normalizeOrderKindOrderId(record?.orderId);
+    if (!orderId || typeof chrome?.tabs?.query !== 'function') {
+        return 0;
+    }
+
+    let sent = 0;
+    const tabs = await chrome.tabs.query({});
+
+    for (const tab of tabs || []) {
+        if (!tab?.id || getWarehouseOrderIdFromTabUrl(tab.url) !== orderId) {
+            continue;
+        }
+
+        try {
+            await chrome.tabs.sendMessage(tab.id, {
+                type: 'ORDER_KIND_UPDATED',
+                orderKind: record
+            });
+            sent += 1;
+        } catch {}
+    }
+
+    return sent;
 }
 
 function normalizeExtensionVersionParts(value) {
@@ -1311,6 +1477,7 @@ function getMonitorStatusSnapshot() {
         windowOrdersDB,
         windowOrdersHashDB,
         notificationTargets,
+        orderKindsDB,
         workerTabId,
         directWorkerTabId,
         directFollowUpState,
@@ -1643,20 +1810,23 @@ function applyNotificationTargetRetention(now = Date.now()) {
 function applyStateRetention(options = {}) {
     const countRetentionDropped = applyKnownOrdersRetention();
     const notificationTargetsDropped = applyNotificationTargetRetention();
+    const orderKindsDropped = applyOrderKindRetention();
     const byteRetentionDropped = applyStateByteRetention(
         MAX_ESTIMATED_PERSISTED_STATE_BYTES,
         options.forceByteEstimate === true
     );
     const knownOrdersDropped = countRetentionDropped + byteRetentionDropped;
 
-    if (knownOrdersDropped || notificationTargetsDropped) {
+    if (knownOrdersDropped || notificationTargetsDropped || orderKindsDropped) {
         log('INFO', 'RETENTION', 'state retention applied', {
             knownOrdersDropped,
             countRetentionDropped,
             byteRetentionDropped,
             notificationTargetsDropped,
+            orderKindsDropped,
             knownOrdersCount: Object.keys(knownOrdersDB).length,
             notificationTargetsCount: Object.keys(notificationTargets).length,
+            orderKindsCount: Object.keys(orderKindsDB).length,
             estimatedStateBytes: storageDiagnostics.lastEstimatedStateBytes
         });
     }
@@ -1669,6 +1839,7 @@ function createPersistedStateSnapshot() {
         windowOrdersDB,
         windowOrdersHashDB,
         notificationTargets,
+        orderKindsDB,
         lastBaselineDate,
         workerTabId,
         directWorkerTabId,
@@ -1822,6 +1993,7 @@ async function loadState() {
         'windowOrdersDB',
         'windowOrdersHashDB',
         'notificationTargets',
+        'orderKindsDB',
         'lastBaselineDate',
         'directWorkerTabId',
         'directFollowUpState',
@@ -1853,6 +2025,8 @@ async function loadState() {
     windowOrdersDB = normalizedWindowOrders.orders;
     windowOrdersHashDB = normalizedWindowOrders.hashes;
     notificationTargets = d.notificationTargets || {};
+    orderKindsDB = d.orderKindsDB && typeof d.orderKindsDB === 'object' ? d.orderKindsDB : {};
+    applyOrderKindRetention();
     lastBaselineDate = d.lastBaselineDate || null;
     isRunning = d.isRunning || false;
     monitorState = d.monitorState || 'uninitialized';
@@ -2864,7 +3038,10 @@ async function sendOzonResolvePreviewToWarehouse(payload = {}) {
     return sendOzonWarehouseMessage({
         session: ozonResolveSession,
         type: 'OZON_RESOLVE_PREVIEW_RESULT',
-        payload,
+        payload: {
+            ...payload,
+            orderId: ozonResolveSession?.orderId || ''
+        },
         logCategory: 'OZON_RESOLVE',
         logMessage: 'failed to send preview to warehouse tab'
     });
@@ -2951,7 +3128,7 @@ async function openCurrentOzonResolveProduct() {
     return true;
 }
 
-async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}) {
+async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, options = {}) {
     const productIds = getOzonResolveProductIds(warehouseExtraction);
 
     if (!senderTabId) {
@@ -2962,6 +3139,7 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}) {
 
     ozonResolveSession = createOzonResolveSessionState({
         warehouseTabId: senderTabId,
+        orderId: options.orderId,
         warehouseExtraction,
         productIds
     });
@@ -2970,14 +3148,19 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}) {
         const plan = createOzonResolvePreviewPlanForSession(ozonResolveSession);
         await sendOzonResolvePreviewToWarehouse({ ok: true, plan });
         await cleanupOzonResolveWorker({ closeTab: false });
-        return createRuntimeOkResponse({ started: false, plan });
+        return createRuntimeOkResponse({
+            started: false,
+            plan,
+            orderId: ozonResolveSession?.orderId || options.orderId || ''
+        });
     }
 
     await openCurrentOzonResolveProduct();
 
     return createRuntimeOkResponse({
         started: true,
-        productCount: productIds.length
+        productCount: productIds.length,
+        orderId: ozonResolveSession.orderId
     });
 }
 
@@ -3039,7 +3222,12 @@ async function sendOzonUiApplyResultToWarehouse(payload = {}) {
     return sendOzonWarehouseMessage({
         session: ozonUiApplySession,
         type: 'OZON_UI_APPLY_RESULT',
-        payload,
+        payload: {
+            ...payload,
+            orderId: ozonUiApplySession?.orderId || '',
+            trigger: ozonUiApplySession?.trigger || 'manual',
+            actionId: ozonUiApplySession?.actionId || ''
+        },
         logCategory: 'OZON_UI_APPLY',
         logMessage: 'failed to send apply result to warehouse tab'
     });
@@ -3143,7 +3331,7 @@ async function openCurrentOzonUiApplyProduct() {
     return true;
 }
 
-async function startOzonUiApply(senderTabId, warehouseExtraction = {}) {
+async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options = {}) {
     if (!senderTabId) {
         return createRuntimeFailureResponse({ error: 'warehouse tab missing' });
     }
@@ -3159,7 +3347,10 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}) {
 
     ozonUiApplySession = createOzonUiApplySessionState({
         warehouseTabId: senderTabId,
-        productRequests: request.productRequests
+        orderId: options.orderId,
+        productRequests: request.productRequests,
+        trigger: options.trigger,
+        actionId: options.actionId
     });
 
     await openCurrentOzonUiApplyProduct();
@@ -3168,7 +3359,10 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}) {
         started: true,
         productId: request.productRequests[0]?.productId || '',
         productCount: request.productCount,
-        barcodeCount: request.barcodeCount
+        barcodeCount: request.barcodeCount,
+        orderId: ozonUiApplySession.orderId,
+        trigger: ozonUiApplySession.trigger,
+        actionId: ozonUiApplySession.actionId
     });
 }
 
@@ -3388,6 +3582,60 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+
+            if (msg.type === 'REPORT_ORDER_KIND') {
+                const senderOrderId = getTrustedAmperkotOrderPageId(senderTab?.url);
+                const requestedOrderId = normalizeOrderKindOrderId(msg.orderId);
+
+                if (!senderOrderId || senderOrderId !== requestedOrderId) {
+                    log('WARN', 'SECURITY', 'rejected order kind observation', {
+                        senderTabId,
+                        senderOrderId,
+                        requestedOrderId
+                    });
+                    send(createRuntimeIgnoredResponse());
+                    return;
+                }
+
+                const previous = getOrderKindRecord(requestedOrderId);
+                const record = upsertOrderKindObservation(requestedOrderId, msg.evidence || {});
+                const changed = previous.kind !== record.kind
+                    || previous.reason !== record.reason
+                    || previous.evidence?.sourceOzon !== record.evidence?.sourceOzon
+                    || previous.evidence?.contractorOzon !== record.evidence?.contractorOzon
+                    || previous.evidence?.actionOzon !== record.evidence?.actionOzon;
+
+                await save();
+                if (changed) {
+                    await notifyWarehouseOrderKindUpdated(record);
+                }
+
+                log('INFO', 'ORDER_KIND', 'order classified from manager tab', {
+                    orderId: requestedOrderId,
+                    kind: record.kind,
+                    reason: record.reason,
+                    senderTabId
+                });
+
+                send(createRuntimeOkResponse({ orderKind: record }));
+                return;
+            }
+
+            if (msg.type === 'GET_ORDER_KIND') {
+                const senderOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+                const requestedOrderId = normalizeOrderKindOrderId(msg.orderId);
+
+                if (!senderOrderId || senderOrderId !== requestedOrderId) {
+                    send(createRuntimeIgnoredResponse());
+                    return;
+                }
+
+                send(createRuntimeOkResponse({
+                    orderKind: getOrderKindRecord(requestedOrderId)
+                }));
+                return;
+            }
+
             if (msg.type === 'DIRECT_ORDER') {
                 if (senderTabId !== directWorkerTabId) {
                     send(createRuntimeIgnoredResponse());
@@ -3414,12 +3662,21 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'OZON_RESOLVE_PREVIEW_REQUEST') {
-                if (!isWarehouseOzonResolveSender(senderTab)) {
+                const senderOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+                const requestedOrderId = normalizeOrderKindOrderId(
+                    msg.orderId || msg.warehouseExtraction?.orderId
+                );
+
+                if (!isWarehouseOzonResolveSender(senderTab)
+                    || !senderOrderId
+                    || senderOrderId !== requestedOrderId) {
                     send(createRuntimeIgnoredResponse());
                     return;
                 }
 
-                send(await startOzonResolvePreview(senderTabId, msg.warehouseExtraction || {}));
+                send(await startOzonResolvePreview(senderTabId, msg.warehouseExtraction || {}, {
+                    orderId: requestedOrderId
+                }));
                 return;
             }
 
@@ -3429,12 +3686,32 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'OZON_UI_APPLY_REQUEST') {
-                if (!isWarehouseOzonResolveSender(senderTab)) {
+                const senderOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+                const requestedOrderId = normalizeOrderKindOrderId(
+                    msg.orderId || msg.warehouseExtraction?.orderId
+                );
+
+                if (!isWarehouseOzonResolveSender(senderTab)
+                    || !senderOrderId
+                    || senderOrderId !== requestedOrderId) {
                     send(createRuntimeIgnoredResponse());
                     return;
                 }
 
-                send(await startOzonUiApply(senderTabId, msg.warehouseExtraction || {}));
+                if (msg.trigger === 'automatic'
+                    && getOrderKindRecord(requestedOrderId).kind !== ORDER_KIND_OZON) {
+                    send(createRuntimeFailureResponse({
+                        error: 'automatic Ozon write requires a confirmed Ozon order',
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                send(await startOzonUiApply(senderTabId, msg.warehouseExtraction || {}, {
+                    orderId: requestedOrderId,
+                    trigger: msg.trigger,
+                    actionId: msg.trigger === 'automatic' ? msg.actionId : ''
+                }));
                 return;
             }
 
