@@ -102,6 +102,7 @@ function createMonitorStatusSnapshot(state = {}) {
         monitorMode: normalizeMonitorStatusMode(userConfig),
         deepSyncMaxPages: normalizeMonitorStatusDeepSyncMaxPages(userConfig),
         watchedOrderFollowUpIntervalMinutes: normalizeMonitorStatusWatchedOrderFollowUpIntervalMinutes(userConfig),
+        ozonAutoBarcodeApplyEnabled: userConfig?.ozonAutoBarcodeApplyEnabled !== false,
         workerTabId,
         hasWorkerTab: workerTabId !== null && workerTabId !== undefined,
         directWorkerTabId,

@@ -2486,10 +2486,23 @@ test('automatic Ozon apply is allowed only for a confirmed Ozon order', async ()
         }
     });
 
+    const armed = await sendRuntimeMessage(context, {
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        actionId: '7001-010126:trusted-action',
+        actionText: 'спб: собрать заказ',
+        sourceRoute: 'actions',
+        documentInstanceId: 'warehouse-document-before-reload',
+        orderId: '7001-010126'
+    }, warehouseSender);
+
+    assert.equal(armed.ok, true);
+    assert.equal(armed.intent.actionId, '7001-010126:trusted-action');
+
     const accepted = await sendRuntimeMessage(context, {
         type: 'OZON_UI_APPLY_REQUEST',
         trigger: 'automatic',
         actionId: '7001-010126:trusted-action',
+        documentInstanceId: 'warehouse-document-after-reload',
         orderId: '7001-010126',
         warehouseExtraction
     }, warehouseSender);
@@ -2500,4 +2513,228 @@ test('automatic Ozon apply is allowed only for a confirmed Ozon order', async ()
     assert.equal(accepted.trigger, 'automatic');
     assert.equal(accepted.actionId, '7001-010126:trusted-action');
     assert.equal(context.__test.createdTabs.length, 1);
+});
+
+
+test('warehouse automatic apply intent survives page reload and is consumed once', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const orderId = '7003-010126';
+    const warehouseSender = {
+        tab: {
+            id: 9,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        }
+    };
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123456/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 79,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    const armed = await sendRuntimeMessage(context, {
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        actionId: `${orderId}:reload-action`,
+        actionText: 'спб: собрать заказ',
+        sourceRoute: 'actions',
+        documentInstanceId: 'document-before-reload'
+    }, warehouseSender);
+
+    assert.equal(armed.ok, true);
+
+    const recovered = await sendRuntimeMessage(context, {
+        type: 'GET_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        documentInstanceId: 'document-after-reload'
+    }, warehouseSender);
+
+    assert.equal(recovered.ok, true);
+    assert.equal(recovered.intent.actionId, `${orderId}:reload-action`);
+    assert.equal(recovered.intent.sourceDocumentId, 'document-before-reload');
+
+    const extraction = {
+        orderId,
+        productsById: {
+            10000003: {
+                productId: '10000003',
+                productTitle: 'Тестовый товар',
+                eligibleBarcodes: [{ barcode: '123456700', productId: '10000003' }],
+                skippedBarcodes: []
+            }
+        }
+    };
+
+    const first = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        trigger: 'automatic',
+        actionId: `${orderId}:reload-action`,
+        documentInstanceId: 'document-after-reload',
+        orderId,
+        warehouseExtraction: extraction
+    }, warehouseSender);
+
+    assert.equal(first.ok, true);
+    assert.equal(first.started, true);
+
+    const duplicate = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        trigger: 'automatic',
+        actionId: `${orderId}:reload-action`,
+        documentInstanceId: 'document-after-reload',
+        orderId,
+        warehouseExtraction: extraction
+    }, warehouseSender);
+
+    assert.equal(duplicate.ok, false);
+    assert.match(duplicate.error, /missing or expired/);
+});
+
+test('warehouse automatic apply intent is restored after service worker restart', async () => {
+    const orderId = '7004-010126';
+    const warehouseSender = {
+        tab: {
+            id: 11,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        }
+    };
+    const firstContext = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    await sendRuntimeMessage(firstContext, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123456/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 81,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    await sendRuntimeMessage(firstContext, {
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        actionId: `${orderId}:restart-action`,
+        actionText: 'спб: собрать заказ',
+        sourceRoute: 'actions',
+        documentInstanceId: 'document-before-restart'
+    }, warehouseSender);
+    await settleBackgroundContext();
+
+    const persisted = [...firstContext.__test.storageSetCalls]
+        .reverse()
+        .find(snapshot => snapshot.warehouseAutoApplyIntents);
+    assert.ok(persisted);
+
+    const secondContext = loadBackgroundContext({
+        configureTestState(testState) {
+            testState.storageGetResult = persisted;
+        }
+    });
+    await settleBackgroundContext();
+
+    const restored = await sendRuntimeMessage(secondContext, {
+        type: 'GET_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        documentInstanceId: 'document-after-restart'
+    }, warehouseSender);
+
+    assert.equal(restored.ok, true);
+    assert.equal(restored.intent.actionId, `${orderId}:restart-action`);
+    assert.equal(restored.intent.sourceDocumentId, 'document-before-restart');
+});
+
+test('disabling Ozon automatic barcode adding clears pending intents and blocks new automatic writes', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    const orderId = '7005-010126';
+    const warehouseSender = {
+        tab: {
+            id: 12,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/actions?order=${orderId}`
+        }
+    };
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123456/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 82,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    const armed = await sendRuntimeMessage(context, {
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        actionId: `${orderId}:before-disable`,
+        actionText: 'Москва: подтвердить',
+        sourceRoute: 'actions',
+        documentInstanceId: 'document-before-disable'
+    }, warehouseSender);
+
+    assert.equal(armed.ok, true);
+
+    const configBefore = await sendRuntimeMessage(context, { type: 'GET_CONFIG' });
+    const updated = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: {
+            ...configBefore.userConfig,
+            ozonAutoBarcodeApplyEnabled: false
+        }
+    });
+
+    assert.equal(updated.ok, true);
+    assert.equal(updated.userConfig.ozonAutoBarcodeApplyEnabled, false);
+
+    const restored = await sendRuntimeMessage(context, {
+        type: 'GET_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        documentInstanceId: 'document-after-disable'
+    }, warehouseSender);
+
+    assert.equal(restored.ok, true);
+    assert.equal(restored.enabled, false);
+    assert.equal(restored.intent, null);
+
+    const rejected = await sendRuntimeMessage(context, {
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        actionId: `${orderId}:after-disable`,
+        actionText: 'Москва: подтвердить',
+        sourceRoute: 'actions',
+        documentInstanceId: 'document-after-disable'
+    }, warehouseSender);
+
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error, /disabled/);
 });

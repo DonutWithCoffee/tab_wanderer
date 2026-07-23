@@ -346,6 +346,7 @@ function getConfigLogSummary(config = {}) {
     return {
         monitorMode: safeConfig.monitorMode === 'active' ? 'active' : 'windowed',
         deepSyncMaxPages,
+        ozonAutoBarcodeApplyEnabled: safeConfig.ozonAutoBarcodeApplyEnabled !== false,
         monitorScope: getMonitorScopeLogSummary(safeConfig.monitorScope),
         notificationTriggers: getNotificationTriggerLogSummary(safeConfig.notificationTriggers)
     };

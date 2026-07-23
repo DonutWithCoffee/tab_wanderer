@@ -987,6 +987,17 @@ function initOrderKindObservation() {
 }
 
 // ---------- WAREHOUSE OZON BARCODE BRIDGE ----------
+function createWarehouseDocumentInstanceId() {
+    try {
+        if (typeof crypto?.randomUUID === 'function') {
+            return crypto.randomUUID();
+        }
+    } catch {}
+
+    return `warehouse-document:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
+}
+
+const WAREHOUSE_DOCUMENT_INSTANCE_ID = createWarehouseDocumentInstanceId();
 const WAREHOUSE_BRIDGE_SCRIPT_ID = 'tab-wanderer-warehouse-barcode-bridge';
 const WAREHOUSE_SHOP_ORDER_REQUEST_EVENT = 'tab_wanderer:warehouse-shop-order-request';
 const WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-response';
@@ -1013,9 +1024,11 @@ const WAREHOUSE_ASSEMBLY_ACTION_DEBUG_STORAGE_KEY = 'tab_wanderer_warehouse_acti
 const WAREHOUSE_AUTO_APPLY_TIMEOUT_MS = 10 * 60 * 1000;
 
 let lastWarehouseBarcodePreview = null;
+let lastWarehouseBarcodePreviewSource = '';
 let lastWarehouseOzonResolvePreview = null;
 let lastWarehouseOzonUiApply = null;
 let warehouseBarcodeBridgeInitialized = false;
+let warehouseBridgeSnapshotRequestedOnLoad = false;
 let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
 let warehouseBarcodePreviewCollapsed = true;
@@ -1023,6 +1036,7 @@ let warehouseBarcodePreviewCollapseTouched = false;
 let warehouseOrderKindRecord = null;
 let warehouseOrderKindRequestId = '';
 let warehouseAutoApplyIntent = null;
+let warehouseAutoBarcodeApplyEnabled = true;
 let warehouseAutoApplySequence = 0;
 let warehouseBarcodeListExpanded = false;
 let warehouseBarcodePreviewPanelElement = null;
@@ -1052,15 +1066,40 @@ function isWarehouseAppPageUrl(href = window.location.href) {
     }
 }
 
-function isWarehouseAssemblyPageUrl(href = window.location.href) {
+function getWarehouseOrderRouteKind(href = window.location.href) {
     try {
         const url = new URL(href);
 
-        return isWarehouseAppPageUrl(href)
-            && url.hash.includes('/wh/shop-orders/assembly/');
+        if (!isWarehouseAppPageUrl(href)) {
+            return '';
+        }
+
+        const hashPath = String(url.hash || '').replace(/^#/, '').split('?')[0];
+
+        if (hashPath === '/wh/shop-orders/actions') {
+            return 'actions';
+        }
+
+        if (hashPath.includes('/wh/shop-orders/assembly/')) {
+            return 'assembly';
+        }
+
+        return '';
     } catch {
-        return false;
+        return '';
     }
+}
+
+function isWarehouseOrderActionsPageUrl(href = window.location.href) {
+    return getWarehouseOrderRouteKind(href) === 'actions';
+}
+
+function isWarehouseAssemblyPageUrl(href = window.location.href) {
+    return getWarehouseOrderRouteKind(href) === 'assembly';
+}
+
+function isWarehouseOrderWorkflowPageUrl(href = window.location.href) {
+    return !!getWarehouseOrderRouteKind(href);
 }
 
 
@@ -1120,8 +1159,10 @@ function getWarehouseOrderKindDisplay(record = warehouseOrderKindRecord) {
     if (kind === 'ozon') {
         return {
             kind,
-            text: 'OZON · автозапись после сборки',
-            color: '#169c46'
+            text: warehouseAutoBarcodeApplyEnabled
+                ? 'OZON · автозапись после сборки'
+                : 'OZON · автозапись выключена',
+            color: warehouseAutoBarcodeApplyEnabled ? '#169c46' : '#667685'
         };
     }
 
@@ -1148,6 +1189,26 @@ function getWarehouseAutoApplyIntent() {
     return warehouseAutoApplyIntent ? { ...warehouseAutoApplyIntent } : null;
 }
 
+function getWarehouseAutoBarcodeApplyEnabled() {
+    return warehouseAutoBarcodeApplyEnabled === true;
+}
+
+function applyWarehouseAutoBarcodeApplyEnabled(value, { render = true } = {}) {
+    warehouseAutoBarcodeApplyEnabled = value !== false;
+
+    if (!warehouseAutoBarcodeApplyEnabled && warehouseAutoApplyIntent) {
+        warehouseAutoApplyIntent.status = 'cancelled';
+        warehouseAutoApplyIntent = null;
+    }
+
+    if (render) {
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    }
+
+    return warehouseAutoBarcodeApplyEnabled;
+}
+
+
 function applyWarehouseOrderKindRecord(value = {}, { render = true } = {}) {
     const currentOrderId = getWarehouseOrderIdFromUrl();
     const record = normalizeWarehouseOrderKindRecord(value, currentOrderId);
@@ -1161,6 +1222,10 @@ function applyWarehouseOrderKindRecord(value = {}, { render = true } = {}) {
 
     if (record.kind !== 'ozon') {
         warehouseAutoApplyIntent = null;
+    }
+
+    if (record.kind === 'ozon' && warehouseAutoApplyIntent?.status === 'waiting' && lastWarehouseBarcodePreview?.ok) {
+        maybeStartWarehouseAutoApply(lastWarehouseBarcodePreview, lastWarehouseBarcodePreviewSource);
     }
 
     if (render) {
@@ -1210,6 +1275,7 @@ function resetWarehouseOrderContext() {
     warehouseOrderKindRequestId = '';
     warehouseOrderKindRecord = createUnknownWarehouseOrderKindRecord(getWarehouseOrderIdFromUrl());
     warehouseAutoApplyIntent = null;
+    lastWarehouseBarcodePreviewSource = '';
     lastWarehouseAssemblyActionSignature = '';
     lastWarehouseAssemblyActionAt = 0;
 }
@@ -1485,9 +1551,37 @@ function getWarehouseAssemblyActionControlText(control) {
     return '';
 }
 
+function getWarehouseAssemblyActionExpression(control) {
+    const rawExpression = control?.getAttribute?.('ng-click')
+        || control?.getAttribute?.('data-ng-click')
+        || '';
+
+    return String(rawExpression)
+        .replace(/\s+/g, '')
+        .replace(/;+$/, '')
+        .toLowerCase();
+}
+
+function isWarehouseFinalConfirmActionControl(control) {
+    if (!control || control.disabled || control.getAttribute?.('aria-disabled') === 'true') {
+        return false;
+    }
+
+    const tagName = String(control?.tagName || '').toLowerCase();
+    if (tagName && tagName !== 'button') {
+        return false;
+    }
+
+    return getWarehouseAssemblyActionExpression(control) === '$ctrl.confirm()';
+}
+
 function isWarehouseAssemblyActionControl(control) {
     if (!control || control.disabled || control.getAttribute?.('aria-disabled') === 'true') {
         return false;
+    }
+
+    if (isWarehouseFinalConfirmActionControl(control)) {
+        return true;
     }
 
     const text = getWarehouseAssemblyActionControlText(control);
@@ -1496,12 +1590,8 @@ function isWarehouseAssemblyActionControl(control) {
 }
 
 function isWarehouseAutoApplyActionControl(control) {
-    if (!isWarehouseAssemblyActionControl(control)) {
-        return false;
-    }
-
-    const text = getWarehouseAssemblyActionControlText(control);
-    return /^(?:собрать\s+заказ|завершить\s+сборку|подтвердить\s+сборку)$/i.test(text);
+    return warehouseAutoBarcodeApplyEnabled === true
+        && isWarehouseFinalConfirmActionControl(control);
 }
 
 function dispatchWarehouseApiCaptureArm(reason = 'warehouse-assembly-action') {
@@ -1530,11 +1620,121 @@ function getWarehouseBarcodePreviewFingerprint(preview = lastWarehouseBarcodePre
     return barcodes.join('|');
 }
 
+function normalizeWarehouseAutoApplyIntentRecord(value = {}, expectedOrderId = getWarehouseOrderIdFromUrl()) {
+    const orderId = normalizeAmperkotOrderId(value?.orderId || expectedOrderId);
+    const expectedId = normalizeAmperkotOrderId(expectedOrderId);
+    const actionId = String(value?.actionId || '').slice(0, 160);
+    const startedAt = Math.max(0, Number(value?.armedAt || value?.startedAt) || 0);
+    const expiresAt = Math.max(startedAt, Number(value?.expiresAt) || 0);
+    const sourceDocumentId = String(value?.sourceDocumentId || '').slice(0, 160);
+
+    if (!orderId || orderId !== expectedId || !actionId || !startedAt || expiresAt <= Date.now()) {
+        return null;
+    }
+
+    return {
+        actionId,
+        orderId,
+        actionText: String(value?.actionText || '').slice(0, 120),
+        startedAt,
+        expiresAt,
+        baselineFingerprint: '',
+        baselineKnown: false,
+        sourceRoute: ['actions', 'assembly'].includes(value?.sourceRoute) ? value.sourceRoute : '',
+        sourceDocumentId,
+        resumedAfterReload: Boolean(sourceDocumentId && sourceDocumentId !== WAREHOUSE_DOCUMENT_INSTANCE_ID),
+        routeTransitionedAt: 0,
+        status: 'waiting',
+        trigger: 'warehouse-assembly-action'
+    };
+}
+
+function requestWarehouseAutoApplyIntent() {
+    const orderId = getWarehouseOrderIdFromUrl();
+    if (!orderId) {
+        return false;
+    }
+
+    return sendRuntimeMessage({
+        type: 'GET_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        documentInstanceId: WAREHOUSE_DOCUMENT_INSTANCE_ID
+    }, (response) => {
+        if (getWarehouseOrderIdFromUrl() !== orderId) {
+            return;
+        }
+
+        const runtimeError = getRuntimeLastError();
+        if (runtimeError) {
+            handleRuntimeMessagingError('WAREHOUSE_AUTO_APPLY', runtimeError);
+            return;
+        }
+
+        applyWarehouseAutoBarcodeApplyEnabled(response?.enabled !== false);
+
+        const restored = normalizeWarehouseAutoApplyIntentRecord(response?.intent, orderId);
+        if (!restored || warehouseAutoBarcodeApplyEnabled !== true) {
+            return;
+        }
+
+        if (!warehouseAutoApplyIntent
+            || warehouseAutoApplyIntent.actionId !== restored.actionId
+            || warehouseAutoApplyIntent.status === 'failed') {
+            warehouseAutoApplyIntent = restored;
+        }
+
+        if (warehouseOrderKindRecord?.kind === 'ozon' && lastWarehouseBarcodePreview?.ok) {
+            maybeStartWarehouseAutoApply(lastWarehouseBarcodePreview, lastWarehouseBarcodePreviewSource);
+        }
+    }, 'WAREHOUSE_AUTO_APPLY');
+}
+
+function armWarehouseAutoApplyIntent(intent = warehouseAutoApplyIntent) {
+    if (!intent?.actionId || !intent?.orderId) {
+        return false;
+    }
+
+    return sendRuntimeMessage({
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        orderId: intent.orderId,
+        actionId: intent.actionId,
+        actionText: intent.actionText,
+        sourceRoute: intent.sourceRoute,
+        documentInstanceId: WAREHOUSE_DOCUMENT_INSTANCE_ID
+    }, (response) => {
+        const runtimeError = getRuntimeLastError();
+        const currentIntent = warehouseAutoApplyIntent?.actionId === intent.actionId
+            ? warehouseAutoApplyIntent
+            : null;
+
+        if (runtimeError) {
+            if (currentIntent && !handleRuntimeMessagingError('WAREHOUSE_AUTO_APPLY', runtimeError)) {
+                currentIntent.status = 'failed';
+                currentIntent.error = runtimeError.message || 'automatic apply intent arm failed';
+            }
+            return;
+        }
+
+        if (!response?.ok) {
+            if (currentIntent) {
+                currentIntent.status = 'failed';
+                currentIntent.error = response?.error || 'automatic apply intent arm rejected';
+            }
+            return;
+        }
+
+        if (currentIntent && response.intent) {
+            currentIntent.expiresAt = Math.max(currentIntent.expiresAt, Number(response.intent.expiresAt) || 0);
+            currentIntent.sourceDocumentId = String(response.intent.sourceDocumentId || WAREHOUSE_DOCUMENT_INSTANCE_ID);
+        }
+    }, 'WAREHOUSE_AUTO_APPLY');
+}
+
 function startWarehouseAutoApplyIntent(control = null, now = Date.now()) {
     const orderId = getWarehouseOrderIdFromUrl();
     const kind = warehouseOrderKindRecord?.kind || 'unknown';
 
-    if (!orderId || kind !== 'ozon') {
+    if (!orderId || kind !== 'ozon' || warehouseAutoBarcodeApplyEnabled !== true) {
         warehouseAutoApplyIntent = null;
         return null;
     }
@@ -1555,10 +1755,14 @@ function startWarehouseAutoApplyIntent(control = null, now = Date.now()) {
         expiresAt: now + WAREHOUSE_AUTO_APPLY_TIMEOUT_MS,
         baselineFingerprint: getWarehouseBarcodePreviewFingerprint(),
         baselineKnown: lastWarehouseBarcodePreview?.ok === true,
+        sourceRoute: getWarehouseOrderRouteKind(),
+        sourceDocumentId: WAREHOUSE_DOCUMENT_INSTANCE_ID,
+        resumedAfterReload: false,
+        routeTransitionedAt: 0,
         status: 'waiting',
         trigger: 'warehouse-assembly-action'
     };
-
+    armWarehouseAutoApplyIntent(warehouseAutoApplyIntent);
     return warehouseAutoApplyIntent;
 }
 
@@ -1578,7 +1782,20 @@ function isWarehouseAutoApplySnapshotFresh(preview = {}, responseSource = '', no
         return false;
     }
 
+    if (intent.resumedAfterReload === true
+        && intent.sourceDocumentId
+        && intent.sourceDocumentId !== WAREHOUSE_DOCUMENT_INSTANCE_ID
+        && isWarehouseAssemblyPageUrl()) {
+        return true;
+    }
+
     if (responseSource === 'warehouse-api-response') {
+        return true;
+    }
+
+    if (intent.sourceRoute === 'actions'
+        && intent.routeTransitionedAt >= intent.startedAt
+        && isWarehouseAssemblyPageUrl()) {
         return true;
     }
 
@@ -1592,7 +1809,7 @@ function isWarehouseAutoApplySnapshotFresh(preview = {}, responseSource = '', no
 
 function maybeStartWarehouseAutoApply(preview = {}, responseSource = '', now = Date.now()) {
     const intent = warehouseAutoApplyIntent;
-    if (!intent) {
+    if (!intent || warehouseAutoBarcodeApplyEnabled !== true) {
         return false;
     }
 
@@ -1629,7 +1846,7 @@ function maybeStartWarehouseAutoApply(preview = {}, responseSource = '', now = D
 }
 
 function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
-    if (!isWarehouseAssemblyPageUrl()) {
+    if (!isWarehouseOrderWorkflowPageUrl()) {
         return false;
     }
 
@@ -1640,6 +1857,7 @@ function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
     updateWarehouseAssemblyActionDebug({
         actionDetected: true,
         actionText,
+        actionExpression: getWarehouseAssemblyActionExpression(control),
         actionTag: control?.tagName || '',
         actionClass: String(control?.className || '').slice(0, 120),
         apiCaptureArmed,
@@ -1652,7 +1870,15 @@ function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
         lastSummary: null
     });
 
-    setWarehouseBarcodePreviewLoading('Ждём ответ склада после сборки. Ozon не изменяем.');
+    setWarehouseBarcodePreviewLoading(
+        isWarehouseOrderActionsPageUrl()
+            ? 'Ждём переход к сборке и свежие штрихкоды. Ozon не изменяем.'
+            : 'Ждём ответ склада после сборки. Ozon не изменяем.'
+    );
+
+    if (isWarehouseOrderActionsPageUrl()) {
+        return true;
+    }
 
     if (typeof setTimeout !== 'function') {
         updateWarehouseAssemblyActionDebug({ reloadTimerState: 'fired', reloadFallbackReason: 'setTimeout unavailable' });
@@ -1692,7 +1918,7 @@ function handleWarehouseAssemblyActionEvent(event) {
     }
 
     const now = Date.now();
-    const actionSignature = `${getWarehouseOrderIdFromUrl()}|${getWarehouseAssemblyActionControlText(control)}`;
+    const actionSignature = `${getWarehouseOrderIdFromUrl()}|${getWarehouseAssemblyActionExpression(control) || getWarehouseAssemblyActionControlText(control)}`;
     if (actionSignature === lastWarehouseAssemblyActionSignature
         && now - lastWarehouseAssemblyActionAt < 750) {
         return;
@@ -2420,6 +2646,7 @@ function requestWarehouseOzonUiApply(options = {}) {
         type: 'OZON_UI_APPLY_REQUEST',
         trigger,
         actionId,
+        documentInstanceId: WAREHOUSE_DOCUMENT_INSTANCE_ID,
         ...payload
     }, (response) => {
         const runtimeError = getRuntimeLastError();
@@ -2524,6 +2751,16 @@ function requestWarehouseOzonResolvePreview() {
 }
 
 function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
+    if (msg?.type === 'WAREHOUSE_AUTO_APPLY_CONFIG_UPDATED') {
+        applyWarehouseAutoBarcodeApplyEnabled(msg.enabled === true);
+
+        if (typeof sendResponse === 'function') {
+            sendResponse({ ok: true });
+        }
+
+        return true;
+    }
+
     if (msg?.type === 'ORDER_KIND_UPDATED') {
         const currentOrderId = getWarehouseOrderIdFromUrl();
         if (normalizeAmperkotOrderId(msg?.orderKind?.orderId) === currentOrderId) {
@@ -2646,7 +2883,11 @@ function markWarehouseBridgeInjectionError(errorMessage = 'warehouse bridge inje
     log('WARN', 'WAREHOUSE_OZON', lastWarehouseBarcodePreview.error);
 }
 
-function injectWarehouseBarcodeBridgeScript() {
+function injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad = false } = {}) {
+    if (requestSnapshotOnLoad) {
+        warehouseBridgeSnapshotRequestedOnLoad = true;
+    }
+
     const existing = document.getElementById?.(WAREHOUSE_BRIDGE_SCRIPT_ID);
 
     if (existing) {
@@ -2672,7 +2913,10 @@ function injectWarehouseBarcodeBridgeScript() {
 
     script.addEventListener?.('load', () => {
         script.dataset.installed = 'true';
-        dispatchWarehouseShopOrderRequest();
+        if (warehouseBridgeSnapshotRequestedOnLoad || isWarehouseAssemblyPageUrl()) {
+            warehouseBridgeSnapshotRequestedOnLoad = false;
+            dispatchWarehouseShopOrderRequest();
+        }
     });
 
     script.addEventListener?.('error', () => {
@@ -2796,6 +3040,7 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     }
 
     lastWarehouseBarcodePreview = nextWarehouseBarcodePreview;
+    lastWarehouseBarcodePreviewSource = responseSource;
 
     updateWarehouseAssemblyActionDebug({
         lastResponseSource: responseSource,
@@ -2845,7 +3090,7 @@ function requestWarehouseShopOrderSnapshot({ resetAttempts = true, reason = 'ini
         setWarehouseBarcodePreviewLoading();
     }
 
-    const injected = injectWarehouseBarcodeBridgeScript();
+    const injected = injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad: true });
 
     if (!injected) {
         markWarehouseBridgeInjectionError('warehouse bridge injection failed');
@@ -2860,7 +3105,7 @@ function requestWarehouseShopOrderSnapshot({ resetAttempts = true, reason = 'ini
 }
 
 function initWarehouseBarcodeBridge() {
-    if (!isWarehouseAssemblyPageUrl()) {
+    if (!isWarehouseOrderWorkflowPageUrl()) {
         return false;
     }
 
@@ -2871,8 +3116,22 @@ function initWarehouseBarcodeBridge() {
         warehouseBarcodeBridgeInitialized = true;
     }
 
+    injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad: isWarehouseAssemblyPageUrl() });
     requestWarehouseOrderKind({ force: warehouseOrderKindRecord?.kind === 'unknown' });
-    requestWarehouseShopOrderSnapshot();
+    requestWarehouseAutoApplyIntent();
+
+    if (isWarehouseAssemblyPageUrl()) {
+        requestWarehouseShopOrderSnapshot({
+            reason: warehouseAutoApplyIntent?.status === 'waiting' ? 'assembly-action' : 'initial'
+        });
+    } else {
+        if (!lastWarehouseBarcodePreview) {
+            lastWarehouseBarcodePreview = createWarehouseBarcodePreviewLoading(
+                'Ожидаем нажатие «Собрать заказ». Ozon не изменяем.'
+            );
+        }
+        renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+    }
 
     return true;
 }
@@ -2884,15 +3143,28 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
         return false;
     }
 
-    const previousOrderId = getWarehouseOrderIdFromUrl(lastWarehouseRouteHref);
+    const previousHref = lastWarehouseRouteHref;
+    const previousOrderId = getWarehouseOrderIdFromUrl(previousHref);
     const nextOrderId = getWarehouseOrderIdFromUrl(href);
+    const previousRouteKind = getWarehouseOrderRouteKind(previousHref);
+    const nextRouteKind = getWarehouseOrderRouteKind(href);
     const orderChanged = previousOrderId !== nextOrderId;
     lastWarehouseRouteHref = href;
 
-    if (isWarehouseAssemblyPageUrl(href)) {
-        if (orderChanged || !warehouseOrderKindRecord) {
+    if (nextRouteKind) {
+        if (orderChanged && previousOrderId) {
+            resetWarehouseOrderContext();
+        } else if (!warehouseOrderKindRecord) {
             resetWarehouseOrderContext();
         }
+
+        if (previousRouteKind === 'actions'
+            && nextRouteKind === 'assembly'
+            && previousOrderId === nextOrderId
+            && warehouseAutoApplyIntent?.status === 'waiting') {
+            warehouseAutoApplyIntent.routeTransitionedAt = Date.now();
+        }
+
         return initWarehouseBarcodeBridge();
     }
 

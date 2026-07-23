@@ -11,7 +11,7 @@ Published annotated tag: v1.0.3
 Current development base before this hardening: 981a9b5
 Manifest version: 1.0.3
 Development state: unpublished post-1.0.3 full hardening + order-aware Ozon automation
-Expected automated baseline: 310 pass / 0 fail
+Expected automated baseline: 322 pass / 0 fail
 Next CWS version: not assigned/prepared
 ```
 
@@ -55,6 +55,8 @@ order-aware warehouse automation:
 - strict order kind is ozon / regular / unknown with 24h TTL and 500-record retention
 - Ozon warehouse panel opens automatically; regular/unknown stays collapsed
 - unknown UI says: Тип не определён — обновите карточку заказа
+- automatic barcode adding has one Options checkbox, enabled by default
+- trusted final assembly action is recognized by `ng-click="$ctrl.confirm()"`, not button text
 - trusted Ozon assembly action waits for a fresh successful barcode snapshot
 - automatic write is rejected by background unless the order is confirmed Ozon
 - manual preview/check/write remains available for every order kind

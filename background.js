@@ -6,6 +6,7 @@ let windowOrdersDB = {};
 let windowOrdersHashDB = {};
 let notificationTargets = {};
 let orderKindsDB = {};
+let warehouseAutoApplyIntents = {};
 let workerTabId = null;
 let directWorkerTabId = null;
 let ozonWorkerTabId = null;
@@ -84,6 +85,7 @@ const MAX_KNOWN_ORDERS = 5000;
 const MAX_NOTIFICATION_TARGETS = 500;
 const MAX_ORDER_KIND_RECORDS = 500;
 const ORDER_KIND_TTL_MS = 24 * 60 * 60 * 1000;
+const WAREHOUSE_AUTO_APPLY_INTENT_TTL_MS = 10 * 60 * 1000;
 const NOTIFICATION_TARGET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const STORAGE_USAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_ORDER_BATCH_SIZE = 1000;
@@ -163,6 +165,154 @@ function getWarehouseOrderIdFromTabUrl(value) {
 
     const params = new URLSearchParams(hash.slice(queryIndex + 1));
     return normalizeOrderKindOrderId(params.get('order'));
+}
+
+
+function createWarehouseAutoApplyIntentKey(tabId, orderId) {
+    const normalizedTabId = Number(tabId);
+    const normalizedOrderId = normalizeOrderKindOrderId(orderId);
+
+    return Number.isInteger(normalizedTabId) && normalizedTabId >= 0 && normalizedOrderId
+        ? `${normalizedTabId}:${normalizedOrderId}`
+        : '';
+}
+
+function normalizeWarehouseAutoApplyIntent(value = {}, fallbackKey = '', now = Date.now()) {
+    const fallbackParts = String(fallbackKey || '').split(':');
+    const tabId = Number(value?.tabId ?? fallbackParts[0]);
+    const orderId = normalizeOrderKindOrderId(value?.orderId || fallbackParts.slice(1).join(':'));
+    const actionId = String(value?.actionId || '').slice(0, 160);
+    const armedAt = Math.max(0, Number(value?.armedAt) || 0);
+    const expiresAt = Math.max(armedAt, Number(value?.expiresAt) || (armedAt + WAREHOUSE_AUTO_APPLY_INTENT_TTL_MS));
+    const sourceDocumentId = String(value?.sourceDocumentId || '').slice(0, 160);
+
+    if (!Number.isInteger(tabId)
+        || tabId < 0
+        || !orderId
+        || !actionId
+        || !armedAt
+        || expiresAt <= now) {
+        return null;
+    }
+
+    return {
+        tabId,
+        orderId,
+        actionId,
+        actionText: String(value?.actionText || '').slice(0, 120),
+        sourceDocumentId,
+        sourceRoute: ['actions', 'assembly'].includes(value?.sourceRoute) ? value.sourceRoute : '',
+        armedAt,
+        expiresAt,
+        status: value?.status === 'starting' ? 'starting' : 'waiting'
+    };
+}
+
+function applyWarehouseAutoApplyIntentRetention(now = Date.now()) {
+    const next = {};
+    let dropped = 0;
+
+    Object.entries(warehouseAutoApplyIntents || {}).forEach(([key, rawIntent]) => {
+        const intent = normalizeWarehouseAutoApplyIntent(rawIntent, key, now);
+        if (!intent || intent.status !== 'waiting') {
+            dropped += 1;
+            return;
+        }
+
+        const normalizedKey = createWarehouseAutoApplyIntentKey(intent.tabId, intent.orderId);
+        if (!normalizedKey) {
+            dropped += 1;
+            return;
+        }
+
+        next[normalizedKey] = intent;
+    });
+
+    warehouseAutoApplyIntents = next;
+    return dropped;
+}
+
+function getWarehouseAutoApplyIntent(tabId, orderId, now = Date.now()) {
+    const key = createWarehouseAutoApplyIntentKey(tabId, orderId);
+    if (!key) {
+        return null;
+    }
+
+    const intent = normalizeWarehouseAutoApplyIntent(warehouseAutoApplyIntents?.[key], key, now);
+    if (!intent || intent.status !== 'waiting') {
+        delete warehouseAutoApplyIntents[key];
+        return null;
+    }
+
+    warehouseAutoApplyIntents[key] = intent;
+    return intent;
+}
+
+function armWarehouseAutoApplyIntent(tabId, orderId, rawIntent = {}, now = Date.now()) {
+    const key = createWarehouseAutoApplyIntentKey(tabId, orderId);
+    const actionId = String(rawIntent?.actionId || '').slice(0, 160);
+    const sourceDocumentId = String(rawIntent?.documentInstanceId || rawIntent?.sourceDocumentId || '').slice(0, 160);
+
+    if (!key || !actionId || !sourceDocumentId) {
+        return null;
+    }
+
+    const intent = {
+        tabId: Number(tabId),
+        orderId: normalizeOrderKindOrderId(orderId),
+        actionId,
+        actionText: String(rawIntent?.actionText || '').slice(0, 120),
+        sourceDocumentId,
+        sourceRoute: ['actions', 'assembly'].includes(rawIntent?.sourceRoute) ? rawIntent.sourceRoute : '',
+        armedAt: now,
+        expiresAt: now + WAREHOUSE_AUTO_APPLY_INTENT_TTL_MS,
+        status: 'waiting'
+    };
+
+    warehouseAutoApplyIntents[key] = intent;
+    applyWarehouseAutoApplyIntentRetention(now);
+    return intent;
+}
+
+function consumeWarehouseAutoApplyIntent(tabId, orderId, actionId, now = Date.now()) {
+    const key = createWarehouseAutoApplyIntentKey(tabId, orderId);
+    const intent = getWarehouseAutoApplyIntent(tabId, orderId, now);
+
+    if (!key || !intent || intent.actionId !== String(actionId || '')) {
+        return null;
+    }
+
+    delete warehouseAutoApplyIntents[key];
+    return intent;
+}
+
+function clearWarehouseAutoApplyIntentsForOrder(orderId) {
+    const normalizedOrderId = normalizeOrderKindOrderId(orderId);
+    if (!normalizedOrderId) {
+        return 0;
+    }
+
+    let removed = 0;
+    Object.keys(warehouseAutoApplyIntents || {}).forEach(key => {
+        if (warehouseAutoApplyIntents[key]?.orderId === normalizedOrderId) {
+            delete warehouseAutoApplyIntents[key];
+            removed += 1;
+        }
+    });
+    return removed;
+}
+
+function clearWarehouseAutoApplyIntentsForTab(tabId) {
+    const normalizedTabId = Number(tabId);
+    let removed = 0;
+
+    Object.keys(warehouseAutoApplyIntents || {}).forEach(key => {
+        if (Number(warehouseAutoApplyIntents[key]?.tabId) === normalizedTabId) {
+            delete warehouseAutoApplyIntents[key];
+            removed += 1;
+        }
+    });
+    return removed;
 }
 
 function createUnknownOrderKindRecord(orderId = '', reason = 'not-observed') {
@@ -290,6 +440,31 @@ async function notifyWarehouseOrderKindUpdated(record = {}) {
             await chrome.tabs.sendMessage(tab.id, {
                 type: 'ORDER_KIND_UPDATED',
                 orderKind: record
+            });
+            sent += 1;
+        } catch {}
+    }
+
+    return sent;
+}
+
+async function notifyWarehouseAutoApplyConfigUpdated(enabled) {
+    if (typeof chrome?.tabs?.query !== 'function') {
+        return 0;
+    }
+
+    let sent = 0;
+    const tabs = await chrome.tabs.query({});
+
+    for (const tab of tabs || []) {
+        if (!tab?.id || !getWarehouseOrderIdFromTabUrl(tab.url)) {
+            continue;
+        }
+
+        try {
+            await chrome.tabs.sendMessage(tab.id, {
+                type: 'WAREHOUSE_AUTO_APPLY_CONFIG_UPDATED',
+                enabled: enabled === true
             });
             sent += 1;
         } catch {}
@@ -1516,6 +1691,7 @@ function getEffectiveUserConfig(storedConfig) {
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safe.watchedOrderFollowUpIntervalMinutes),
+        ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safe.ozonAutoBarcodeApplyEnabled),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safe.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safe.monitorScope),
@@ -1811,22 +1987,25 @@ function applyStateRetention(options = {}) {
     const countRetentionDropped = applyKnownOrdersRetention();
     const notificationTargetsDropped = applyNotificationTargetRetention();
     const orderKindsDropped = applyOrderKindRetention();
+    const warehouseAutoApplyIntentsDropped = applyWarehouseAutoApplyIntentRetention();
     const byteRetentionDropped = applyStateByteRetention(
         MAX_ESTIMATED_PERSISTED_STATE_BYTES,
         options.forceByteEstimate === true
     );
     const knownOrdersDropped = countRetentionDropped + byteRetentionDropped;
 
-    if (knownOrdersDropped || notificationTargetsDropped || orderKindsDropped) {
+    if (knownOrdersDropped || notificationTargetsDropped || orderKindsDropped || warehouseAutoApplyIntentsDropped) {
         log('INFO', 'RETENTION', 'state retention applied', {
             knownOrdersDropped,
             countRetentionDropped,
             byteRetentionDropped,
             notificationTargetsDropped,
             orderKindsDropped,
+            warehouseAutoApplyIntentsDropped,
             knownOrdersCount: Object.keys(knownOrdersDB).length,
             notificationTargetsCount: Object.keys(notificationTargets).length,
             orderKindsCount: Object.keys(orderKindsDB).length,
+            warehouseAutoApplyIntentsCount: Object.keys(warehouseAutoApplyIntents).length,
             estimatedStateBytes: storageDiagnostics.lastEstimatedStateBytes
         });
     }
@@ -1840,6 +2019,7 @@ function createPersistedStateSnapshot() {
         windowOrdersHashDB,
         notificationTargets,
         orderKindsDB,
+        warehouseAutoApplyIntents,
         lastBaselineDate,
         workerTabId,
         directWorkerTabId,
@@ -1994,6 +2174,7 @@ async function loadState() {
         'windowOrdersHashDB',
         'notificationTargets',
         'orderKindsDB',
+        'warehouseAutoApplyIntents',
         'lastBaselineDate',
         'directWorkerTabId',
         'directFollowUpState',
@@ -2027,11 +2208,18 @@ async function loadState() {
     notificationTargets = d.notificationTargets || {};
     orderKindsDB = d.orderKindsDB && typeof d.orderKindsDB === 'object' ? d.orderKindsDB : {};
     applyOrderKindRetention();
+    warehouseAutoApplyIntents = d.warehouseAutoApplyIntents && typeof d.warehouseAutoApplyIntents === 'object'
+        ? d.warehouseAutoApplyIntents
+        : {};
+    applyWarehouseAutoApplyIntentRetention();
     lastBaselineDate = d.lastBaselineDate || null;
     isRunning = d.isRunning || false;
     monitorState = d.monitorState || 'uninitialized';
     lastDeepSyncAt = Number(d.lastDeepSyncAt) || 0;
     userConfig = getEffectiveUserConfig(d.userConfig);
+    if (userConfig.ozonAutoBarcodeApplyEnabled !== true) {
+        warehouseAutoApplyIntents = {};
+    }
     pendingRebaseline = d.pendingRebaseline === true;
     pendingSyncReason = d.pendingSyncReason || null;
     collectionSession = d.collectionSession || null;
@@ -2308,6 +2496,11 @@ if (chrome?.runtime?.onUpdateAvailable?.addListener) {
 // ---------- TAB EVENTS ----------
 chrome.tabs.onRemoved.addListener((tabId) => {
     ensureInitialized().then(async () => {
+        const removedWarehouseAutoApplyIntents = clearWarehouseAutoApplyIntentsForTab(tabId);
+        if (removedWarehouseAutoApplyIntents > 0) {
+            await save();
+        }
+
         if (tabId === directWorkerTabId) {
             const currentOrderId = directFollowUpState?.currentOrderId;
 
@@ -3605,6 +3798,10 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     || previous.evidence?.contractorOzon !== record.evidence?.contractorOzon
                     || previous.evidence?.actionOzon !== record.evidence?.actionOzon;
 
+                if (record.kind !== ORDER_KIND_OZON) {
+                    clearWarehouseAutoApplyIntentsForOrder(requestedOrderId);
+                }
+
                 await save();
                 if (changed) {
                     await notifyWarehouseOrderKindUpdated(record);
@@ -3661,6 +3858,68 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+            if (msg.type === 'ARM_WAREHOUSE_AUTO_APPLY') {
+                const senderOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+                const requestedOrderId = normalizeOrderKindOrderId(msg.orderId);
+
+                if (!isWarehouseOzonResolveSender(senderTab)
+                    || !senderOrderId
+                    || senderOrderId !== requestedOrderId
+                    || getOrderKindRecord(requestedOrderId).kind !== ORDER_KIND_OZON
+                    || userConfig?.ozonAutoBarcodeApplyEnabled !== true) {
+                    log('WARN', 'WAREHOUSE_AUTO_APPLY', 'arm rejected', {
+                        senderTabId,
+                        senderOrderId,
+                        requestedOrderId
+                    });
+                    send(createRuntimeFailureResponse({
+                        error: userConfig?.ozonAutoBarcodeApplyEnabled === true
+                            ? 'automatic Ozon write requires a confirmed Ozon order'
+                            : 'automatic Ozon barcode adding is disabled',
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                const intent = armWarehouseAutoApplyIntent(senderTabId, requestedOrderId, msg);
+                if (!intent) {
+                    send(createRuntimeFailureResponse({
+                        error: 'invalid warehouse automatic apply intent',
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                await save();
+                log('INFO', 'WAREHOUSE_AUTO_APPLY', 'intent armed', {
+                    orderId: requestedOrderId,
+                    actionId: intent.actionId,
+                    senderTabId,
+                    sourceRoute: intent.sourceRoute
+                });
+                send(createRuntimeOkResponse({ intent }));
+                return;
+            }
+
+            if (msg.type === 'GET_WAREHOUSE_AUTO_APPLY') {
+                const senderOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+                const requestedOrderId = normalizeOrderKindOrderId(msg.orderId);
+
+                if (!isWarehouseOzonResolveSender(senderTab)
+                    || !senderOrderId
+                    || senderOrderId !== requestedOrderId) {
+                    send(createRuntimeIgnoredResponse());
+                    return;
+                }
+
+                const enabled = userConfig?.ozonAutoBarcodeApplyEnabled === true;
+                const intent = enabled
+                    ? getWarehouseAutoApplyIntent(senderTabId, requestedOrderId)
+                    : null;
+                send(createRuntimeOkResponse({ enabled, intent }));
+                return;
+            }
+
             if (msg.type === 'OZON_RESOLVE_PREVIEW_REQUEST') {
                 const senderOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
                 const requestedOrderId = normalizeOrderKindOrderId(
@@ -3698,13 +3957,43 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
-                if (msg.trigger === 'automatic'
-                    && getOrderKindRecord(requestedOrderId).kind !== ORDER_KIND_OZON) {
-                    send(createRuntimeFailureResponse({
-                        error: 'automatic Ozon write requires a confirmed Ozon order',
-                        orderId: requestedOrderId
-                    }));
-                    return;
+                let consumedAutoIntent = null;
+                if (msg.trigger === 'automatic') {
+                    if (userConfig?.ozonAutoBarcodeApplyEnabled !== true) {
+                        send(createRuntimeFailureResponse({
+                            error: 'automatic Ozon barcode adding is disabled',
+                            orderId: requestedOrderId
+                        }));
+                        return;
+                    }
+
+                    if (getOrderKindRecord(requestedOrderId).kind !== ORDER_KIND_OZON) {
+                        send(createRuntimeFailureResponse({
+                            error: 'automatic Ozon write requires a confirmed Ozon order',
+                            orderId: requestedOrderId
+                        }));
+                        return;
+                    }
+
+                    consumedAutoIntent = consumeWarehouseAutoApplyIntent(
+                        senderTabId,
+                        requestedOrderId,
+                        msg.actionId
+                    );
+                    if (!consumedAutoIntent) {
+                        send(createRuntimeFailureResponse({
+                            error: 'automatic Ozon write intent is missing or expired',
+                            orderId: requestedOrderId
+                        }));
+                        return;
+                    }
+
+                    await save();
+                    log('INFO', 'WAREHOUSE_AUTO_APPLY', 'intent consumed', {
+                        orderId: requestedOrderId,
+                        actionId: consumedAutoIntent.actionId,
+                        senderTabId
+                    });
                 }
 
                 send(await startOzonUiApply(senderTabId, msg.warehouseExtraction || {}, {
@@ -3835,6 +4124,9 @@ if (msg.type === 'UPDATE_CONFIG') {
     const prevDeepSyncMaxPages = normalizeDeepSyncMaxPages(prevConfig?.deepSyncMaxPages);
     const nextDeepSyncMaxPages = normalizeDeepSyncMaxPages(userConfig?.deepSyncMaxPages);
     const deepSyncMaxPagesChanged = prevDeepSyncMaxPages !== nextDeepSyncMaxPages;
+    const prevOzonAutoBarcodeApplyEnabled = prevConfig?.ozonAutoBarcodeApplyEnabled !== false;
+    const nextOzonAutoBarcodeApplyEnabled = userConfig?.ozonAutoBarcodeApplyEnabled === true;
+    const ozonAutoBarcodeApplyChanged = prevOzonAutoBarcodeApplyEnabled !== nextOzonAutoBarcodeApplyEnabled;
 
     const syncReason = getConfigChangeSyncReason({ scopeChanged, modeChanged });
 
@@ -3869,6 +4161,17 @@ if (msg.type === 'UPDATE_CONFIG') {
         }
     } else if (!deepSyncMaxPagesChanged) {
         log('DEBUG', 'CONFIG', 'no changes');
+    }
+
+    if (ozonAutoBarcodeApplyChanged) {
+        if (!nextOzonAutoBarcodeApplyEnabled) {
+            warehouseAutoApplyIntents = {};
+        }
+
+        log('INFO', 'CONFIG', 'Ozon automatic barcode adding changed', {
+            enabled: nextOzonAutoBarcodeApplyEnabled
+        });
+        await notifyWarehouseAutoApplyConfigUpdated(nextOzonAutoBarcodeApplyEnabled);
     }
 
     await syncWatchedOrderReminderAlarms();

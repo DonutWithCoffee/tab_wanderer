@@ -290,6 +290,7 @@ function setBackgroundState(context, state = {}) {
         windowOrdersHashDB = __testState.windowOrdersHashDB || {};
         notificationTargets = __testState.notificationTargets || {};
         orderKindsDB = __testState.orderKindsDB || {};
+        warehouseAutoApplyIntents = __testState.warehouseAutoApplyIntents || {};
         workerTabId = __testState.workerTabId ?? null;
         directWorkerTabId = __testState.directWorkerTabId ?? null;
         ozonWorkerTabId = __testState.ozonWorkerTabId ?? null;
@@ -328,6 +329,7 @@ function getBackgroundState(context) {
         windowOrdersHashDB,
         notificationTargets,
         orderKindsDB,
+        warehouseAutoApplyIntents,
         workerTabId,
         directWorkerTabId,
         ozonWorkerTabId,

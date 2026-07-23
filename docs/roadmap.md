@@ -49,7 +49,7 @@ Current integrated hardening:
 Current automated baseline:
 
 ```text
-310 pass / 0 fail
+322 pass / 0 fail
 ```
 
 No version bump and no CWS package are part of this work.
@@ -63,7 +63,8 @@ No version bump and no CWS package are part of this work.
 - [ ] Verify automatic update flow on a real CWS transition when a future version exists.
 - [ ] Verify Ozon/legal/physical manager cards classify correctly in real Amperkot.
 - [ ] Verify Ozon panel auto-expands and regular/unknown panels stay collapsed.
-- [ ] Verify trusted warehouse assembly triggers one automatic write only after fresh barcodes.
+- [ ] Verify enabled auto-add + trusted `$ctrl.confirm()` warehouse action triggers one automatic write only after fresh barcodes.
+- [ ] Verify disabled auto-add never opens Ozon automatically while manual buttons remain available.
 - [ ] Verify ordinary orders never open an Ozon worker automatically and manual buttons still work.
 - [ ] Collect enough user-facing improvements for a meaningful patch.
 - [ ] Only then choose the next version and prepare release notes/package.

@@ -479,3 +479,11 @@ test('shared notification classifier handles wording variants without substring 
     assert.equal(context.isOzonOrder({ contractor: 'Ozonation research' }), false);
     assert.equal(context.isOzonOrder({ tags: ['НеОЗОНный'] }), false);
 });
+
+test('getEffectiveConfig enables Ozon automatic barcode adding by default and normalizes explicit off', () => {
+    const context = loadRulesContext();
+
+    assert.equal(context.getEffectiveConfig({}).ozonAutoBarcodeApplyEnabled, true);
+    assert.equal(context.getEffectiveConfig({ ozonAutoBarcodeApplyEnabled: false }).ozonAutoBarcodeApplyEnabled, false);
+    assert.equal(context.getEffectiveConfig({ ozonAutoBarcodeApplyEnabled: 1 }).ozonAutoBarcodeApplyEnabled, true);
+});

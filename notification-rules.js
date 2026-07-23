@@ -10,6 +10,7 @@ const DEFAULT_CONFIG = {
     monitorMode: 'windowed',
     deepSyncMaxPages: DEFAULT_DEEP_SYNC_MAX_PAGES,
     watchedOrderFollowUpIntervalMinutes: DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES,
+    ozonAutoBarcodeApplyEnabled: true,
     notificationTriggers: {
         newOrders: true,
         changedOrders: true,
@@ -98,6 +99,12 @@ function normalizeWatchedOrderFollowUpIntervalMinutes(value) {
 
 self.normalizeWatchedOrderFollowUpIntervalMinutes = normalizeWatchedOrderFollowUpIntervalMinutes;
 
+function normalizeOzonAutoBarcodeApplyEnabled(value) {
+    return value === undefined ? true : Boolean(value);
+}
+
+self.normalizeOzonAutoBarcodeApplyEnabled = normalizeOzonAutoBarcodeApplyEnabled;
+
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
     return {
@@ -179,6 +186,7 @@ function getEffectiveConfig(config = {}) {
         monitorMode,
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safeConfig.watchedOrderFollowUpIntervalMinutes),
+        ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safeConfig.ozonAutoBarcodeApplyEnabled),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safeConfig.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safeConfig.monitorScope),

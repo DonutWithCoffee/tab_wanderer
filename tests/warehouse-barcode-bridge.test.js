@@ -87,6 +87,9 @@ function loadBridgeContext(documentStub, options = {}) {
     const source = fs.readFileSync(path.join(__dirname, '..', 'warehouse-barcode-bridge.js'), 'utf8');
     const listeners = {};
     const storage = {};
+    const locationHref = options.locationHref
+        || 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=5147-290626';
+    const locationHash = new URL(locationHref).hash;
     const XMLHttpRequest = options.responsePayloadByUrl
         ? createXhrStub(options.responsePayloadByUrl)
         : undefined;
@@ -94,13 +97,13 @@ function loadBridgeContext(documentStub, options = {}) {
         console: { log: () => {}, warn: () => {}, error: () => {} },
         document: documentStub,
         location: {
-            href: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=5147-290626',
-            hash: '#/wh/shop-orders/assembly/4336?order=5147-290626'
+            href: locationHref,
+            hash: locationHash
         },
         window: {
             location: {
-                href: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=5147-290626',
-                hash: '#/wh/shop-orders/assembly/4336?order=5147-290626'
+                href: locationHref,
+                hash: locationHash
             },
             sessionStorage: {
                 getItem: key => storage[key] || null,
@@ -164,6 +167,49 @@ test('warehouse bridge extracts visible assembled barcodes from DOM without relo
     assert.equal(responses[0].shopOrder.assembly[0].product_item.product_id, '43150731');
     assert.equal(responses[0].shopOrder.assembly[0].product_item.barcode, '2486831');
     assert.equal(responses[0].shopOrder.assembly[0].product_item.type, 0);
+});
+
+
+test('warehouse bridge captures assembly API while preloaded on actions route', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const context = loadBridgeContext(createDocumentStub([]), {
+        locationHref: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/actions?order=5147-290626',
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                shop_order: {
+                    number: '5147-290626',
+                    assembly: [
+                        {
+                            quantity: 1,
+                            product_item: {
+                                barcode: '2486831',
+                                type: 0,
+                                product_id: '43150731',
+                                product: { id: '43150731', title: 'Промышленный модуль' }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm', {
+        detail: { durationMs: 5000 }
+    }));
+
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('POST', apiUrl);
+    xhr.send();
+
+    assert.equal(responses.length, 1);
+    assert.equal(responses[0].source, 'warehouse-api-response');
+    assert.equal(responses[0].shopOrder.number, '5147-290626');
+    assert.equal(responses[0].shopOrder.assembly[0].product_item.barcode, '2486831');
 });
 
 

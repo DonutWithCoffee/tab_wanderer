@@ -2,6 +2,7 @@ const OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES = 50;
 const OPTIONS_MIN_DEEP_SYNC_MAX_PAGES = 1;
 const OPTIONS_MAX_DEEP_SYNC_MAX_PAGES = 50;
 const OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
+const OPTIONS_DEFAULT_OZON_AUTO_BARCODE_APPLY_ENABLED = true;
 const OPTIONS_MIN_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 2;
 const OPTIONS_MAX_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES = 30;
 const OPTIONS_WATCHED_ORDER_FOLLOW_UP_INTERVAL_OPTIONS = [2, 5, 10, 15, 30];
@@ -319,6 +320,13 @@ function normalizeDeepSyncMaxPages(value) {
     return integer;
 }
 
+function getOzonAutoBarcodeApplyEnabled(config = {}) {
+    return getBooleanConfigValue(
+        config?.ozonAutoBarcodeApplyEnabled,
+        OPTIONS_DEFAULT_OZON_AUTO_BARCODE_APPLY_ENABLED
+    );
+}
+
 function getNotificationSuppressors(config = {}) {
     const suppressors = config?.notificationSuppressors || {};
 
@@ -596,6 +604,7 @@ function renderSettings(config = {}) {
 
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
+    setChecked('optionsOzonAutoBarcodeApplyEnabled', getOzonAutoBarcodeApplyEnabled(config));
     renderScopeControls(config, currentDictionaries);
     renderWatchedOrders(config);
 
@@ -857,6 +866,20 @@ function removeWatchedOrderFromUI(orderId) {
     );
 }
 
+function saveOzonAutoBarcodeApplyFromUI() {
+    const nextConfig = {
+        ...currentConfig,
+        ozonAutoBarcodeApplyEnabled: getChecked('optionsOzonAutoBarcodeApplyEnabled')
+    };
+
+    saveConfig(
+        nextConfig,
+        nextConfig.ozonAutoBarcodeApplyEnabled
+            ? 'Автодобавление штрихкодов Ozon включено.'
+            : 'Автодобавление штрихкодов Ozon выключено.'
+    );
+}
+
 function collectNotificationTriggersFromUI(baseConfig = {}) {
     const currentTriggers = getNotificationTriggers(baseConfig);
     const changedFields = { ...currentTriggers.changedFields };
@@ -916,6 +939,13 @@ function bindSettingsAutosave() {
     if (deepSyncMaxPages) {
         deepSyncMaxPages.addEventListener('change', () => {
             saveDeepSyncMaxPagesFromUI();
+        });
+    }
+
+    const ozonAutoApplyControl = document.getElementById('optionsOzonAutoBarcodeApplyEnabled');
+    if (ozonAutoApplyControl) {
+        ozonAutoApplyControl.addEventListener('change', () => {
+            saveOzonAutoBarcodeApplyFromUI();
         });
     }
 
@@ -986,6 +1016,7 @@ function renderMonitorDiagnostics(status = {}) {
             `состояние: ${getTextValue(status.monitorState, 'uninitialized')}`,
             `режим: ${getMonitorModeLabel({ monitorMode: status.monitorMode })}`,
             `глубина: ${getNumber(status.deepSyncMaxPages, OPTIONS_DEFAULT_DEEP_SYNC_MAX_PAGES)} страниц`,
+            `автодобавление Ozon: ${getYesNo(status.ozonAutoBarcodeApplyEnabled !== false)}`,
             `отслеживаемые: каждые ${getNumber(status.watchedOrderFollowUpIntervalMinutes, OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES)} мин.`
         ].join('; ')
     );

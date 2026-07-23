@@ -103,6 +103,7 @@ function createOptionsDom() {
         'optionsNotificationSummary',
         'optionsMonitorModeSelect',
         'optionsDeepSyncMaxPages',
+        'optionsOzonAutoBarcodeApplyEnabled',
         'optionsNotifyNewOrders',
         'optionsNotifyChangedOrders',
         'optionsNotifyFieldStatus',
@@ -155,6 +156,7 @@ function loadOptionsContext(overrides = {}) {
         monitorMode: 'windowed',
         deepSyncMaxPages: 50,
         watchedOrderFollowUpIntervalMinutes: 2,
+        ozonAutoBarcodeApplyEnabled: true,
         notificationTriggers: {
             newOrders: true,
             changedOrders: true,
@@ -449,6 +451,8 @@ test('options page contains autosave settings and support diagnostics sections',
     assert.match(html, /id="optionsDeepSyncMaxPages" name="optionsDeepSyncMaxPages"/);
     assert.match(html, /id="optionsDeepSyncMaxPages"[^>]+autocomplete="off"/);
     assert.doesNotMatch(html, /id="optionsWatchedOrderFollowUpIntervalSelect"/);
+    assert.match(html, /id="optionsOzonAutoBarcodeApplyEnabled" name="optionsOzonAutoBarcodeApplyEnabled" autocomplete="off"/);
+    assert.match(html, /Автоматически добавлять штрихкоды в Ozon/);
     assert.match(html, /id="optionsNotifyNewOrders" name="optionsNotifyNewOrders" autocomplete="off"/);
     assert.match(html, /id="optionsNotifyChangedOrders" name="optionsNotifyChangedOrders" autocomplete="off"/);
     assert.match(html, /id="optionsSuppressLegalEntityPayment" name="optionsSuppressLegalEntityPayment" autocomplete="off"/);
@@ -493,6 +497,7 @@ test('options page contains autosave settings and support diagnostics sections',
     const blockOrder = [
         'Режим мониторинга',
         'Какие заказы собирать',
+        'Ozon и Склад 3',
         'Уведомления',
         'Текущие настройки',
         'Диагностика',
@@ -513,6 +518,7 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(getSentMessagesByType(context, 'UPDATE_CONFIG').length, 0);
     assert.equal(document.getElementById('optionsMonitorModeSelect').value, 'windowed');
     assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
+    assert.equal(document.getElementById('optionsOzonAutoBarcodeApplyEnabled').checked, true);
     assert.equal(document.getElementById('optionsNotifyNewOrders').checked, true);
     assert.equal(document.getElementById('optionsNotifyFieldStatus').checked, true);
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
@@ -606,6 +612,21 @@ test('options page autosaves and clamps deep sync max pages', () => {
     assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
     assert.equal(document.getElementById('optionsDeepSyncSummary').innerText, '50 страниц');
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Глубина синхронизации сохранена.');
+});
+
+test('options page autosaves Ozon automatic barcode setting', () => {
+    const context = loadOptionsContext();
+    const document = context.__test.document;
+    const toggle = document.getElementById('optionsOzonAutoBarcodeApplyEnabled');
+
+    toggle.checked = false;
+    toggle.dispatchEvent({ type: 'change', target: toggle });
+
+    const updateMessages = getSentMessagesByType(context, 'UPDATE_CONFIG');
+
+    assert.equal(updateMessages.length, 1);
+    assert.equal(updateMessages[0].userConfig.ozonAutoBarcodeApplyEnabled, false);
+    assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Автодобавление штрихкодов Ozon выключено.');
 });
 
 test('options page autosaves notification trigger settings', () => {
