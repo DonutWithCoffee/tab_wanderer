@@ -41,6 +41,25 @@ test('downloaded extension update waits for Ozon operation and applies after it 
     assert.equal(context.__test.runtimeReloadCalls, 1);
 });
 
+test('downloaded extension update waits for active runtime and persistence work', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    runExpression(context, 'activeRuntimeMessageCount = 1; stateSaveRequested = true');
+    const deferred = await context.queueExtensionUpdate({ version: '9.9.9' });
+
+    assert.equal(deferred.applied, false);
+    assert.equal(deferred.reason, 'busy');
+    assert.deepEqual([...deferred.blockers], ['runtime-message', 'storage-write']);
+    assert.equal(context.__test.runtimeReloadCalls, 0);
+
+    runExpression(context, 'activeRuntimeMessageCount = 0; stateSaveRequested = false');
+    const applied = await context.tryApplyPendingExtensionUpdate('test-runtime-complete');
+
+    assert.equal(applied.applied, true);
+    assert.equal(context.__test.runtimeReloadCalls, 1);
+});
+
 test('extension version comparison handles patch versions numerically', () => {
     const context = loadBackgroundContext();
 
@@ -760,7 +779,17 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
             { id: 'entry-1' },
             { id: 'entry-2' }
         ],
-        eventJournalDroppedEntries: 7
+        eventJournalDroppedEntries: 7,
+        storageDiagnostics: {
+            lastBytesInUse: 123456,
+            lastCheckedAt: 1700000000003,
+            lastSuccessfulWriteAt: 1700000000004,
+            lastError: null,
+            lastErrorOperation: null,
+            knownOrdersDropped: 9,
+            notificationTargetsDropped: 4,
+            lastEstimatedStateBytes: 654321
+        }
     });
 
     assert.equal(snapshot.isRunning, true);
@@ -783,6 +812,10 @@ test('monitor status snapshot exposes diagnostic counts without order payloads',
     assert.equal(snapshot.collectionSession.ordersCount, 2);
     assert.deepEqual(JSON.parse(JSON.stringify(snapshot.collectionSession.processedPages)), ['1', '2']);
     assert.equal(snapshot.lastCollectionMetadata.pagesCollected, 2);
+    assert.equal(snapshot.storage.bytesInUse, 123456);
+    assert.equal(snapshot.storage.knownOrdersDropped, 9);
+    assert.equal(snapshot.storage.notificationTargetsDropped, 4);
+    assert.equal(snapshot.storage.estimatedStateBytes, 654321);
     assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'knownOrdersDB'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(snapshot, 'windowOrdersDB'), false);
 });
@@ -1549,7 +1582,7 @@ test('order lookup resolves full and short order numbers from known orders and j
                 id: '1001-300326',
                 status: 'Оплачен',
                 delivery: 'Самовывоз',
-                orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/'
+                orderUrl: 'https://evil.example/admin/orders/1001-300326/'
             }
         },
         eventJournal: [
@@ -1589,6 +1622,7 @@ test('order lookup resolves full and short order numbers from known orders and j
         '1001-290326'
     ]);
     assert.equal(snapshot.candidates[0].isWatched, true);
+    assert.equal(snapshot.candidates[0].orderUrl, 'https://amperkot.ru/admin/orders/1001-300326/');
     assert.equal(snapshot.selectedOrderId, '');
     assert.deepEqual(JSON.parse(JSON.stringify(snapshot.entries)), []);
 

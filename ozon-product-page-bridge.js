@@ -1,7 +1,7 @@
 (function installTabWandererOzonProductBridge() {
     const REQUEST_EVENT = 'tab_wanderer:ozon-product-request';
     const RESPONSE_EVENT = 'tab_wanderer:ozon-product-response';
-    const BRIDGE_MODE = 'isolated-write';
+    const BRIDGE_MODE = 'page-readonly';
     const ISOLATED_API_KEY = '__TAB_WANDERER_OZON_ISOLATED_API__';
     const DEBUG_KEY = '__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__';
     const isExtensionIsolatedWorld = BRIDGE_MODE === 'isolated-write';

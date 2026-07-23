@@ -34,6 +34,21 @@ let isDiagnosticLogReady = false;
 let pendingWatchedOrderAdd = null;
 let lastWatchedOrderAddResult = null;
 let pendingExtensionUpdate = null;
+let storageDiagnostics = {
+    lastBytesInUse: 0,
+    lastCheckedAt: 0,
+    lastError: null,
+    lastErrorOperation: null,
+    lastSuccessfulWriteAt: 0,
+    knownOrdersDropped: 0,
+    notificationTargetsDropped: 0,
+    lastEstimatedStateBytes: 0
+};
+let storageWriteQueue = Promise.resolve();
+let stateSaveRequested = false;
+let stateSaveDrainPromise = null;
+let initializationPromise = null;
+let activeRuntimeMessageCount = 0;
 
 let lastPing = Date.now();
 let workerActivatedAt = Date.now();
@@ -50,7 +65,6 @@ const OZON_PRODUCTS_URL = 'https://seller.ozon.ru/app/products';
 const OZON_RESOLVE_TIMEOUT_MS = 30000;
 const OZON_UI_APPLY_TIMEOUT_MS = 60000;
 const OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT = false;
-const DIRECT_FOLLOW_UP_POLL_INTERVAL_MS = 30000;
 const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
 const WATCHED_ORDER_REMINDER_ALARM_PREFIX = 'tab_wanderer_watched_order_reminder:';
 const FAST_POLL_INTERVAL_MS = 15000;
@@ -59,6 +73,64 @@ const COLLECTION_TIMEOUT_MS = 60000;
 const COLLECTION_MAX_ADVANCE_ATTEMPT_BUFFER = 2;
 const EXTENSION_UPDATE_RETRY_ALARM = 'tab_wanderer_apply_extension_update';
 const EXTENSION_UPDATE_RETRY_DELAY_MINUTES = 1;
+const MONITOR_HEALTH_ALARM = 'tab_wanderer_monitor_health';
+const DIRECT_FOLLOW_UP_ALARM = 'tab_wanderer_direct_follow_up';
+const STORAGE_MAINTENANCE_ALARM = 'tab_wanderer_storage_maintenance';
+const MONITOR_HEALTH_PERIOD_MINUTES = 1;
+const DIRECT_FOLLOW_UP_PERIOD_MINUTES = 1;
+const STORAGE_MAINTENANCE_PERIOD_MINUTES = 30;
+const MAX_KNOWN_ORDERS = 5000;
+const MAX_NOTIFICATION_TARGETS = 500;
+const NOTIFICATION_TARGET_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const STORAGE_USAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_ORDER_BATCH_SIZE = 1000;
+const MAX_ORDER_TEXT_LENGTH = 250;
+const MAX_ORDER_TAGS = 20;
+const MAX_ORDER_TAG_LENGTH = 80;
+const MAX_ORDER_INTERNAL_ID_LENGTH = 100;
+const MAX_ORDER_PHONE_LENGTH = 32;
+const MAX_ESTIMATED_PERSISTED_STATE_BYTES = 8 * 1024 * 1024;
+const STATE_RETENTION_TRIM_BATCH_SIZE = 100;
+const STATE_BYTE_RETENTION_MIN_ORDER_COUNT = 500;
+const STATE_BYTE_RETENTION_TRIGGER_BYTES = 6 * 1024 * 1024;
+
+function parseTrustedUrl(value) {
+    try {
+        return new URL(String(value || ''));
+    } catch {
+        return null;
+    }
+}
+
+function isTrustedAmperkotOrdersUrl(value) {
+    const url = parseTrustedUrl(value);
+    return Boolean(
+        url
+        && url.protocol === 'https:'
+        && url.hostname === 'amperkot.ru'
+        && /^\/admin\/orders(?:\/|$)/.test(url.pathname)
+    );
+}
+
+function isMarkedAmperkotWorkerUrl(value, marker) {
+    const url = parseTrustedUrl(value);
+    return Boolean(
+        url
+        && isTrustedAmperkotOrdersUrl(url.toString())
+        && url.hash === String(marker || '')
+    );
+}
+
+function isMarkedOzonWorkerUrl(value) {
+    const url = parseTrustedUrl(value);
+    return Boolean(
+        url
+        && url.protocol === 'https:'
+        && url.hostname === 'seller.ozon.ru'
+        && url.pathname.startsWith('/app/products')
+        && url.hash === OZON_WORKER_MARK
+    );
+}
 
 function normalizeExtensionVersionParts(value) {
     return String(value || '')
@@ -118,11 +190,30 @@ function getExtensionUpdateBlockers() {
         blockers.push('direct-follow-up');
     }
 
+    if (activeRuntimeMessageCount > 0) {
+        blockers.push('runtime-message');
+    }
+
+    if (collectionSession) {
+        blockers.push('collection');
+    }
+
+    if (stateSaveRequested || stateSaveDrainPromise) {
+        blockers.push('storage-write');
+    }
+
+    if (isCreatingWorker || isStarting || isCleaningUp) {
+        blockers.push('worker-lifecycle');
+    }
+
     return blockers;
 }
 
 async function persistPendingExtensionUpdate() {
-    await chrome.storage.local.set({ pendingExtensionUpdate });
+    const snapshot = pendingExtensionUpdate ? { ...pendingExtensionUpdate } : null;
+    return enqueueStorageTask('pending-extension-update', () => (
+        chrome.storage.local.set({ pendingExtensionUpdate: snapshot })
+    ));
 }
 
 async function scheduleExtensionUpdateRetry() {
@@ -133,7 +224,9 @@ async function scheduleExtensionUpdateRetry() {
 
 async function clearPendingExtensionUpdate() {
     pendingExtensionUpdate = null;
-    await chrome.storage.local.set({ pendingExtensionUpdate: null });
+    await enqueueStorageTask('clear-pending-extension-update', () => (
+        chrome.storage.local.set({ pendingExtensionUpdate: null })
+    ));
     await chrome.alarms.clear(EXTENSION_UPDATE_RETRY_ALARM);
 }
 
@@ -265,7 +358,7 @@ async function getMarkedDirectWorkerTabs() {
     const tabs = await chrome.tabs.query({});
 
     return tabs.filter(tab => {
-        return !!tab.url && tab.url.includes(DIRECT_WORKER_MARK);
+        return isMarkedAmperkotWorkerUrl(tab?.url, DIRECT_WORKER_MARK);
     });
 }
 
@@ -806,8 +899,9 @@ function flushDiagnosticLog() {
         return;
     }
 
-    chrome.storage.local.set({ diagnosticLog, diagnosticLogDroppedEntries }).catch((err) => {
-        console.error('[BG][ERROR][DIAGNOSTIC_LOG]', err?.message || err);
+    enqueueStorageTask('diagnostic-log', async () => {
+        await chrome.storage.local.set({ diagnosticLog, diagnosticLogDroppedEntries });
+        return true;
     });
 }
 
@@ -1233,6 +1327,7 @@ function getMonitorStatusSnapshot() {
         eventJournalDroppedEntries,
         diagnosticLog,
         diagnosticLogDroppedEntries,
+        storageDiagnostics,
         pendingWatchedOrderAdd,
         lastWatchedOrderAddResult
     });
@@ -1265,7 +1360,7 @@ async function getMarkedWorkerTabs() {
     const tabs = await chrome.tabs.query({});
 
     return tabs.filter(tab => {
-        return !!tab.url && tab.url.includes(WORKER_MARK);
+        return isMarkedAmperkotWorkerUrl(tab?.url, WORKER_MARK);
     });
 }
 
@@ -1317,8 +1412,258 @@ function areDictionariesEqual(prev, next) {
 }
 
 // ---------- STORAGE ----------
-async function save() {
-    await chrome.storage.local.set({
+function enqueueStorageTask(label, task) {
+    const run = storageWriteQueue
+        .catch(() => {})
+        .then(async () => {
+            try {
+                const result = await task();
+
+                if (storageDiagnostics.lastErrorOperation === label) {
+                    storageDiagnostics.lastError = null;
+                    storageDiagnostics.lastErrorOperation = null;
+                }
+
+                storageDiagnostics.lastSuccessfulWriteAt = Date.now();
+                return result;
+            } catch (err) {
+                storageDiagnostics.lastError = String(err?.message || err || 'storage write failed');
+                storageDiagnostics.lastErrorOperation = label;
+                console.error(`[BG][ERROR][STORAGE][${label}]`, storageDiagnostics.lastError);
+                return false;
+            }
+        });
+
+    storageWriteQueue = run;
+    return run;
+}
+
+function buildCanonicalOrderUrl(orderId) {
+    const normalizedId = typeof normalizeWatchedOrderId === 'function'
+        ? normalizeWatchedOrderId(orderId)
+        : String(orderId || '').trim();
+
+    return typeof isValidWatchedOrderId === 'function' && isValidWatchedOrderId(normalizedId)
+        ? `${TARGET_URL}${normalizedId}/`
+        : '';
+}
+
+function normalizeStoredOrder(order = {}, fallbackId = '') {
+    if (!order || typeof order !== 'object') {
+        return null;
+    }
+
+    const rawId = String(order.id || fallbackId || '').trim();
+    const id = typeof normalizeWatchedOrderId === 'function'
+        ? normalizeWatchedOrderId(rawId)
+        : rawId;
+
+    if (typeof isValidWatchedOrderId === 'function' && !isValidWatchedOrderId(id)) {
+        return null;
+    }
+
+    const orderUrl = buildCanonicalOrderUrl(id);
+    if (!id || !orderUrl) {
+        return null;
+    }
+
+    return {
+        ...order,
+        id,
+        orderUrl
+    };
+}
+
+function normalizeBoundedOrderText(value, maxLength = MAX_ORDER_TEXT_LENGTH) {
+    return String(value ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, Math.max(1, Number(maxLength) || MAX_ORDER_TEXT_LENGTH));
+}
+
+function normalizeOrderNumericValue(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+        return null;
+    }
+
+    return Math.min(Math.trunc(numeric), Number.MAX_SAFE_INTEGER);
+}
+
+function normalizeIncomingOrder(order = {}, fallbackId = '') {
+    const identity = normalizeStoredOrder(order, fallbackId);
+    if (!identity) {
+        return null;
+    }
+
+    const tags = Array.isArray(order.tags)
+        ? Array.from(new Set(order.tags
+            .map(tag => normalizeBoundedOrderText(tag, MAX_ORDER_TAG_LENGTH))
+            .filter(Boolean)))
+            .slice(0, MAX_ORDER_TAGS)
+        : [];
+
+    return {
+        id: identity.id,
+        internalId: normalizeBoundedOrderText(order.internalId || identity.id, MAX_ORDER_INTERNAL_ID_LENGTH),
+        status: normalizeBoundedOrderText(order.status),
+        delivery: normalizeBoundedOrderText(order.delivery),
+        payment: normalizeBoundedOrderText(order.payment),
+        date: normalizeBoundedOrderText(order.date),
+        phoneNormalized: String(order.phoneNormalized ?? '')
+            .replace(/\D/g, '')
+            .slice(0, MAX_ORDER_PHONE_LENGTH),
+        totalAmount: normalizeOrderNumericValue(order.totalAmount),
+        productsDone: normalizeOrderNumericValue(order.productsDone),
+        productsTotal: normalizeOrderNumericValue(order.productsTotal),
+        manager: normalizeBoundedOrderText(order.manager),
+        city: normalizeBoundedOrderText(order.city),
+        contractor: normalizeBoundedOrderText(order.contractor),
+        orderUrl: identity.orderUrl,
+        hasAutoreserve: order.hasAutoreserve === true,
+        tags
+    };
+}
+
+function normalizeIncomingOrders(orders = []) {
+    if (!Array.isArray(orders)) {
+        return [];
+    }
+
+    const normalized = [];
+    const seenIds = new Set();
+
+    for (const rawOrder of orders.slice(0, MAX_ORDER_BATCH_SIZE)) {
+        const order = normalizeIncomingOrder(rawOrder);
+        if (!order || seenIds.has(order.id)) {
+            continue;
+        }
+
+        seenIds.add(order.id);
+        normalized.push(order);
+    }
+
+    return normalized;
+}
+
+function normalizeStoredOrderMap(rawOrders = {}) {
+    const orders = {};
+    const hashes = {};
+    const sourceOrders = rawOrders && typeof rawOrders === 'object' ? rawOrders : {};
+
+    for (const [fallbackId, rawOrder] of Object.entries(sourceOrders)) {
+        const order = normalizeIncomingOrder(rawOrder, fallbackId);
+        if (!order) {
+            continue;
+        }
+
+        orders[order.id] = order;
+        hashes[order.id] = getHash(order);
+    }
+
+    return { orders, hashes };
+}
+
+function getProtectedKnownOrderIds() {
+    const protectedIds = new Set([
+        ...Object.keys(windowOrdersDB || {}),
+        ...Object.keys(directFollowUpOrdersDB || {}),
+        ...(typeof getWatchedOrderIds === 'function' ? getWatchedOrderIds(userConfig?.watchedOrders) : [])
+    ]);
+
+    return protectedIds;
+}
+
+function applyKnownOrdersRetention() {
+    const allIds = Object.keys(knownOrdersDB || {});
+
+    if (allIds.length <= MAX_KNOWN_ORDERS) {
+        return 0;
+    }
+
+    const protectedIds = getProtectedKnownOrderIds();
+    const keptIds = new Set(protectedIds);
+    const remainingCapacity = Math.max(0, MAX_KNOWN_ORDERS - keptIds.size);
+    const unprotectedIds = allIds.filter(id => !protectedIds.has(id));
+
+    unprotectedIds.slice(-remainingCapacity).forEach(id => keptIds.add(id));
+
+    let dropped = 0;
+
+    for (const id of allIds) {
+        if (keptIds.has(id)) {
+            continue;
+        }
+
+        delete knownOrdersDB[id];
+        delete knownOrdersHashDB[id];
+        dropped += 1;
+    }
+
+    storageDiagnostics.knownOrdersDropped += dropped;
+    return dropped;
+}
+
+function applyNotificationTargetRetention(now = Date.now()) {
+    const entries = Object.entries(notificationTargets || {})
+        .map(([notificationId, target]) => {
+            const orderId = typeof normalizeWatchedOrderId === 'function'
+                ? normalizeWatchedOrderId(target?.orderId)
+                : String(target?.orderId || '').trim();
+            const orderUrl = buildCanonicalOrderUrl(orderId);
+            const createdAt = Number(target?.createdAt) || now;
+
+            if (!notificationId || !orderUrl || now - createdAt > NOTIFICATION_TARGET_TTL_MS) {
+                return null;
+            }
+
+            return [notificationId, {
+                orderId,
+                orderUrl,
+                reminder: target?.reminder === true,
+                createdAt
+            }];
+        })
+        .filter(Boolean)
+        .sort((left, right) => left[1].createdAt - right[1].createdAt);
+
+    const kept = entries.slice(-MAX_NOTIFICATION_TARGETS);
+    const dropped = Math.max(0, Object.keys(notificationTargets || {}).length - kept.length);
+
+    notificationTargets = Object.fromEntries(kept);
+    storageDiagnostics.notificationTargetsDropped += dropped;
+
+    return dropped;
+}
+
+function applyStateRetention(options = {}) {
+    const countRetentionDropped = applyKnownOrdersRetention();
+    const notificationTargetsDropped = applyNotificationTargetRetention();
+    const byteRetentionDropped = applyStateByteRetention(
+        MAX_ESTIMATED_PERSISTED_STATE_BYTES,
+        options.forceByteEstimate === true
+    );
+    const knownOrdersDropped = countRetentionDropped + byteRetentionDropped;
+
+    if (knownOrdersDropped || notificationTargetsDropped) {
+        log('INFO', 'RETENTION', 'state retention applied', {
+            knownOrdersDropped,
+            countRetentionDropped,
+            byteRetentionDropped,
+            notificationTargetsDropped,
+            knownOrdersCount: Object.keys(knownOrdersDB).length,
+            notificationTargetsCount: Object.keys(notificationTargets).length,
+            estimatedStateBytes: storageDiagnostics.lastEstimatedStateBytes
+        });
+    }
+}
+
+function createPersistedStateSnapshot() {
+    return {
         knownOrdersDB,
         knownOrdersHashDB,
         windowOrdersDB,
@@ -1343,13 +1688,134 @@ async function save() {
         eventJournalDroppedEntries,
         diagnosticLog,
         diagnosticLogDroppedEntries,
-        lastWatchedOrderAddResult
-    });
-
-    logState('SAVE');
+        lastWatchedOrderAddResult,
+        pendingExtensionUpdate,
+        storageDiagnostics
+    };
 }
 
-async function load() {
+function estimatePersistedStateBytes(snapshot = createPersistedStateSnapshot()) {
+    try {
+        return JSON.stringify(snapshot).length * 2;
+    } catch (err) {
+        storageDiagnostics.lastError = String(err?.message || err || 'state serialization failed');
+        return Number.MAX_SAFE_INTEGER;
+    }
+}
+
+function applyStateByteRetention(maxBytes = MAX_ESTIMATED_PERSISTED_STATE_BYTES, force = false) {
+    const normalizedMaxBytes = Math.max(1024, Number(maxBytes) || MAX_ESTIMATED_PERSISTED_STATE_BYTES);
+    const knownOrderCount = Object.keys(knownOrdersDB || {}).length;
+    const shouldEstimate = force
+        || normalizedMaxBytes !== MAX_ESTIMATED_PERSISTED_STATE_BYTES
+        || knownOrderCount >= STATE_BYTE_RETENTION_MIN_ORDER_COUNT
+        || storageDiagnostics.lastBytesInUse >= STATE_BYTE_RETENTION_TRIGGER_BYTES
+        || storageDiagnostics.lastEstimatedStateBytes >= STATE_BYTE_RETENTION_TRIGGER_BYTES;
+
+    if (!shouldEstimate) {
+        return 0;
+    }
+
+    const protectedIds = getProtectedKnownOrderIds();
+    const removableIds = Object.keys(knownOrdersDB || {}).filter(id => !protectedIds.has(id));
+    let removed = 0;
+    let estimatedBytes = estimatePersistedStateBytes();
+
+    while (estimatedBytes > normalizedMaxBytes && removed < removableIds.length) {
+        const end = Math.min(removableIds.length, removed + STATE_RETENTION_TRIM_BATCH_SIZE);
+
+        for (let index = removed; index < end; index += 1) {
+            const id = removableIds[index];
+            delete knownOrdersDB[id];
+            delete knownOrdersHashDB[id];
+        }
+
+        removed = end;
+        estimatedBytes = estimatePersistedStateBytes();
+    }
+
+    storageDiagnostics.lastEstimatedStateBytes = estimatedBytes;
+    storageDiagnostics.knownOrdersDropped += removed;
+
+    return removed;
+}
+
+async function refreshStorageUsage(force = false) {
+    if (typeof chrome?.storage?.local?.getBytesInUse !== 'function') {
+        return storageDiagnostics.lastBytesInUse;
+    }
+
+    const now = Date.now();
+    if (!force && now - storageDiagnostics.lastCheckedAt < STORAGE_USAGE_REFRESH_INTERVAL_MS) {
+        return storageDiagnostics.lastBytesInUse;
+    }
+
+    try {
+        storageDiagnostics.lastBytesInUse = Number(await chrome.storage.local.getBytesInUse(null)) || 0;
+        storageDiagnostics.lastCheckedAt = now;
+
+        if (storageDiagnostics.lastErrorOperation === 'storage-usage') {
+            storageDiagnostics.lastError = null;
+            storageDiagnostics.lastErrorOperation = null;
+        }
+    } catch (err) {
+        storageDiagnostics.lastError = String(err?.message || err || 'storage usage check failed');
+        storageDiagnostics.lastErrorOperation = 'storage-usage';
+    }
+
+    return storageDiagnostics.lastBytesInUse;
+}
+
+async function drainStateSaves() {
+    while (stateSaveRequested) {
+        stateSaveRequested = false;
+        applyStateRetention();
+
+        if (storageDiagnostics.lastErrorOperation === 'state') {
+            storageDiagnostics.lastError = null;
+            storageDiagnostics.lastErrorOperation = null;
+        }
+        storageDiagnostics.lastSuccessfulWriteAt = Date.now();
+
+        await chrome.storage.local.set(createPersistedStateSnapshot());
+        await refreshStorageUsage();
+        logState('SAVE');
+    }
+
+    return true;
+}
+
+function save() {
+    stateSaveRequested = true;
+
+    if (!stateSaveDrainPromise) {
+        stateSaveDrainPromise = enqueueStorageTask('state', drainStateSaves)
+            .finally(() => {
+                stateSaveDrainPromise = null;
+                if (stateSaveRequested) {
+                    save();
+                }
+            });
+    }
+
+    return stateSaveDrainPromise;
+}
+
+async function restrictStorageAccess() {
+    if (typeof chrome?.storage?.local?.setAccessLevel !== 'function') {
+        return false;
+    }
+
+    try {
+        await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+        return true;
+    } catch (err) {
+        log('WARN', 'SECURITY', 'failed to restrict storage access', err?.message || err);
+        return false;
+    }
+}
+
+async function loadState() {
     const d = await chrome.storage.local.get([
         'knownOrdersDB',
         'knownOrdersHashDB',
@@ -1375,13 +1841,17 @@ async function load() {
         'diagnosticLog',
         'diagnosticLogDroppedEntries',
         'lastWatchedOrderAddResult',
-        'pendingExtensionUpdate'
+        'pendingExtensionUpdate',
+        'storageDiagnostics'
     ]);
 
-    knownOrdersDB = d.knownOrdersDB || {};
-    knownOrdersHashDB = d.knownOrdersHashDB || {};
-    windowOrdersDB = d.windowOrdersDB || {};
-    windowOrdersHashDB = d.windowOrdersHashDB || {};
+    const normalizedKnownOrders = normalizeStoredOrderMap(d.knownOrdersDB, d.knownOrdersHashDB);
+    knownOrdersDB = normalizedKnownOrders.orders;
+    knownOrdersHashDB = normalizedKnownOrders.hashes;
+
+    const normalizedWindowOrders = normalizeStoredOrderMap(d.windowOrdersDB, d.windowOrdersHashDB);
+    windowOrdersDB = normalizedWindowOrders.orders;
+    windowOrdersHashDB = normalizedWindowOrders.hashes;
     notificationTargets = d.notificationTargets || {};
     lastBaselineDate = d.lastBaselineDate || null;
     isRunning = d.isRunning || false;
@@ -1393,12 +1863,16 @@ async function load() {
     collectionSession = d.collectionSession || null;
     monitorDictionaries = d.monitorDictionaries || null;
     lastCollectionMetadata = d.lastCollectionMetadata || null;
-    const eventJournalRetention = applyEventJournalRetention(d.eventJournal);
+    storageDiagnostics = {
+        ...storageDiagnostics,
+        ...(d.storageDiagnostics && typeof d.storageDiagnostics === 'object' ? d.storageDiagnostics : {})
+    };
 
+    const eventJournalRetention = applyEventJournalRetention(d.eventJournal);
     eventJournal = eventJournalRetention.entries;
     eventJournalDroppedEntries = normalizeEventJournalDroppedEntries(d.eventJournalDroppedEntries) + eventJournalRetention.dropped;
-    const diagnosticLogRetention = applyDiagnosticLogRetention(d.diagnosticLog);
 
+    const diagnosticLogRetention = applyDiagnosticLogRetention(d.diagnosticLog);
     diagnosticLog = diagnosticLogRetention.entries;
     diagnosticLogDroppedEntries = normalizeDiagnosticLogDroppedEntries(d.diagnosticLogDroppedEntries) + diagnosticLogRetention.dropped;
     lastWatchedOrderAddResult = d.lastWatchedOrderAddResult && typeof d.lastWatchedOrderAddResult === 'object'
@@ -1410,13 +1884,18 @@ async function load() {
     directWorkerTabId = null;
     directFollowUpState = normalizeDirectFollowUpState(d.directFollowUpState);
     clearStaleDirectFollowUpState('direct follow-up reset on service worker load');
-    directFollowUpOrdersDB = d.directFollowUpOrdersDB && typeof d.directFollowUpOrdersDB === 'object'
-        ? d.directFollowUpOrdersDB
-        : {};
-    directFollowUpHashDB = d.directFollowUpHashDB && typeof d.directFollowUpHashDB === 'object'
-        ? d.directFollowUpHashDB
-        : {};
+    const normalizedDirectOrders = normalizeStoredOrderMap(
+        d.directFollowUpOrdersDB,
+        d.directFollowUpHashDB
+    );
+    directFollowUpOrdersDB = normalizedDirectOrders.orders;
+    directFollowUpHashDB = normalizedDirectOrders.hashes;
     workerTabId = null;
+    ozonWorkerTabId = null;
+    ozonResolveSession = null;
+    ozonUiApplySession = null;
+
+    applyStateRetention();
 
     if (isRunning) {
         monitorState = 'warming';
@@ -1425,7 +1904,6 @@ async function load() {
             lastCollectionAt: lastCollectionMetadata?.collectedAt
         }));
         resetCollectionSession();
-        directWorkerTabId = null;
         directFollowUpState = normalizeDirectFollowUpState({
             nextIndex: directFollowUpState?.nextIndex,
             lastCompletedAt: directFollowUpState?.lastCompletedAt,
@@ -1435,26 +1913,6 @@ async function load() {
 
     log('INFO', 'INIT', 'state loaded');
     logState('LOAD');
-
-    syncWatchedOrderReminderAlarms(userConfig?.watchedOrders).catch((err) => {
-        log('ERROR', 'REMINDER', err?.message || err);
-    });
-
-    if (isRunning) {
-        log('INFO', 'INIT', 'delayed worker init');
-
-        setTimeout(() => {
-            ensureWorkerTab();
-        }, 1000);
-    }
-
-    if (pendingExtensionUpdate) {
-        setTimeout(() => {
-            tryApplyPendingExtensionUpdate('service-worker-load').catch((err) => {
-                log('ERROR', 'UPDATE', err?.message || err);
-            });
-        }, 0);
-    }
 }
 
 // ---------- CLEANUP ----------
@@ -1467,7 +1925,11 @@ async function cleanupOldWorkers() {
         for (const tab of tabs) {
             if (!tab.url) continue;
 
-            if (tab.url.includes(WORKER_MARK) || tab.url.includes(DIRECT_WORKER_MARK)) {
+            if (
+                isMarkedAmperkotWorkerUrl(tab.url, WORKER_MARK)
+                || isMarkedAmperkotWorkerUrl(tab.url, DIRECT_WORKER_MARK)
+                || isMarkedOzonWorkerUrl(tab.url)
+            ) {
                 try {
                     await chrome.tabs.remove(tab.id);
                     log('INFO', 'CLEANUP', `removed worker ${tab.id}`);
@@ -1481,6 +1943,76 @@ async function cleanupOldWorkers() {
     } finally {
         isCleaningUp = false;
     }
+}
+
+async function reconcileWorkerTabsOnStartup() {
+    const tabs = await chrome.tabs.query({});
+    const mainWorkers = [];
+    const staleWorkers = [];
+
+    for (const tab of tabs || []) {
+        const url = String(tab?.url || '');
+        if (!url) continue;
+
+        if (isMarkedAmperkotWorkerUrl(url, DIRECT_WORKER_MARK) || isMarkedOzonWorkerUrl(url)) {
+            staleWorkers.push(tab);
+        } else if (isMarkedAmperkotWorkerUrl(url, WORKER_MARK)) {
+            mainWorkers.push(tab);
+        }
+    }
+
+    if (!isRunning) {
+        staleWorkers.push(...mainWorkers);
+    } else if (mainWorkers.length) {
+        mainWorkers.sort((left, right) => Number(left.id) - Number(right.id));
+        const primary = mainWorkers.shift();
+        workerTabId = primary.id;
+        workerActivatedAt = Date.now();
+        lastPing = workerActivatedAt;
+        staleWorkers.push(...mainWorkers);
+
+        try {
+            await chrome.tabs.update(primary.id, {
+                pinned: true,
+                active: false,
+                url: buildOrdersUrl(userConfig?.monitorScope, 1)
+            });
+            log('INFO', 'RECOVERY', 'adopted existing main worker', { tabId: primary.id });
+        } catch (err) {
+            log('WARN', 'RECOVERY', 'failed to adopt main worker', err?.message || err);
+            staleWorkers.push(primary);
+            workerTabId = null;
+        }
+    }
+
+    if (staleWorkers.length) {
+        isCleaningUp = true;
+        try {
+            for (const tab of staleWorkers) {
+                try {
+                    await chrome.tabs.remove(tab.id);
+                    log('INFO', 'RECOVERY', 'removed orphan worker', { tabId: tab.id });
+                } catch (err) {
+                    log('WARN', 'RECOVERY', 'failed to remove orphan worker', {
+                        tabId: tab.id,
+                        error: err?.message || String(err)
+                    });
+                }
+            }
+        } finally {
+            isCleaningUp = false;
+        }
+    }
+
+    directWorkerTabId = null;
+    ozonWorkerTabId = null;
+    ozonResolveSession = null;
+    ozonUiApplySession = null;
+
+    return {
+        adoptedMainWorker: workerTabId,
+        removedCount: staleWorkers.length
+    };
 }
 
 async function adoptExistingWorkerTab() {
@@ -1548,7 +2080,9 @@ async function ensureWorkerTab() {
             if (!workerRetryTimer) {
                 workerRetryTimer = setTimeout(() => {
                     workerRetryTimer = null;
-                    ensureWorkerTab();
+                    ensureWorkerTab().catch((err) => {
+                        log('ERROR', 'WORKER', 'retry failed', err?.message || err);
+                    });
                 }, 1000);
             }
 
@@ -1589,45 +2123,51 @@ async function ensureWorkerTab() {
 // ---------- EXTENSION UPDATE ----------
 if (chrome?.runtime?.onUpdateAvailable?.addListener) {
     chrome.runtime.onUpdateAvailable.addListener((details) => {
-        queueExtensionUpdate(details).catch((err) => {
-            log('ERROR', 'UPDATE', err?.message || err);
-        });
+        ensureInitialized()
+            .then(() => queueExtensionUpdate(details))
+            .catch((err) => {
+                log('ERROR', 'UPDATE', err?.message || err);
+            });
     });
 }
 
 // ---------- TAB EVENTS ----------
 chrome.tabs.onRemoved.addListener((tabId) => {
-    if (tabId === directWorkerTabId) {
-        const currentOrderId = directFollowUpState?.currentOrderId;
+    ensureInitialized().then(async () => {
+        if (tabId === directWorkerTabId) {
+            const currentOrderId = directFollowUpState?.currentOrderId;
 
-        directWorkerTabId = null;
+            directWorkerTabId = null;
 
-        if (currentOrderId) {
-            completeDirectFollowUpCheck(currentOrderId, {
-                ok: false,
-                error: 'direct worker tab closed'
-            });
+            if (currentOrderId) {
+                await completeDirectFollowUpCheck(currentOrderId, {
+                    ok: false,
+                    error: 'direct worker tab closed'
+                });
+            }
         }
-    }
 
-    if (tabId === ozonWorkerTabId) {
-        ozonWorkerTabId = null;
+        if (tabId === ozonWorkerTabId) {
+            ozonWorkerTabId = null;
 
-        if (ozonUiApplySession) {
-            failOzonUiApply('Ozon worker tab closed');
-        } else {
-            failOzonResolvePreview('Ozon worker tab closed');
+            if (ozonUiApplySession) {
+                await failOzonUiApply('Ozon worker tab closed');
+            } else {
+                await failOzonResolvePreview('Ozon worker tab closed');
+            }
+            return;
         }
-        return;
-    }
 
-    if (tabId === workerTabId) {
-        workerTabId = null;
+        if (tabId === workerTabId) {
+            workerTabId = null;
 
-        if (isRunning && !isCleaningUp && !isStarting) {
-            ensureWorkerTab();
+            if (isRunning && !isCleaningUp && !isStarting) {
+                await ensureWorkerTab();
+            }
         }
-    }
+    }).catch((err) => {
+        log('ERROR', 'TAB_EVENT', err?.message || err);
+    });
 });
 
 // ---------- WATCHED ORDER REMINDERS ----------
@@ -1822,7 +2362,8 @@ function notifyWatchedOrderReminder(item) {
             notificationTargets[notificationId] = {
                 orderId: item.id,
                 orderUrl,
-                reminder: true
+                reminder: true,
+                createdAt: Date.now()
             };
 
             await save();
@@ -1884,7 +2425,7 @@ function notifyOrder(o, eventContext = {}) {
 
     log('INFO', 'NOTIFY', 'creating notification', {
         orderId: o.id,
-        orderUrl: o.orderUrl || '',
+        orderUrl: buildCanonicalOrderUrl(o.id),
         tag: content.tag,
         decision: 'notify',
         eventType: eventContext.eventType || null,
@@ -1905,10 +2446,13 @@ function notifyOrder(o, eventContext = {}) {
             return;
         }
 
-        if (o.orderUrl) {
+        const orderUrl = buildCanonicalOrderUrl(o.id);
+
+        if (orderUrl) {
             notificationTargets[notificationId] = {
                 orderId: o.id,
-                orderUrl: o.orderUrl
+                orderUrl,
+                createdAt: Date.now()
             };
 
             await save();
@@ -1918,64 +2462,88 @@ function notifyOrder(o, eventContext = {}) {
     });
 }
 
-chrome.notifications.onClicked.addListener(async (notificationId) => {
-    const target = notificationTargets[notificationId];
+chrome.notifications.onClicked.addListener((notificationId) => {
+    ensureInitialized().then(async () => {
+        const target = notificationTargets[notificationId];
+        const orderUrl = buildCanonicalOrderUrl(target?.orderId);
 
-    if (!target?.orderUrl) {
-        log('WARN', 'NOTIFY_CLICK', 'target not found', notificationId);
-        return;
-    }
+        if (!orderUrl) {
+            log('WARN', 'NOTIFY_CLICK', 'target not found', notificationId);
+            return;
+        }
 
-    try {
-        await chrome.tabs.create({
-            url: target.orderUrl,
-            active: true
-        });
+        try {
+            await chrome.tabs.create({
+                url: orderUrl,
+                active: true
+            });
 
-        log('INFO', 'NOTIFY_CLICK', {
-            notificationId,
-            orderId: target.orderId,
-            orderUrl: target.orderUrl
-        });
-    } catch (err) {
+            log('INFO', 'NOTIFY_CLICK', {
+                notificationId,
+                orderId: target.orderId,
+                orderUrl
+            });
+        } catch (err) {
+            log('ERROR', 'NOTIFY_CLICK', err?.message || err);
+            return;
+        }
+
+        delete notificationTargets[notificationId];
+        await save();
+        await chrome.notifications.clear(notificationId);
+    }).catch((err) => {
         log('ERROR', 'NOTIFY_CLICK', err?.message || err);
-        return;
-    }
-
-    delete notificationTargets[notificationId];
-    await save();
-
-    chrome.notifications.clear(notificationId);
+    });
 });
 
-chrome.notifications.onClosed.addListener(async (notificationId) => {
-    if (!notificationTargets[notificationId]) {
-        return;
-    }
+chrome.notifications.onClosed.addListener((notificationId) => {
+    ensureInitialized().then(async () => {
+        if (!notificationTargets[notificationId]) {
+            return;
+        }
 
-    delete notificationTargets[notificationId];
-    await save();
+        delete notificationTargets[notificationId];
+        await save();
 
-    log('DEBUG', 'NOTIFY', 'cleared target on close', notificationId);
+        log('DEBUG', 'NOTIFY', 'cleared target on close', notificationId);
+    }).catch((err) => {
+        log('ERROR', 'NOTIFY_CLOSE', err?.message || err);
+    });
 });
 
 if (chrome?.alarms?.onAlarm?.addListener) {
     chrome.alarms.onAlarm.addListener((alarm) => {
-        if (alarm?.name === EXTENSION_UPDATE_RETRY_ALARM) {
-            tryApplyPendingExtensionUpdate('retry-alarm').catch((err) => {
-                log('ERROR', 'UPDATE', err?.message || err);
-            });
-            return;
-        }
+        ensureInitialized().then(async () => {
+            if (alarm?.name === EXTENSION_UPDATE_RETRY_ALARM) {
+                await tryApplyPendingExtensionUpdate('retry-alarm');
+                return;
+            }
 
-        handleWatchedOrderReminderAlarm(alarm).catch((err) => {
-            log('ERROR', 'REMINDER', err?.message || err);
+            if (alarm?.name === MONITOR_HEALTH_ALARM) {
+                await runMonitorHealthCheck();
+                return;
+            }
+
+            if (alarm?.name === DIRECT_FOLLOW_UP_ALARM) {
+                await runDirectFollowUpTick();
+                return;
+            }
+
+            if (alarm?.name === STORAGE_MAINTENANCE_ALARM) {
+                await runStorageMaintenance();
+                return;
+            }
+
+            await handleWatchedOrderReminderAlarm(alarm);
+        }).catch((err) => {
+            log('ERROR', 'ALARM', err?.message || err);
         });
     });
 }
 
 // ---------- BASELINE ----------
 function runBaseline(orders, reason = 'auto') {
+    const normalizedOrders = normalizeIncomingOrders(orders);
     const syncReason = reason === 'auto'
         ? (pendingSyncReason || SYNC_REASONS.NORMAL)
         : normalizeSyncReason(reason);
@@ -1984,7 +2552,7 @@ function runBaseline(orders, reason = 'auto') {
 
     markDeepSyncCompleted(collectionSession);
 
-    orders.forEach(order => {
+    normalizedOrders.forEach(order => {
         if (!order.id) return;
 
         const hash = getHash(order);
@@ -1998,42 +2566,45 @@ function runBaseline(orders, reason = 'auto') {
     windowOrdersDB = nextWindowDB;
     windowOrdersHashDB = nextWindowHashDB;
     lastBaselineDate = todayKey();
-    recordCollectionMetadata(collectionSession, orders, syncReason);
+    recordCollectionMetadata(collectionSession, normalizedOrders, syncReason);
     clearPendingRebaseline();
     monitorState = 'active';
     resetCollectionSession();
 
-    log('INFO', 'BASELINE', `${syncReason} count=${orders.length}`);
+    log('INFO', 'BASELINE', `${syncReason} count=${normalizedOrders.length}`);
     logState('BASELINE');
 
-    save();
+    return save();
 }
 
 function runCatchUpSnapshot(orders, reason = SYNC_REASONS.MANUAL_START) {
+    const normalizedOrders = normalizeIncomingOrders(orders);
     const syncReason = normalizeSyncReason(reason);
 
     markDeepSyncCompleted(collectionSession);
-    recordCollectionMetadata(collectionSession, orders, syncReason);
+    recordCollectionMetadata(collectionSession, normalizedOrders, syncReason);
     clearPendingRebaseline();
     monitorState = 'active';
 
-    log('INFO', 'CATCH_UP', `${syncReason} count=${orders.length}`);
-    processOrders(orders, {
+    log('INFO', 'CATCH_UP', `${syncReason} count=${normalizedOrders.length}`);
+    processOrders(normalizedOrders, {
         syncReason,
-        suppressNotifications: true
+        suppressNotifications: true,
+        persist: false
     });
-    applyWindowSnapshot(orders);
+    applyWindowSnapshot(normalizedOrders);
     resetCollectionSession();
     logState('CATCH_UP');
 
-    save();
+    return save();
 }
 
 function applyWindowSnapshot(orders) {
+    const normalizedOrders = normalizeIncomingOrders(orders);
     const nextWindowDB = {};
     const nextWindowHashDB = {};
 
-    orders.forEach(order => {
+    normalizedOrders.forEach(order => {
         if (!order.id) return;
 
         const hash = getHash(order);
@@ -2050,24 +2621,26 @@ function applyWindowSnapshot(orders) {
     windowOrdersDB = nextWindowDB;
     windowOrdersHashDB = nextWindowHashDB;
 
-    log('INFO', 'WINDOW_SYNC', `applied window snapshot count=${orders.length}`);
+    log('INFO', 'WINDOW_SYNC', `applied window snapshot count=${normalizedOrders.length}`);
 }
 
 // ---------- CORE ----------
 function processOrders(orders, options = {}) {
+    const normalizedOrders = normalizeIncomingOrders(orders);
     const {
         testMode = false,
         syncReason = SYNC_REASONS.NORMAL,
-        suppressNotifications = false
+        suppressNotifications = false,
+        persist = true
     } = options;
 
     let hasChanges = false;
     let hasStateUpdates = false;
 
-    const processLogLevel = !testMode && orders.length > 30 ? 'INFO' : 'DEBUG';
-    log(processLogLevel, 'PROCESS', `orders=${orders.length} testMode=${testMode}`);
+    const processLogLevel = !testMode && normalizedOrders.length > 30 ? 'INFO' : 'DEBUG';
+    log(processLogLevel, 'PROCESS', `orders=${normalizedOrders.length} testMode=${testMode}`);
 
-    for (const order of orders) {
+    for (const order of normalizedOrders) {
         if (!order.id) continue;
 
         const newHash = getHash(order);
@@ -2178,45 +2751,90 @@ function processOrders(orders, options = {}) {
 
     if (!testMode && (hasChanges || hasStateUpdates)) {
         logState('PROCESS');
-        save();
+        return persist ? save() : Promise.resolve(true);
     }
+
+    return Promise.resolve(true);
 }
 
-// ---------- WATCHDOG ----------
-setInterval(() => {
-    handleDirectFollowUpTimeout();
+// ---------- LIFECYCLE / WATCHDOG ----------
+async function ensureLifecycleAlarms() {
+    if (typeof chrome?.alarms?.create !== 'function') {
+        return false;
+    }
+
+    await chrome.alarms.create(MONITOR_HEALTH_ALARM, {
+        periodInMinutes: MONITOR_HEALTH_PERIOD_MINUTES
+    });
+    await chrome.alarms.create(DIRECT_FOLLOW_UP_ALARM, {
+        periodInMinutes: DIRECT_FOLLOW_UP_PERIOD_MINUTES
+    });
+    await chrome.alarms.create(STORAGE_MAINTENANCE_ALARM, {
+        periodInMinutes: STORAGE_MAINTENANCE_PERIOD_MINUTES
+    });
+
+    return true;
+}
+
+async function runMonitorHealthCheck() {
+    await handleDirectFollowUpTimeout();
+    let collectionReset = false;
 
     if (collectionSession) {
-    const idle = Date.now() - (collectionSession.lastActivityAt || 0);
+        const idle = Date.now() - (collectionSession.lastActivityAt || 0);
 
-    if (idle > COLLECTION_TIMEOUT_MS) {
-        log('WARN', 'COLLECTION', 'session timeout, resetting');
+        if (idle > COLLECTION_TIMEOUT_MS) {
+            log('WARN', 'COLLECTION', 'session timeout, resetting');
+            resetCollectionSession();
+            collectionReset = true;
 
-        resetCollectionSession();
-
-        if (workerTabId) {
-            goToCollectionPage(1);
+            if (workerTabId) {
+                await goToCollectionPage(1);
+            }
         }
     }
-}
-    if (!isRunning || !workerTabId) return;
+
+    if (!isRunning) {
+        if (collectionReset) {
+            await save();
+        }
+        return false;
+    }
+
+    if (!workerTabId) {
+        await ensureWorkerTab();
+        return true;
+    }
 
     const referenceTime = Math.max(lastPing, workerActivatedAt);
     const diff = Date.now() - referenceTime;
 
-    if (diff > 60000) {
-        log('WARN', 'WATCHDOG', 'worker dead, restarting');
-
-        chrome.tabs.remove(workerTabId).catch(() => {});
-        workerTabId = null;
-
-        ensureWorkerTab();
+    if (diff <= 60000) {
+        if (collectionReset) {
+            await save();
+        }
+        return false;
     }
-}, 30000);
 
-setInterval(() => {
-    runDirectFollowUpTick();
-}, DIRECT_FOLLOW_UP_POLL_INTERVAL_MS);
+    log('WARN', 'WATCHDOG', 'worker dead, restarting', { idleMs: diff, tabId: workerTabId });
+
+    const staleTabId = workerTabId;
+    workerTabId = null;
+
+    try {
+        await chrome.tabs.remove(staleTabId);
+    } catch {}
+
+    await ensureWorkerTab();
+    return true;
+}
+
+async function runStorageMaintenance() {
+    applyStateRetention({ forceByteEstimate: true });
+    await refreshStorageUsage(true);
+    await save();
+    return true;
+}
 
 
 // ---------- OZON BARCODE RESOLVE PREVIEW ----------
@@ -2294,7 +2912,9 @@ function scheduleOzonResolveTimeout() {
 
     ozonResolveTimeoutTimer = setTimeout(() => {
         ozonResolveTimeoutTimer = null;
-        failOzonResolvePreview('Ozon resolve timeout');
+        failOzonResolvePreview('Ozon resolve timeout').catch((err) => {
+            log('ERROR', 'OZON_RESOLVE', 'timeout cleanup failed', err?.message || err);
+        });
     }, OZON_RESOLVE_TIMEOUT_MS);
 
     return true;
@@ -2445,7 +3065,9 @@ function scheduleOzonUiApplyTimeout() {
 
     ozonUiApplyTimeoutTimer = setTimeout(() => {
         ozonUiApplyTimeoutTimer = null;
-        failOzonUiApply('Ozon UI apply timeout');
+        failOzonUiApply('Ozon UI apply timeout').catch((err) => {
+            log('ERROR', 'OZON_UI_APPLY', 'timeout cleanup failed', err?.message || err);
+        });
     }, OZON_UI_APPLY_TIMEOUT_MS);
 
     return true;
@@ -2703,12 +3325,18 @@ async function startWatchedOrderAddValidation(orderId, options = {}) {
 // ---------- MESSAGES ----------
 chrome.runtime.onMessage.addListener((msg, sender, send) => {
     (async () => {
+        let runtimeOperationStarted = false;
+
         try {
+            await ensureInitialized();
+            activeRuntimeMessageCount += 1;
+            runtimeOperationStarted = true;
+
             const senderTabId = sender?.tab?.id;
             const senderTab = sender?.tab;
 
             if (msg.type === 'CHECK_WORKER') {
-                const isCorrectUrl = senderTab?.url?.includes(WORKER_MARK);
+                const isCorrectUrl = isMarkedAmperkotWorkerUrl(senderTab?.url, WORKER_MARK);
 
                 if (senderTabId === workerTabId) {
                     send(createWorkerCheckResponse({ isWorker: true, isRunning }));
@@ -2732,7 +3360,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'CHECK_DIRECT_WORKER') {
-                const isCorrectUrl = senderTab?.url?.includes(DIRECT_WORKER_MARK);
+                const isCorrectUrl = isMarkedAmperkotWorkerUrl(senderTab?.url, DIRECT_WORKER_MARK);
                 const currentOrderId = directFollowUpState?.currentOrderId || null;
                 const canProcessDirectOrder = isRunning || Boolean(currentOrderId);
 
@@ -2767,7 +3395,7 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 }
 
                 const expectedOrderId = directFollowUpState?.currentOrderId || msg.orderId;
-                const parsedOrder = msg.data && typeof msg.data === 'object' ? msg.data : null;
+                const parsedOrder = normalizeIncomingOrder(msg.data, msg.orderId || expectedOrderId);
                 const parsedOrderId = normalizeWatchedOrderId(parsedOrder?.id || msg.orderId || expectedOrderId);
                 const expectedNormalizedId = normalizeWatchedOrderId(expectedOrderId);
 
@@ -2860,7 +3488,9 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             if (msg.type === 'CLEAR_DIAGNOSTIC_LOG') {
                 diagnosticLog = [];
                 diagnosticLogDroppedEntries = 0;
-                await chrome.storage.local.set({ diagnosticLog, diagnosticLogDroppedEntries });
+                await enqueueStorageTask('clear-diagnostic-log', () => (
+                    chrome.storage.local.set({ diagnosticLog: [], diagnosticLogDroppedEntries: 0 })
+                ));
                 send(createRuntimeOkResponse());
                 return;
             }
@@ -2972,7 +3602,7 @@ if (msg.type === 'UPDATE_CONFIG') {
     return;
 }
 
-            if (senderTab?.url?.startsWith(TARGET_URL) && senderTabId !== workerTabId) {
+            if (isTrustedAmperkotOrdersUrl(senderTab?.url) && senderTabId !== workerTabId) {
                 log('WARN', 'SECURITY', 'foreign tab tried to act as worker');
                 send(createWorkerCheckResponse({ isWorker: false, isRunning }));
                 return;
@@ -3058,6 +3688,7 @@ if (msg.type === 'STOP') {
 
 if (msg.type === 'ORDERS') {
     const isTest = msg.isTest === true;
+    const normalizedMessageOrders = normalizeIncomingOrders(msg.data);
 
     if (!isTest) {
         lastPing = Date.now();
@@ -3074,7 +3705,7 @@ if (msg.type === 'ORDERS') {
     }
 
     if (isTest) {
-        processOrders(msg.data, { testMode: true });
+        await processOrders(normalizedMessageOrders, { testMode: true });
         send(createRuntimeOkResponse());
         return;
     }
@@ -3102,7 +3733,7 @@ if (isFastCollectionPageMismatch(sessionMode, meta.page)) {
 }
 
 const session = ensureCollectionSession();
-const collected = collectPageIntoCollectionSession(session, msg.data, {
+const collected = collectPageIntoCollectionSession(session, normalizedMessageOrders, {
     page: meta.page,
     knownOrdersDB
 });
@@ -3133,16 +3764,16 @@ const shouldReturnToFirstPage = session?.mode === 'deep';
 
 if (pendingRebaseline) {
     if (shouldRunCatchUpForPendingSync()) {
-        runCatchUpSnapshot(snapshot, pendingSyncReason || SYNC_REASONS.MANUAL_START);
+        await runCatchUpSnapshot(snapshot, pendingSyncReason || SYNC_REASONS.MANUAL_START);
     } else {
-        runBaseline(snapshot, pendingSyncReason || SYNC_REASONS.INITIAL);
+        await runBaseline(snapshot, pendingSyncReason || SYNC_REASONS.INITIAL);
     }
 
     if (shouldReturnToFirstPage) {
         await returnWorkerToFirstPageAfterDeepSession(session);
     }
 } else if (isEmptyDB || !shouldEmitEvents()) {
-    runBaseline(
+    await runBaseline(
         snapshot,
         hasKnownOrders() ? SYNC_REASONS.WINDOW_SYNC : SYNC_REASONS.INITIAL
     );
@@ -3155,7 +3786,7 @@ if (pendingRebaseline) {
 
     markDeepSyncCompleted(session);
     recordCollectionMetadata(session, snapshot, syncReason);
-    processOrders(snapshot, { syncReason });
+    await processOrders(snapshot, { syncReason, persist: false });
 
     if (session?.mode === 'deep') {
         applyWindowSnapshot(snapshot);
@@ -3177,6 +3808,14 @@ if (pendingRebaseline) {
             try {
                 send(createRuntimeErrorResponse(err));
             } catch {}
+        } finally {
+            if (runtimeOperationStarted) {
+                activeRuntimeMessageCount = Math.max(0, activeRuntimeMessageCount - 1);
+
+                if (pendingExtensionUpdate && activeRuntimeMessageCount === 0) {
+                    await tryApplyPendingExtensionUpdate('runtime-message-complete');
+                }
+            }
         }
     })();
 
@@ -3184,4 +3823,36 @@ if (pendingRebaseline) {
 });
 
 // ---------- INIT ----------
-load();
+async function initializeBackground() {
+    await restrictStorageAccess();
+    await loadState();
+    await reconcileWorkerTabsOnStartup();
+    await ensureLifecycleAlarms();
+    await syncWatchedOrderReminderAlarms(userConfig?.watchedOrders);
+    await refreshStorageUsage(true);
+
+    if (isRunning && !workerTabId) {
+        await ensureWorkerTab();
+    }
+
+    if (pendingExtensionUpdate) {
+        await tryApplyPendingExtensionUpdate('service-worker-load');
+    }
+
+    await save();
+    return true;
+}
+
+function ensureInitialized() {
+    if (!initializationPromise) {
+        initializationPromise = initializeBackground().catch((err) => {
+            console.error('[BG][ERROR][INIT]', err?.message || err);
+            initializationPromise = null;
+            throw err;
+        });
+    }
+
+    return initializationPromise;
+}
+
+initializationPromise = ensureInitialized();

@@ -126,6 +126,16 @@ function createMonitorStatusSnapshot(state = {}) {
         eventJournalDroppedEntries: Number(state.eventJournalDroppedEntries) || 0,
         diagnosticLogCount: diagnosticLog.length,
         diagnosticLogDroppedEntries: Number(state.diagnosticLogDroppedEntries) || 0,
+        storage: {
+            bytesInUse: Number(state.storageDiagnostics?.lastBytesInUse) || 0,
+            lastCheckedAt: Number(state.storageDiagnostics?.lastCheckedAt) || 0,
+            lastSuccessfulWriteAt: Number(state.storageDiagnostics?.lastSuccessfulWriteAt) || 0,
+            lastError: state.storageDiagnostics?.lastError ? String(state.storageDiagnostics.lastError) : null,
+            lastErrorOperation: state.storageDiagnostics?.lastErrorOperation ? String(state.storageDiagnostics.lastErrorOperation) : null,
+            knownOrdersDropped: Number(state.storageDiagnostics?.knownOrdersDropped) || 0,
+            notificationTargetsDropped: Number(state.storageDiagnostics?.notificationTargetsDropped) || 0,
+            estimatedStateBytes: Number(state.storageDiagnostics?.lastEstimatedStateBytes) || 0
+        },
         lastBaselineDate: state.lastBaselineDate || null,
         lastDeepSyncAt: Number(state.lastDeepSyncAt) || 0,
         lastCollectionMetadata: state.lastCollectionMetadata

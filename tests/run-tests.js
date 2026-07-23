@@ -3,6 +3,7 @@ const { spawnSync } = require('child_process');
 const testFiles = [
     'tests/notification-rules.test.js',
     'tests/background-core.test.js',
+    'tests/lifecycle-hardening.test.js',
     'tests/background-process.test.js',
     'tests/background-config.test.js',
     'tests/content-parser.test.js',

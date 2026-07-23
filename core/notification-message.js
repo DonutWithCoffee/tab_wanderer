@@ -43,18 +43,18 @@ function formatNotificationValue(value) {
 }
 
 function getOrderNotificationTag(order = {}) {
-    const contractor = typeof normalize === 'function'
-        ? normalize(order.contractor)
-        : String(order.contractor || '').toLowerCase().trim();
-    const payment = typeof normalize === 'function'
-        ? normalize(order.payment)
-        : String(order.payment || '').toLowerCase().trim();
+    const classification = typeof classifyOrderForNotifications === 'function'
+        ? classifyOrderForNotifications(order)
+        : {
+            isOzon: typeof isOzonOrder === 'function' && isOzonOrder(order),
+            isLegalEntityPayment: typeof isLegalEntityPaymentOrder === 'function' && isLegalEntityPaymentOrder(order)
+        };
 
-    if (contractor === 'ozon (озон)') {
+    if (classification.isOzon) {
         return 'ОЗОН';
     }
 
-    if (payment === 'безналичный расчет для юридических лиц') {
+    if (classification.isLegalEntityPayment) {
         return 'Юрик';
     }
 

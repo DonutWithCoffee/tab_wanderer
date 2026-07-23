@@ -212,3 +212,67 @@ test('warehouse bridge prefers captured API shopOrder over visible DOM fallback'
     assert.equal(lastResponse.shopOrder.assembly.length, 1);
     assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '2486831');
 });
+
+
+test('warehouse bridge prefers Angular barcode snapshot over stored API shell without barcodes', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const context = loadBridgeContext(createDocumentStub([]), {
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                shop_order: {
+                    number: '5147-290626',
+                    assembly: []
+                }
+            }
+        }
+    });
+    const angularShopOrder = {
+        number: '5147-290626',
+        assembly: [
+            {
+                quantity: 1,
+                product_item: {
+                    barcode: '2486831',
+                    type: 0,
+                    product_id: '43150731',
+                    product: { id: '43150731', title: 'Промышленный модуль' }
+                }
+            }
+        ]
+    };
+    const rootScope = { ctrl: { shopOrder: angularShopOrder } };
+
+    context.window.angular = {
+        element() {
+            return {
+                injector() {
+                    return { get: () => rootScope };
+                },
+                scope: () => rootScope,
+                isolateScope: () => null,
+                data: () => ({}),
+                controller: () => null
+            };
+        }
+    };
+
+    const responses = [];
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm', {
+        detail: { durationMs: 5000 }
+    }));
+
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('GET', apiUrl);
+    xhr.send();
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+
+    const lastResponse = responses.at(-1);
+    assert.equal(lastResponse.ok, true);
+    assert.equal(lastResponse.source, 'angular-snapshot');
+    assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '2486831');
+});

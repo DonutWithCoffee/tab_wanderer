@@ -224,19 +224,40 @@ function getNormalizedOrderTags(order = {}) {
         : [];
 }
 
+function hasLegalEntityMarker(value = '') {
+    const text = normalizeNotificationRuleText(value);
+    const negativeLegalMarkerPattern = /(^|[^a-zа-я0-9])(?:не|нет|кроме)\s+(?:[a-zа-я0-9]+\s+){0,3}(?:юр(?:\.?\s*лица?|лиц[ао]?|ик)?|юридическ)/i;
+
+    if (!text || negativeLegalMarkerPattern.test(text)) {
+        return false;
+    }
+
+    return text.includes('юридическ')
+        || /(^|[^a-zа-я0-9])юр(?:\.?\s*лица?|лиц[ао]?|ик)?([^a-zа-я0-9]|$)/i.test(text);
+}
+
 function isLegalEntityPaymentOrder(order = {}) {
-    return normalizeNotificationRuleText(order.payment) === 'безналичный расчет для юридических лиц';
+    const payment = normalizeNotificationRuleText(order.payment);
+    const tags = getNormalizedOrderTags(order);
+
+    return payment === 'безналичный расчет для юридических лиц'
+        || ((payment.includes('безналич') || payment.includes('безнал ')) && hasLegalEntityMarker(payment))
+        || tags.some(tag => tag === 'юрик' || hasLegalEntityMarker(tag));
 }
 
 function isOzonOrder(order = {}) {
     const contractor = normalizeNotificationRuleText(order.contractor);
     const tags = getNormalizedOrderTags(order);
+    const matchesOzon = value => /(^|[^a-zа-я0-9])(ozon|озон)([^a-zа-я0-9]|$)/i.test(value);
 
-    if (contractor.includes('ozon') || contractor.includes('озон')) {
-        return true;
-    }
+    return matchesOzon(contractor) || tags.some(matchesOzon);
+}
 
-    return tags.some(tag => tag.includes('ozon') || tag.includes('озон'));
+function classifyOrderForNotifications(order = {}) {
+    return {
+        isLegalEntityPayment: isLegalEntityPaymentOrder(order),
+        isOzon: isOzonOrder(order)
+    };
 }
 
 function evaluateNotificationSuppressors(order = {}, context = {}, effectiveConfig) {
@@ -345,4 +366,5 @@ self.normalizeNotificationSuppressors = normalizeNotificationSuppressors;
 self.normalizeNotificationRuleText = normalizeNotificationRuleText;
 self.isLegalEntityPaymentOrder = isLegalEntityPaymentOrder;
 self.isOzonOrder = isOzonOrder;
+self.classifyOrderForNotifications = classifyOrderForNotifications;
 self.evaluateNotificationSuppressors = evaluateNotificationSuppressors;

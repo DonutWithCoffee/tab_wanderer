@@ -1,482 +1,191 @@
-# tab_wanderer — smoke checklist для 1.0.x
+# tab_wanderer — post-1.0.3 hardening smoke checklist
 
-Актуально для release candidate `1.0.3` — Ozon verification hardening при manifest `1.0.3`.
-
-Цель: проверить основной мониторинг и подтвердить новые переходы Ozon recheck/state reconciliation перед загрузкой patch-релиза 1.0.3.
-
----
-
-Smoke status:
+Текущая manifest version остаётся `1.0.3`. Это проверка неопубликованного hardening, а не release candidate и не CWS package.
 
 ```text
-Historical 1.0 manual smoke: passed
-1.0.2: published in Chrome Web Store / Unlisted
-1.0.3 Ozon consistency manual smoke: pending user verification
-1.0.3 package: prepared, SHA256 ac473b773459fd30bc912c55fcdab22ec4c930fe6860eb86109e4f61bf795bd4
-Automated tests: 264 pass / 0 fail
+Expected automated baseline: 290 pass / 0 fail
+Public CWS release: 1.0.3 / f496d36 / v1.0.3
 ```
 
----
-
-## 0. Перед проверкой
+## 0. Подготовка
 
 ```text
-npm test → 264 pass / 0 fail
-main clean/pushed
-расширение загружено в chrome://extensions как Load unpacked из актуальной папки проекта
-расширение перезагружено после установки новой сборки
-есть доступ к https://amperkot.ru/admin/orders/
+npm test зелёный
+рабочая папка содержит hardening-файлы
+расширение загружено через Load unpacked
+старые service-worker console errors очищены
+есть авторизованный доступ к Amperkot
+для Ozon-сценария есть авторизованный Seller кабинет и тестовый заказ
 ```
+
+Проверить в `chrome://extensions`:
+
+```text
+Version: 1.0.3
+Permissions: storage, notifications, alarms
+Нет permission tabs
+Нет ошибок service worker
+```
+
+## 1. Базовый startup/recovery
+
+1. Включить мониторинг.
+2. Дождаться active/warming → active.
+3. Закрыть и снова открыть Chrome.
+4. Перезагрузить extension service worker.
+5. Проверить popup и Options diagnostics.
 
 Ожидаемо:
 
-```text
-popup открывается без ошибок
-Options открывается без ошибок
-страница “Отслеживание” открывается без ошибок
-диагностический лог доступен из popup и Options
-console не содержит наших ReferenceError/runtime.lastError
-визуальная иерархия единая: карточки, кнопки, поля, dropdown и статусы выглядят как одна система
-```
+- сохранённая конфигурация не заменяется defaults;
+- нет notification flood;
+- main worker либо принимается повторно, либо безопасно создаётся заново;
+- duplicate/direct/Ozon orphan tabs не остаются;
+- monitor продолжает работу;
+- в Options видны lifecycle/storage diagnostics.
 
----
+## 2. Worker isolation и URL boundary
 
-## 1. Popup / быстрый рабочий пульт
-
-Шаги:
-
-```text
-1. Открыть popup.
-2. Проверить текст статуса.
-3. Нажать “Включить мониторинг”.
-4. Дождаться статуса “работает” или стартовой синхронизации.
-5. Открыть “Отслеживание”.
-6. Раскрыть быстрые фильтры и проверить группы “Скрывать уведомления” (ОЗОН, Юрлица) и “Уведомлять только” (Заказы юрлиц).
-7. Открыть “Настройки”.
-8. Раскрыть “Поддержка и диагностика” и скачать diagnostic log.
-9. Нажать “Остановить мониторинг”.
-```
-
-Ожидаемо:
-
-```text
-popup остаётся quick-control only
-кнопки включения/остановки понятны сотруднику
-warming/catch-up не создаёт пачку уведомлений
-быстрые suppressors меняют только уведомления, не сбор данных
-переход на watched-orders есть в popup
-поддержка/diagnostic log не шумит в основном popup и спрятан под раскрытие
-остановка мониторинга прекращает циклы проверки
-повторный запуск не создаёт лавину уведомлений
-```
-
----
-
-## 2. Options / порядок и dropdown-структура
-
-Шаги:
-
-```text
-1. Открыть Options.
-2. Проверить порядок блоков.
-3. Раскрыть/свернуть “Какие заказы собирать” → статус / доставка / оплата / склад.
-4. Раскрыть/свернуть “Текущие настройки”.
-5. Раскрыть/свернуть “Диагностика монитора”.
-6. Раскрыть/свернуть “Диагностический лог”.
-7. Убедиться, что Options больше не содержит кнопку перехода на watched-orders.
-```
-
-Ожидаемый порядок:
-
-```text
-1. Режим мониторинга
-2. Какие заказы собирать
-3. Уведомления (dropdown)
-4. Текущие настройки (dropdown)
-5. Диагностика монитора (dropdown)
-6. Диагностический лог (dropdown)
-```
-
-Ожидаемо:
-
-```text
-Options не выглядит как рабочий экран, а только как настройки/диагностика
-пояснение в шапке отделяет рабочие действия от редкой настройки
-переход к watched-orders остаётся в popup
-диагностические и текущие настройки спрятаны под dropdown
-monitorScope groups не занимают всю страницу сразу
-```
-
----
-
-## 3. Options / autosave настроек
-
-Шаги:
-
-```text
-1. Изменить режим мониторинга.
-2. Изменить deepSyncMaxPages.
-3. Изменить monitorScope в группах статус / доставка / оплата / склад.
-4. Изменить notificationTriggers.
-5. Изменить quick notification suppressors.
-6. Закрыть и снова открыть Options.
-```
-
-Ожидаемо:
-
-```text
-Options autosave работает без отдельной кнопки “Сохранить”
-режим “Быстрый” стоит выше общего режима
-изменения monitorScope сохраняются с debounce
-пустая группа monitorScope означает “все значения этой группы”
-notificationTriggers влияют только на desktop-уведомления
-quick suppressors и legal-only mode влияют только на desktop-уведомления
-изменение scope/mode запускает safe rebaseline, а не notification flood
-```
-
----
-
-## 4. Диагностика монитора
-
-Шаги:
-
-```text
-1. Открыть Options → Диагностика монитора.
-2. Нажать обновление диагностики.
-3. Включить мониторинг через popup.
-4. Снова обновить диагностику.
-5. Добавить watched order и проверить блок “Прямая проверка”.
-```
-
-Ожидаемо:
-
-```text
-диагностика показывает состояние monitorState
-видны основной worker и tabId, если worker активен
-видны known/window/hash counts без полного payload заказов
-видна прямая проверка: worker, tabId, текущий заказ, watched count, pending add, последняя ошибка
-lastDeepSyncAt и timestamps отображаются как readable date/time, не raw milliseconds
-видны retention counters diagnostic/event journal
-```
-
----
-
-## 5. Диагностический лог
-
-Шаги:
-
-```text
-1. Скачать diagnostic log из popup.
-2. Открыть Options → Диагностический лог.
-3. Обновить preview.
-4. Скопировать log.
-5. Скачать полный .txt.
-6. Очистить log.
-7. Снова скачать log после clear.
-```
-
-Ожидаемо:
-
-```text
-export содержит русскоязычный header с состоянием монитора
-header показывает worker, прямую проверку, интервал отслеживаемых заказов, counts, sync и retention
-full export не ограничен preview=100
-после clear counters/entries обновляются корректно
-лог не содержит HTML, cookie/token/auth данные или полный payload заказа
-лог помогает расследовать startup catch-up, direct-check, suppressors и false notifications
-```
-
----
-
-## 6. Запуск / catch-up без лавины уведомлений
-
-Шаги:
-
-```text
-1. Остановить мониторинг.
-2. Перезагрузить расширение в chrome://extensions.
-3. Открыть popup.
-4. Включить мониторинг.
-5. Дождаться первого catch-up / глубокого прохода после запуска.
-```
-
-Ожидаемо:
-
-```text
-нет массовых desktop-уведомлений по накопленным изменениям
-статус не зависает в warming
-счётчики known/window обновляются
-в diagnostic log есть startup/catch-up записи
-live-циклы после старта продолжают уведомлять по правилам
-```
-
----
-
-## 7. Изоляция worker-вкладки
-
-Шаги:
-
-```text
-1. Открыть обычную вкладку админки заказов вручную.
+1. Открыть обычную вкладку `/admin/orders/`.
 2. Включить мониторинг.
-3. Проверить, что worker-вкладка отдельная и помечена marker/hash.
-4. Продолжить работу в ручной вкладке менеджера.
-```
+3. Убедиться, что обычная вкладка не используется как worker.
+4. Проверить main/direct worker markers.
+5. Закрыть main worker вручную.
 
 Ожидаемо:
 
-```text
-worker определяется по marker + tabId
-случайная вкладка с тем же URL не используется как worker
-ручная вкладка менеджера не перезагружается как worker
-```
+- worker определяется trusted origin/path + marker + tabId;
+- обычная пользовательская вкладка не перезагружается;
+- watchdog alarm создаёт/восстанавливает worker;
+- foreign-origin URL с похожим hash не принимается.
 
----
+## 3. Fast/deep monitoring
 
-## 8. Глубокая синхронизация / сбор страниц
-
-Шаги:
-
-```text
-1. В Options выбрать общий режим: первая страница + глубокая синхронизация.
-2. Выставить deepSyncMaxPages = 50 или тестовое меньшее значение.
-3. Дождаться глубокой синхронизации.
-4. Проверить diagnostic log.
-```
+1. Проверить fast poll первой страницы.
+2. В `windowed` дождаться deep sync.
+3. Проверить возврат worker на page 1.
+4. Переключить `active` и убедиться, что deep sync не запускается.
+5. Изменить scope и проверить safe rebaseline.
 
 Ожидаемо:
 
-```text
-глубокая синхронизация идёт по ?page=N
-completionReason корректный:
-  pagination-last-page / pagination-single-page / empty-first-page / deep-sync-page-limit
-после глубокой синхронизации worker возвращается на page 1
-быстрый цикл не остаётся на глубокой странице
-empty page не используется как обычный stop condition, кроме empty first page для пустого scope
-```
+- события не дублируются;
+- context-only изменения не уведомляют;
+- local city time не создаёт diff;
+- scope/mode change не создаёт лавину уведомлений.
 
----
+## 4. Quick filters
 
-## 9. Нормализация snapshot / ложные изменения
-
-Шаги:
-
-```text
-1. Добавить заказ с городом, где карточка показывает “местное время”.
-2. Дождаться нескольких прямых проверок.
-3. Проверить уведомления и diagnostic log.
-```
+1. Включить «Скрывать ОЗОН».
+2. Включить «Скрывать Юрлица».
+3. Включить «Заказы юрлиц».
+4. Проверить popup и Options.
+5. Перезапустить extension.
 
 Ожидаемо:
 
-```text
-изменение только “местное время: HH:MM” не создаёт уведомление
-hash/diff не меняются из-за динамического времени
-в прямой проверке может появиться normalized no-change, но без записи события и без уведомления
-```
+- legal-only очищает оба hide-фильтра;
+- оба hide checkbox заблокированы, пока legal-only включён;
+- после restart конфликтные значения не возвращаются;
+- Ozon-заказ с юридической оплатой проходит legal-only;
+- обычный Ozon-заказ не проходит legal-only.
 
----
+## 5. Watched orders/direct follow-up
 
-## 10. Отслеживаемые заказы / add-remove-validation
-
-Шаги:
-
-```text
-1. Открыть popup → “Отслеживание”.
-2. Добавить существующий заказ из popup по полному orderId.
-3. Проверить, что заказ появился на странице watched-orders.
-4. Удалить заказ.
-5. Добавить существующий заказ со страницы watched-orders.
-6. Добавить несуществующий заказ формата ####-######, например 0000-000000.
-7. Перезагрузить watched-orders и проверить список.
-```
+1. Добавить существующий order ID.
+2. Попробовать несуществующий ID.
+3. Выключить follow-up у сохранённого заказа.
+4. Проверить comment/reminder.
+5. Снова включить follow-up.
+6. Перезапустить service worker во время direct worker.
 
 Ожидаемо:
 
-```text
-popup не принимает короткий 4-digit номер для добавления
-первый direct baseline не создаёт уведомление
-существующий заказ добавляется только после успешной direct validation
-несуществующий форматный номер не добавляется
-для несуществующего номера UI показывает понятный отказ без зависания
-удаление watched order работает без ReferenceError
-страница не показывает broad timeline всех событий
-user-facing order lookup скрыт и не продаётся как серверная история заказа
-```
+- несуществующий заказ не сохраняется;
+- stale pending state очищается;
+- comment/reminder не теряются;
+- orphan direct tab удаляется после recovery;
+- следующий alarm продолжает direct follow-up.
 
----
+## 6. Storage reliability
 
-## 11. Отслеживаемые заказы / комментарии и напоминания
-
-Шаги:
-
-```text
-1. Выбрать отслеживаемый заказ без active pending reminder.
-2. Изменить комментарий.
-3. Перезагрузить страницу и проверить сохранение комментария.
-4. Указать дату/время reminder в будущем.
-5. Добавить короткий note.
-6. Нажать “Напомнить”.
-7. Перезагрузить watched-orders.
-8. Попробовать создать второе reminder для того же заказа.
-9. Нажать “Удалить напоминание”.
-10. Создать новое reminder на ближайшее время и дождаться alarm.
-11. Кликнуть по desktop-уведомлению reminder.
-```
+1. Открыть Options → Diagnostics.
+2. Запомнить storage bytes.
+3. Выполнить несколько monitor/direct операций.
+4. Обновить diagnostics.
+5. Очистить diagnostic log.
+6. Перезапустить extension.
 
 Ожидаемо:
 
-```text
-комментарий сохраняется и может быть очищен
-дата/время reminder обязательны
-note reminder опционален
-у заказа может быть только одно active pending reminder
-при pending reminder форма повторного создания не показывается
-“Удалить напоминание” очищает pending reminder и alarm
-после срабатывания reminder становится done
-Chrome notification содержит номер заказа и текст reminder
-клик по reminder notification открывает страницу заказа в админке
-после reload/restart pending reminder alarm восстанавливается
-```
+- storage bytes отображаются числом;
+- нет storage error;
+- clear diagnostic log не повреждает остальной state;
+- known/window counts остаются согласованными;
+- retention counters не растут без фактического удаления;
+- content scripts не могут напрямую читать `chrome.storage.local`.
 
----
+## 7. Warehouse preview и защита записи
 
-## 12. Отслеживаемые заказы / интервал прямой проверки
-
-Шаги:
-
-```text
-1. Открыть watched-orders.
-2. Изменить интервал прямой проверки: 2 / 5 / 10 / 15 / 30 минут.
-3. Перезагрузить страницу.
-4. Проверить, что значение сохранилось.
-5. Проверить diagnostics header/status.
-```
+1. Открыть warehouse assembly page.
+2. Дождаться preview.
+3. Проверить collapsed/expanded UI и список причин пропуска.
+4. Выполнить обычный пользовательский click по «Записать в Ozon».
+5. В DevTools страницы попытаться вызвать `.click()` на кнопке расширения.
 
 Ожидаемо:
 
-```text
-интервал управляется со страницы watched-orders, а не из Options
-доступны только варианты 2 / 5 / 10 / 15 / 30 минут
-default = 2 минуты
-значение сохраняется через autosave
-прямая проверка не стартует чаще выбранного интервала
-изменение интервала не влияет на основной list-monitor и deep sync
-диагностика показывает выбранный интервал
-```
+- обычный click запускает write flow;
+- программный `.click()` блокируется и не открывает Ozon worker;
+- preview/check остаются доступны;
+- UI не зависает при fallback scan;
+- multi barcode отображается отдельно от других причин.
 
----
+## 8. Ozon write/recheck
 
-## 13. Остановка / перезапуск / восстановление
+Сценарии:
 
-Шаги:
-
-```text
-1. Остановить мониторинг.
-2. Убедиться, что worker не продолжает polling.
-3. Запустить снова.
-4. Перезагрузить браузер/расширение и проверить восстановление.
-```
+- всё уже существует;
+- успешная новая запись;
+- read-after-write задержка;
+- unconfirmed → успешный recheck;
+- unconfirmed → partial recheck;
+- stale error → successful recheck.
 
 Ожидаемо:
 
-```text
-STOP останавливает циклы
-START восстанавливает worker и state
-recovery не создаёт notification flood
-diagnostic log показывает recovery/catch-up причину
-```
+- зелёный только при полном подтверждении;
+- partial/error остаётся красным и retryable;
+- свежий recheck заменяет старое состояние;
+- одна актуальная status row;
+- technical fallback не показывается пользователю;
+- unrelated Ozon API traffic не попадает в capture/debug payload.
 
----
+## 9. Update lifecycle
 
-## 14. Warehouse / Ozon barcode binding
+Полностью проверить можно только при наличии опубликованной версии выше установленной.
 
-Шаги:
-
-```text
-1. Открыть warehouse assembly page для заказа со складскими штрихкодами.
-2. Проверить, что панель свернута по умолчанию.
-3. Развернуть панель кликом.
-4. Если заказ уже собран, убедиться, что initial barcode preview появился без ручного reload.
-5. Для свежей сборки просканировать/собрать заказ штатным складским действием.
-6. Нажать “Собрать заказ”.
-7. Убедиться, что страница не reload-ится.
-8. Проверить, что panel показывает товары, “Штрихкодов” и общий счётчик “Пропущено”.
-9. Нажать “Список ШК”.
-10. Убедиться, что штрихкоды сгруппированы по товарам, а пропуски — по фактическим причинам; любой видимый ШК можно выделить/скопировать.
-11. Нажать “Проверить штрихкоды”.
-12. Нажать “Записать в Ozon”.
-13. Проверить, что Ozon worker открывается в фоне и не уводит фокус с рабочей вкладки.
-14. Дождаться результата записи и verify.
-15. Для красного неподтверждённого результата нажать “Проверить штрихкоды” повторно и проверить переход состояния.
-```
+1. Начать Ozon/direct critical operation.
+2. Получить `onUpdateAvailable`.
+3. Проверить deferred alarm.
+4. Завершить critical operation.
+5. Проверить reload и восстановление monitoring.
 
 Ожидаемо:
 
-```text
-после “Собрать заказ” preview обновляется без reload
-старый уже собранный заказ показывает preview на page open
-если warehouse API response содержит пригодный barcode snapshot, используется API
-если API shop_order пойман, но barcode snapshot пустой, используется visible DOM fallback
-manual “Проверить штрихкоды” читает Ozon barcode details API и не пишет в Ozon
-multiBarcodeType rows не пишутся автоматически и показываются в группе “Мультиштрихкоды”
-дубликаты, неединичные позиции и отсутствующие данные не называются мультиштрихкодами
-Ozon search идёт по productId/offerId
-API write выполняется через /api/barcode-add-v2
-post-write verify выполняется через /api/sc/barcode-details-by-item-id
-verify body использует item_id как массив
-verify читает response.barcodes[].barcode
-drawer/DOM остаётся fallback
-при неподтверждённом API/verify остаётся красное retryable состояние
-успешная повторная проверка заменяет старое красное состояние зелёным подтверждённым
-частичная повторная проверка показывает точный счёт “подтверждено X из Y” и остаётся retryable
-старая ошибка операции не перекрывает свежую успешную проверку
-cookies/tokens/auth данные не попадают в storage/log/export
-```
+- idle extension reloads immediately;
+- critical operation не обрывается;
+- pending update сохраняется;
+- после safe point происходит reload;
+- monitoring восстанавливается без notification flood.
 
-Debug при проблемах:
+## 10. Финальная проверка перед будущим релизом
 
-```js
-JSON.stringify(window.__TAB_WANDERER_WAREHOUSE_BRIDGE_DEBUG__, null, 2)
-JSON.stringify(window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__, null, 2)
-```
-
-Ключевые признаки успешного warehouse API capture:
-
-```text
-lastMatchedPath: "api.response.shop_order"
-lastResult: "using stored API shopOrder snapshot"
-```
-
-Если такой API snapshot не содержит barcode-кандидатов, это не ошибка: bridge должен перейти на visible DOM fallback.
-
----
-
-## 15. Release/package hygiene
-
-Перед релизным архивом проверить, что не попадают:
-
-```text
-.git/
-node_modules/
-docs/private/
-*.patch
-*.diff
-temporary zip archives
-local samples/admin dumps
-```
-
-Chrome Web Store pre-upload checklist:
-
-```text
-release zip не содержит .git, docs/private, node_modules, временные архивы, локальные samples
-manifest permissions соответствуют реально используемым функциям
-host_permissions минимальны и объяснимы
-нет remote code, eval, CDN scripts или динамической загрузки кода
-privacy policy готова и совпадает с реальным поведением расширения
-permissions justification готов для Developer Dashboard
-описание single purpose не обещает серверную историю заказов
-Ozon flow описан как локальный helper, без намёка на official endorsement
-скриншоты актуальны
-staff install/update инструкция готова
-```
+- [ ] Все пункты выше пройдены.
+- [ ] `npm test` зелёный.
+- [ ] Runtime JS проходит `node --check`.
+- [ ] Нет remote code/eval/new Function.
+- [ ] `docs/private`, `.git`, tests и docs не входят в CWS runtime ZIP.
+- [ ] Version/release notes повышаются только после smoke.
+- [ ] Permissions и host permissions отдельно зафиксированы в build report.
+- [ ] Annotated tag создаётся только после публикации.

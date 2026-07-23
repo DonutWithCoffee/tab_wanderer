@@ -5,7 +5,14 @@ function normalizeOzonResolveId(value) {
 }
 
 function isWarehouseOzonResolveSender(senderTab = {}) {
-    return String(senderTab?.url || '').startsWith('https://amperkot.ru/web-apps/wh3/');
+    try {
+        const url = new URL(String(senderTab?.url || ''));
+        return url.protocol === 'https:'
+            && url.hostname === 'amperkot.ru'
+            && url.pathname.startsWith('/web-apps/wh3/');
+    } catch {
+        return false;
+    }
 }
 
 function getOzonResolveProductGroups(warehouseExtraction = {}) {

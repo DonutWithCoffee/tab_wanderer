@@ -110,7 +110,7 @@ function getDefaultOrderLookupResponse() {
         order: {
             orderId: '1001-300326',
             shortOrderNumber: '1001',
-            orderUrl: 'https://amperkot.ru/admin/orders/1001-300326/',
+            orderUrl: 'https://evil.example/admin/orders/1001-300326/',
             context: {
                 status: 'Оплачен',
                 delivery: 'Самовывоз',
@@ -421,6 +421,8 @@ test('hidden order lookup requests order data and renders selected order changes
     assert.match(document.getElementById('orderSummary').innerHTML, /Оплачен/);
     assert.match(document.getElementById('orderSummary').innerHTML, /ОЗОН/);
     assert.match(document.getElementById('orderSummary').innerHTML, /Это не полная серверная история заказа/);
+    assert.match(document.getElementById('orderSummary').innerHTML, /https:\/\/amperkot\.ru\/admin\/orders\/1001-300326\//);
+    assert.doesNotMatch(document.getElementById('orderSummary').innerHTML, /evil\.example/);
     assert.match(document.getElementById('historyList').innerHTML, /Изменение заказа/);
     assert.match(document.getElementById('historyList').innerHTML, /Прямая проверка/);
     assert.match(document.getElementById('historyList').innerHTML, /Статус/);

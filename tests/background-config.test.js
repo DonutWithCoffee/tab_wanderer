@@ -394,16 +394,16 @@ setBackgroundState(context, {
     pendingRebaseline: true,
     pendingSyncReason: 'scope-change',
     knownOrdersDB: {
-        stale: createOrder({ id: 'stale' })
+        '9000-010101': createOrder({ id: '9000-010101' })
     },
     knownOrdersHashDB: {
-        stale: 'old-hash'
+        '9000-010101': 'old-hash'
     },
     windowOrdersDB: {
-        stale: createOrder({ id: 'stale' })
+        '9000-010101': createOrder({ id: '9000-010101' })
     },
     windowOrdersHashDB: {
-        stale: 'old-hash'
+        '9000-010101': 'old-hash'
     },
     userConfig: getEffectiveConfigSnapshot(context, {
         monitorMode: 'windowed',
@@ -451,8 +451,8 @@ setBackgroundState(context, {
     assert.equal(response.ok, true);
     assert.equal(Object.keys(state.knownOrdersDB).length, 3);
     assert.equal(Object.keys(state.windowOrdersDB).length, 2);
-    assert.equal(state.knownOrdersDB.stale.id, 'stale');
-    assert.equal(state.windowOrdersDB.stale, undefined);
+    assert.equal(state.knownOrdersDB['9000-010101'].id, '9000-010101');
+    assert.equal(state.windowOrdersDB['9000-010101'], undefined);
     assert.equal(state.pendingRebaseline, false);
     assert.equal(state.pendingSyncReason, null);
     assert.equal(state.monitorState, 'active');
@@ -468,11 +468,11 @@ test('manual-start with known state records changed order while stopped without 
     await settleBackgroundContext();
 
     const prevOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Новый'
     });
     const nextOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Оплачен'
     });
 
@@ -484,16 +484,16 @@ test('manual-start with known state records changed order while stopped without 
         pendingSyncReason: 'manual-start',
         lastDeepSyncAt: 0,
         knownOrdersDB: {
-            known: prevOrder
+            '9001-010101': prevOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, prevOrder)
+            '9001-010101': getHashForOrder(context, prevOrder)
         },
         windowOrdersDB: {
-            known: prevOrder
+            '9001-010101': prevOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, prevOrder)
+            '9001-010101': getHashForOrder(context, prevOrder)
         },
         userConfig: createWindowedConfig(context)
     });
@@ -519,8 +519,8 @@ test('manual-start with known state records changed order while stopped without 
 
     assert.equal(response.ok, true);
     assert.equal(context.__test.notifications.length, 0);
-    assert.equal(state.knownOrdersDB.known.status, 'Оплачен');
-    assert.equal(state.windowOrdersDB.known.status, 'Оплачен');
+    assert.equal(state.knownOrdersDB['9001-010101'].status, 'Оплачен');
+    assert.equal(state.windowOrdersDB['9001-010101'].status, 'Оплачен');
     assert.equal(state.pendingRebaseline, false);
     assert.equal(state.pendingSyncReason, null);
     assert.equal(state.monitorState, 'active');
@@ -533,7 +533,7 @@ test('manual-start with known state records changed order while stopped without 
     assert.equal(state.eventJournal[0].notification.ruleId, 'notification-startup-catch-up-suppressed');
     assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['status']);
     assert.ok(changeLog);
-    assert.equal(changeLog.details.id, 'known');
+    assert.equal(changeLog.details.id, '9001-010101');
     assert.equal(changeLog.details.eventType, 'order-changed');
     assert.deepEqual(JSON.parse(JSON.stringify(changeLog.details.changedFields)), ['status']);
     assert.equal(Object.prototype.hasOwnProperty.call(changeLog.details, 'prev'), false);
@@ -544,11 +544,11 @@ test('manual-start with known state records new order while stopped without noti
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
-    const knownOrder = createOrder({ id: 'known' });
+    const knownOrder = createOrder({ id: '9001-010101' });
     const newOrder = createOrder({
-        id: 'new-order',
+        id: '9002-010101',
         status: 'Новый',
-        orderUrl: 'https://amperkot.ru/admin/orders/new-order/'
+        orderUrl: 'https://amperkot.ru/admin/orders/9002-010101/'
     });
 
     setBackgroundState(context, {
@@ -559,16 +559,16 @@ test('manual-start with known state records new order while stopped without noti
         pendingSyncReason: 'manual-start',
         lastDeepSyncAt: 0,
         knownOrdersDB: {
-            known: knownOrder
+            '9001-010101': knownOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, knownOrder)
+            '9001-010101': getHashForOrder(context, knownOrder)
         },
         windowOrdersDB: {
-            known: knownOrder
+            '9001-010101': knownOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, knownOrder)
+            '9001-010101': getHashForOrder(context, knownOrder)
         },
         userConfig: createWindowedConfig(context)
     });
@@ -593,8 +593,8 @@ test('manual-start with known state records new order while stopped without noti
 
     assert.equal(response.ok, true);
     assert.equal(context.__test.notifications.length, 0);
-    assert.equal(state.knownOrdersDB['new-order'].id, 'new-order');
-    assert.equal(state.windowOrdersDB['new-order'].id, 'new-order');
+    assert.equal(state.knownOrdersDB['9002-010101'].id, '9002-010101');
+    assert.equal(state.windowOrdersDB['9002-010101'].id, '9002-010101');
     assert.equal(state.eventJournal.length, 1);
     assert.equal(state.eventJournal[0].eventType, 'new-order');
     assert.equal(state.eventJournal[0].eventKind, 'catch-up');
@@ -607,11 +607,11 @@ test('manual-start with known state records tag-only catch-up without notificati
     await settleBackgroundContext();
 
     const prevOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         tags: []
     });
     const nextOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         tags: ['VIP']
     });
 
@@ -623,16 +623,16 @@ test('manual-start with known state records tag-only catch-up without notificati
         pendingSyncReason: 'manual-start',
         lastDeepSyncAt: 0,
         knownOrdersDB: {
-            known: prevOrder
+            '9001-010101': prevOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, prevOrder)
+            '9001-010101': getHashForOrder(context, prevOrder)
         },
         windowOrdersDB: {
-            known: prevOrder
+            '9001-010101': prevOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, prevOrder)
+            '9001-010101': getHashForOrder(context, prevOrder)
         },
         userConfig: createWindowedConfig(context)
     });
@@ -657,8 +657,8 @@ test('manual-start with known state records tag-only catch-up without notificati
 
     assert.equal(response.ok, true);
     assert.equal(context.__test.notifications.length, 0);
-    assert.deepEqual(JSON.parse(JSON.stringify(state.knownOrdersDB.known.tags)), ['VIP']);
-    assert.deepEqual(JSON.parse(JSON.stringify(state.windowOrdersDB.known.tags)), ['VIP']);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.knownOrdersDB['9001-010101'].tags)), ['VIP']);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.windowOrdersDB['9001-010101'].tags)), ['VIP']);
     assert.equal(state.eventJournal.length, 1);
     assert.equal(state.eventJournal[0].eventKind, 'catch-up');
     assert.deepEqual(JSON.parse(JSON.stringify(state.eventJournal[0].changedFields)), ['tags']);
@@ -669,7 +669,7 @@ test('initial start with empty state remains silent baseline', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
-    const newOrder = createOrder({ id: 'new-order' });
+    const newOrder = createOrder({ id: '9002-010101' });
 
     setBackgroundState(context, {
         isRunning: true,
@@ -706,8 +706,8 @@ test('initial start with empty state remains silent baseline', async () => {
     assert.equal(response.ok, true);
     assert.equal(context.__test.notifications.length, 0);
     assert.equal(state.eventJournal.length, 0);
-    assert.equal(state.knownOrdersDB['new-order'].id, 'new-order');
-    assert.equal(state.windowOrdersDB['new-order'].id, 'new-order');
+    assert.equal(state.knownOrdersDB['9002-010101'].id, '9002-010101');
+    assert.equal(state.windowOrdersDB['9002-010101'].id, '9002-010101');
     assert.equal(state.lastCollectionMetadata.syncReason, 'initial');
     assert.equal(state.pendingRebaseline, false);
     assert.equal(state.monitorState, 'active');
@@ -719,12 +719,13 @@ test('recovery and stale resume with known state stay silent baseline without no
         const context = loadBackgroundContext();
         await settleBackgroundContext();
 
+        const orderId = syncReason === 'recovery' ? '9601-010101' : '9602-010101';
         const prevOrder = createOrder({
-            id: `known-${syncReason}`,
+            id: orderId,
             status: 'Новый'
         });
         const nextOrder = createOrder({
-            id: `known-${syncReason}`,
+            id: orderId,
             status: 'Комплектуется'
         });
 
@@ -790,7 +791,7 @@ test('known order marks deep session intersection but does not stop collection b
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
-    const knownOrder = createOrder({ id: 'known' });
+    const knownOrder = createOrder({ id: '9001-010101' });
 
 setBackgroundState(context, {
     isRunning: true,
@@ -799,16 +800,16 @@ setBackgroundState(context, {
     pendingRebaseline: false,
     lastDeepSyncAt: 0,
     knownOrdersDB: {
-        known: knownOrder
+        '9001-010101': knownOrder
     },
     knownOrdersHashDB: {
-        known: 'hash'
+        '9001-010101': 'hash'
     },
     windowOrdersDB: {
-        known: knownOrder
+        '9001-010101': knownOrder
     },
     windowOrdersHashDB: {
-        known: 'hash'
+        '9001-010101': 'hash'
     },
     userConfig: getEffectiveConfigSnapshot(context, {
         monitorMode: 'windowed',
@@ -837,7 +838,7 @@ setBackgroundState(context, {
             isComplete: false,
             data: [
                 createOrder(),
-                createOrder({ id: 'known' })
+                createOrder({ id: '9001-010101' })
             ]
         },
         {
@@ -933,16 +934,16 @@ test('fast cycle completes on first page without advancing when deep sync is not
         pendingRebaseline: false,
         lastDeepSyncAt: Date.now(),
 knownOrdersDB: {
-    known: createOrder({ id: 'known' })
+    '9001-010101': createOrder({ id: '9001-010101' })
 },
 knownOrdersHashDB: {
-    known: 'known-hash'
+    '9001-010101': 'known-hash'
 },
 windowOrdersDB: {
-    known: createOrder({ id: 'known' })
+    '9001-010101': createOrder({ id: '9001-010101' })
 },
 windowOrdersHashDB: {
-    known: 'known-hash'
+    '9001-010101': 'known-hash'
 },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
@@ -1075,7 +1076,7 @@ test('deep sync completion returns worker to first page', async () => {
             lastActivityAt: 1700000000000,
             advanceAttempts: 9,
             orders: {
-                page1: createOrder({ id: 'page1' })
+                '9101-010101': createOrder({ id: '9101-010101' })
             },
             isComplete: false,
             completionReason: null,
@@ -1114,7 +1115,7 @@ test('deep sync completion returns worker to first page', async () => {
             type: 'ORDERS',
             page: 10,
             isComplete: false,
-            data: [createOrder({ id: 'page10' })]
+            data: [createOrder({ id: '9110-010101' })]
         },
         {
             tab: {
@@ -1144,11 +1145,11 @@ test('fast cycle redirects stale non-first worker page without processing it', a
     await settleBackgroundContext();
 
     const currentOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Новый'
     });
     const stalePageOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Оплачен'
     });
     const previousMetadata = {
@@ -1165,16 +1166,16 @@ test('fast cycle redirects stale non-first worker page without processing it', a
         pendingRebaseline: false,
         lastDeepSyncAt: Date.now(),
         knownOrdersDB: {
-            known: currentOrder
+            '9001-010101': currentOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, currentOrder)
+            '9001-010101': getHashForOrder(context, currentOrder)
         },
         windowOrdersDB: {
-            known: currentOrder
+            '9001-010101': currentOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, currentOrder)
+            '9001-010101': getHashForOrder(context, currentOrder)
         },
         lastCollectionMetadata: previousMetadata,
         userConfig: getEffectiveConfigSnapshot(context, {
@@ -1219,7 +1220,7 @@ test('fast cycle redirects stale non-first worker page without processing it', a
     assert.equal(response.collecting, true);
     assert.equal(response.redirected, true);
     assert.equal(response.stalePage, true);
-    assert.equal(state.knownOrdersDB.known.status, 'Новый');
+    assert.equal(state.knownOrdersDB['9001-010101'].status, 'Новый');
     assert.deepEqual(state.lastCollectionMetadata, previousMetadata);
     assert.equal(context.__test.notifications.length, 0);
     assert.equal(context.__test.tabUpdates.length, 1);
@@ -1312,23 +1313,23 @@ test('START with known state schedules manual-start catch-up', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
-    const knownOrder = createOrder({ id: 'known' });
+    const knownOrder = createOrder({ id: '9001-010101' });
 
     setBackgroundState(context, {
         isRunning: false,
         monitorState: 'uninitialized',
         workerTabId: null,
         knownOrdersDB: {
-            known: knownOrder
+            '9001-010101': knownOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, knownOrder)
+            '9001-010101': getHashForOrder(context, knownOrder)
         },
         windowOrdersDB: {
-            known: knownOrder
+            '9001-010101': knownOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, knownOrder)
+            '9001-010101': getHashForOrder(context, knownOrder)
         },
         userConfig: createWindowedConfig(context)
     });
@@ -1353,15 +1354,15 @@ test('START preserves pending scope-change baseline instead of scheduling catch-
     await settleBackgroundContext();
 
     const knownOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Новый'
     });
     const changedOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Завершен'
     });
     const newOrder = createOrder({
-        id: 'new',
+        id: '9003-010101',
         status: 'Готов к выдаче'
     });
 
@@ -1372,16 +1373,16 @@ test('START preserves pending scope-change baseline instead of scheduling catch-
         pendingRebaseline: true,
         pendingSyncReason: 'scope-change',
         knownOrdersDB: {
-            known: knownOrder
+            '9001-010101': knownOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, knownOrder)
+            '9001-010101': getHashForOrder(context, knownOrder)
         },
         windowOrdersDB: {
-            known: knownOrder
+            '9001-010101': knownOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, knownOrder)
+            '9001-010101': getHashForOrder(context, knownOrder)
         },
         userConfig: createWindowedConfig(context)
     });
@@ -1423,8 +1424,8 @@ test('START preserves pending scope-change baseline instead of scheduling catch-
     assert.equal(state.pendingSyncReason, null);
     assert.equal(state.monitorState, 'active');
     assert.equal(state.lastCollectionMetadata.syncReason, 'scope-change');
-    assert.equal(state.knownOrdersDB.known.status, 'Завершен');
-    assert.equal(state.knownOrdersDB.new.status, 'Готов к выдаче');
+    assert.equal(state.knownOrdersDB['9001-010101'].status, 'Завершен');
+    assert.equal(state.knownOrdersDB['9003-010101'].status, 'Готов к выдаче');
     assert.equal(state.eventJournal.length, 0);
     assert.equal(context.__test.notifications.length, 0);
 });
@@ -1770,12 +1771,12 @@ test('active deep sync emits notification for changed known order', async () => 
     await settleBackgroundContext();
 
     const prevOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Новый'
     });
 
     const nextOrder = createOrder({
-        id: 'known',
+        id: '9001-010101',
         status: 'Оплачен'
     });
 
@@ -1786,16 +1787,16 @@ test('active deep sync emits notification for changed known order', async () => 
         pendingRebaseline: false,
         lastDeepSyncAt: 0,
         knownOrdersDB: {
-            known: prevOrder
+            '9001-010101': prevOrder
         },
         knownOrdersHashDB: {
-            known: getHashForOrder(context, prevOrder)
+            '9001-010101': getHashForOrder(context, prevOrder)
         },
         windowOrdersDB: {
-            known: prevOrder
+            '9001-010101': prevOrder
         },
         windowOrdersHashDB: {
-            known: getHashForOrder(context, prevOrder)
+            '9001-010101': getHashForOrder(context, prevOrder)
         },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
@@ -1837,8 +1838,8 @@ test('active deep sync emits notification for changed known order', async () => 
 
     assert.equal(response.ok, true);
     assert.equal(context.__test.notifications.length, 1);
-    assert.equal(state.knownOrdersDB.known.status, 'Оплачен');
-    assert.equal(state.windowOrdersDB.known.status, 'Оплачен');
+    assert.equal(state.knownOrdersDB['9001-010101'].status, 'Оплачен');
+    assert.equal(state.windowOrdersDB['9001-010101'].status, 'Оплачен');
     assert.equal(state.collectionSession, null);
     assert.ok(state.lastDeepSyncAt > 0);
 });
@@ -1848,11 +1849,11 @@ test('active deep sync rebuilds window snapshot after emitting events', async ()
     await settleBackgroundContext();
 
     const oldWindowOrder = createOrder({
-        id: 'old-window-order'
+        id: '9300-010101'
     });
 
     const currentDeepOrder = createOrder({
-        id: 'current-deep-order'
+        id: '9301-010101'
     });
 
     setBackgroundState(context, {
@@ -2008,7 +2009,7 @@ test('ORDERS writes deep collection completion entry to diagnostic log', async (
             page: 1,
             isComplete: true,
             completionReason: 'explicit-complete',
-            data: [createOrder({ id: 'deep-order' })]
+            data: [createOrder({ id: '9200-010101' })]
         },
         {
             tab: {
@@ -2043,7 +2044,7 @@ test('ORDERS does not persist noisy fast process logs without changes', async ()
     const context = loadBackgroundContext();
     await settleBackgroundContext();
 
-    const order = createOrder({ id: 'fast-order' });
+    const order = createOrder({ id: '9201-010101' });
     const hash = getHashForOrder(context, order);
 
     setBackgroundState(context, {
@@ -2053,16 +2054,16 @@ test('ORDERS does not persist noisy fast process logs without changes', async ()
         pendingRebaseline: false,
         lastDeepSyncAt: Date.now(),
         knownOrdersDB: {
-            'fast-order': order
+            '9201-010101': order
         },
         knownOrdersHashDB: {
-            'fast-order': hash
+            '9201-010101': hash
         },
         windowOrdersDB: {
-            'fast-order': order
+            '9201-010101': order
         },
         windowOrdersHashDB: {
-            'fast-order': hash
+            '9201-010101': hash
         },
         userConfig: getEffectiveConfigSnapshot(context, {
             monitorMode: 'windowed',
@@ -2323,7 +2324,7 @@ test('deep collection page navigation is console-only while completion stays per
             type: 'ORDERS',
             page: 1,
             isComplete: false,
-            data: [createOrder({ id: 'page-1-order' })]
+            data: [createOrder({ id: '9401-010101' })]
         },
         sender
     );
@@ -2334,7 +2335,7 @@ test('deep collection page navigation is console-only while completion stays per
             type: 'ORDERS',
             page: 2,
             isComplete: false,
-            data: [createOrder({ id: 'page-2-order' })]
+            data: [createOrder({ id: '9402-010101' })]
         },
         sender
     );
@@ -2393,7 +2394,7 @@ test('deep sync completes early when pagination reports last page', async () => 
         page: 1,
         isComplete: false,
         completionReason: null,
-        data: [createOrder({ id: 'page-1' })]
+        data: [createOrder({ id: '9501-010101' })]
     }, sender);
 
     const second = await sendRuntimeMessage(context, {
@@ -2401,7 +2402,7 @@ test('deep sync completes early when pagination reports last page', async () => 
         page: 2,
         isComplete: false,
         completionReason: null,
-        data: [createOrder({ id: 'page-2' })]
+        data: [createOrder({ id: '9502-010101' })]
     }, sender);
 
     const third = await sendRuntimeMessage(context, {
@@ -2409,7 +2410,7 @@ test('deep sync completes early when pagination reports last page', async () => 
         page: 3,
         isComplete: true,
         completionReason: 'pagination-last-page',
-        data: [createOrder({ id: 'page-3' })]
+        data: [createOrder({ id: '9503-010101' })]
     }, sender);
 
     const state = getBackgroundState(context);
@@ -3630,9 +3631,10 @@ test('SET_WATCHED_ORDER_REMINDER stores pending reminder and schedules alarm', a
     assert.equal(item.reminder.status, 'pending');
     assert.equal(item.reminder.remindAt, remindAt);
     assert.equal(item.reminder.note, 'Проверить оплату');
-    assert.equal(context.__test.alarmCreateCalls.length, 1);
-    assert.equal(context.__test.alarmCreateCalls[0].name, 'tab_wanderer_watched_order_reminder:1000-300326');
-    assert.equal(context.__test.alarmCreateCalls[0].alarmInfo.when, remindAt);
+    const reminderAlarmCalls = context.__test.alarmCreateCalls.filter(call => call.name.startsWith('tab_wanderer_watched_order_reminder:'));
+    assert.equal(reminderAlarmCalls.length, 1);
+    assert.equal(reminderAlarmCalls[0].name, 'tab_wanderer_watched_order_reminder:1000-300326');
+    assert.equal(reminderAlarmCalls[0].alarmInfo.when, remindAt);
 });
 
 test('CLEAR_WATCHED_ORDER_REMINDER removes reminder and clears alarm', async () => {
@@ -3751,7 +3753,8 @@ test('UPDATE_CONFIG syncs pending reminder alarms and clears stale reminder alar
 
     assert.equal(response.ok, true);
     assert.deepEqual(context.__test.alarmClearCalls, ['tab_wanderer_watched_order_reminder:9999-300326']);
-    assert.equal(context.__test.alarmCreateCalls.length, 1);
-    assert.equal(context.__test.alarmCreateCalls[0].name, 'tab_wanderer_watched_order_reminder:1000-300326');
-    assert.equal(context.__test.alarmCreateCalls[0].alarmInfo.when, remindAt);
+    const reminderAlarmCalls = context.__test.alarmCreateCalls.filter(call => call.name.startsWith('tab_wanderer_watched_order_reminder:'));
+    assert.equal(reminderAlarmCalls.length, 1);
+    assert.equal(reminderAlarmCalls[0].name, 'tab_wanderer_watched_order_reminder:1000-300326');
+    assert.equal(reminderAlarmCalls[0].alarmInfo.when, remindAt);
 });

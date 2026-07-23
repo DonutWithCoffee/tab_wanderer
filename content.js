@@ -205,6 +205,32 @@ function getColumnMap() {
 
 
 
+
+function normalizeAmperkotOrderId(value) {
+    const normalized = String(value || '').trim();
+    return /^\d{1,10}-\d{6}$/.test(normalized) ? normalized : '';
+}
+
+function buildCanonicalAmperkotOrderUrl(orderId) {
+    const normalizedId = normalizeAmperkotOrderId(orderId);
+    return normalizedId ? `https://amperkot.ru/admin/orders/${normalizedId}/` : '';
+}
+
+function normalizeAmperkotOrderUrl(value, fallbackOrderId = '') {
+    try {
+        const url = new URL(String(value || ''), 'https://amperkot.ru');
+        const match = url.pathname.match(/^\/admin\/orders\/(\d{1,10}-\d{6})\/?$/);
+
+        if (url.protocol !== 'https:' || url.hostname !== 'amperkot.ru' || !match) {
+            return buildCanonicalAmperkotOrderUrl(fallbackOrderId);
+        }
+
+        return buildCanonicalAmperkotOrderUrl(match[1]);
+    } catch {
+        return buildCanonicalAmperkotOrderUrl(fallbackOrderId);
+    }
+}
+
 // ---------- PARSE ----------
 function parseOrders() {
     const map = getColumnMap();
@@ -222,12 +248,11 @@ function parseOrders() {
 
         let displayId = link?.innerText?.trim();
         if (!displayId) displayId = internalId;
+        displayId = normalizeAmperkotOrderId(displayId);
         if (!displayId) return;
 
         const rawHref = link?.getAttribute('href') || '';
-        const orderUrl = rawHref
-            ? new URL(rawHref, window.location.origin).toString()
-            : '';
+        const orderUrl = normalizeAmperkotOrderUrl(rawHref, displayId);
 
         const status = normalizeOrderFieldText('status', cells[map.status]?.innerText || '');
         const delivery = normalizeOrderFieldText('delivery', cells[map.delivery]?.innerText || '');
@@ -635,8 +660,8 @@ function hasMeaningfulOrderDetails(order = {}) {
 }
 
 function parseOrderDetails(expectedOrderId = '') {
-    const expectedId = normalizeCellText(expectedOrderId);
-    const locationId = normalizeCellText(getOrderIdFromLocation());
+    const expectedId = normalizeAmperkotOrderId(expectedOrderId);
+    const locationId = normalizeAmperkotOrderId(getOrderIdFromLocation());
     const id = expectedId || locationId;
 
     if (!id) {
@@ -705,7 +730,7 @@ function parseOrderDetails(expectedOrderId = '') {
             findSectionDetailValue('Данные заказа', ['Клиент', 'Контрагент', 'Юридическое лицо'], ['Клиент'])
                 || findDetailValueByLabels(['Контрагент', 'Юридическое лицо'])
         ),
-        orderUrl: rawUrl,
+        orderUrl: normalizeAmperkotOrderUrl(rawUrl, id),
         hasAutoreserve: !!document.querySelector('.fa-lock'),
         tags
     };
@@ -763,10 +788,10 @@ const WAREHOUSE_OZON_APPLY_BUTTON_ID = 'tab-wanderer-warehouse-ozon-apply';
 const OZON_PRODUCT_BRIDGE_SCRIPT_ID = 'tab-wanderer-ozon-product-bridge';
 const OZON_PRODUCT_REQUEST_EVENT = 'tab_wanderer:ozon-product-request';
 const OZON_PRODUCT_RESPONSE_EVENT = 'tab_wanderer:ozon-product-response';
-const OZON_UI_APPLY_REQUEST_EVENT = 'tab_wanderer:ozon-ui-apply-request';
-const OZON_UI_APPLY_RESPONSE_EVENT = 'tab_wanderer:ozon-ui-apply-response';
+const OZON_ISOLATED_API_KEY = '__TAB_WANDERER_OZON_ISOLATED_API__';
 const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
 const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
+const OZON_WORKER_READY_FALLBACK_MS = 3000;
 const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
 const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
 const WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS = [350, 1200, 2500];
@@ -780,6 +805,7 @@ let warehouseRouteWatcherTimer = null;
 let warehousePreviewActionListenersInitialized = false;
 let warehouseBarcodePreviewCollapsed = true;
 let warehouseBarcodeListExpanded = false;
+let warehouseBarcodePreviewPanelElement = null;
 let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
 let warehouseShopOrderReadReason = 'initial';
@@ -789,6 +815,9 @@ let warehouseAssemblyActionDebug = readWarehouseAssemblyActionDebugFromSession()
 let warehouseAssemblyActionListenersInitialized = false;
 let ozonProductBridgeInitialized = false;
 let ozonRuntimeMessageListenerInitialized = false;
+let ozonResolvedSellerId = '';
+let ozonWorkerReadyTimer = null;
+let ozonWorkerReadyProductId = '';
 
 function isWarehouseAppPageUrl(href = window.location.href) {
     try {
@@ -1272,13 +1301,18 @@ function ensureWarehouseBarcodePreviewPanel() {
         return null;
     }
 
-    let panel = document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID);
-
-    if (panel) {
-        return panel;
+    if (warehouseBarcodePreviewPanelElement?.parentNode || warehouseBarcodePreviewPanelElement?.isConnected === true) {
+        return warehouseBarcodePreviewPanelElement;
     }
 
-    panel = createWarehousePreviewElement('div', {
+    warehouseBarcodePreviewPanelElement = null;
+
+    const conflictingElement = document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID);
+    if (conflictingElement?.parentNode?.removeChild) {
+        conflictingElement.parentNode.removeChild(conflictingElement);
+    }
+
+    const panel = createWarehousePreviewElement('div', {
         id: WAREHOUSE_BARCODE_PREVIEW_PANEL_ID,
         styles: {
             position: 'fixed',
@@ -1313,6 +1347,7 @@ function ensureWarehouseBarcodePreviewPanel() {
     }
 
     target.appendChild(panel);
+    warehouseBarcodePreviewPanelElement = panel;
     return panel;
 }
 
@@ -1395,17 +1430,50 @@ function renderWarehouseBarcodePreviewHeader(panel, viewModel = {}) {
 }
 
 function removeWarehouseBarcodePreviewPanel() {
-    const panel = typeof document.getElementById === 'function'
-        ? document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID)
-        : null;
+    const panel = warehouseBarcodePreviewPanelElement
+        || (typeof document.getElementById === 'function'
+            ? document.getElementById(WAREHOUSE_BARCODE_PREVIEW_PANEL_ID)
+            : null);
 
     if (panel?.parentNode?.removeChild) {
         panel.parentNode.removeChild(panel);
     }
+
+    warehouseBarcodePreviewPanelElement = null;
+}
+
+function isElementInsideWarehousePreviewPanel(element) {
+    const panel = warehouseBarcodePreviewPanelElement;
+
+    if (!panel || !element) {
+        return false;
+    }
+
+    if (element === panel) {
+        return true;
+    }
+
+    if (typeof panel.contains === 'function') {
+        try {
+            return panel.contains(element);
+        } catch {}
+    }
+
+    let current = element;
+    while (current) {
+        if (current === panel) {
+            return true;
+        }
+        current = current.parentNode || null;
+    }
+
+    return false;
 }
 
 function getWarehousePreviewActionTarget(target) {
-    return target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, #${WAREHOUSE_OZON_RESOLVE_BUTTON_ID}, #${WAREHOUSE_OZON_APPLY_BUTTON_ID}, [data-tab-wanderer-action]`) || null;
+    const actionTarget = target?.closest?.(`#${WAREHOUSE_BARCODE_PREVIEW_REFRESH_BUTTON_ID}, #${WAREHOUSE_OZON_RESOLVE_BUTTON_ID}, #${WAREHOUSE_OZON_APPLY_BUTTON_ID}, [data-tab-wanderer-action]`) || null;
+
+    return isElementInsideWarehousePreviewPanel(actionTarget) ? actionTarget : null;
 }
 
 function isWarehousePreviewActionTarget(target) {
@@ -1446,6 +1514,11 @@ function handleWarehousePreviewActionEvent(event) {
     }
 
     if (action === 'ozon-ui-apply') {
+        if (event?.isTrusted !== true) {
+            log('WARN', 'WAREHOUSE_OZON', 'blocked untrusted Ozon write action');
+            return;
+        }
+
         requestWarehouseOzonUiApply();
         return;
     }
@@ -1472,7 +1545,6 @@ function ensureWarehousePreviewActionListeners() {
 
     const target = document;
 
-    target.addEventListener?.('pointerdown', handleWarehousePreviewActionEvent, true);
     target.addEventListener?.('click', handleWarehousePreviewActionEvent, true);
     target.addEventListener?.('keydown', handleWarehousePreviewKeyboardEvent, true);
 
@@ -2238,7 +2310,7 @@ function getOzonProductIdFromUrl(href = window.location.href) {
 function getOzonProductBridgeScriptUrl() {
     try {
         if (chrome?.runtime?.getURL) {
-            return chrome.runtime.getURL('ozon-product-bridge.js');
+            return chrome.runtime.getURL('ozon-product-page-bridge.js');
         }
     } catch {}
 
@@ -2285,9 +2357,22 @@ function sendOzonProductResolveResult(productId, result = {}) {
 
 
 function sendOzonProductWorkerReady(productId) {
+    const normalizedProductId = normalizeWarehouseBridgeId(productId);
+
+    if (!normalizedProductId || ozonWorkerReadyProductId === normalizedProductId) {
+        return false;
+    }
+
+    if (ozonWorkerReadyTimer && typeof clearTimeout === 'function') {
+        clearTimeout(ozonWorkerReadyTimer);
+    }
+
+    ozonWorkerReadyTimer = null;
+    ozonWorkerReadyProductId = normalizedProductId;
+
     sendRuntimeMessage({
         type: 'OZON_PRODUCT_WORKER_READY',
-        productId
+        productId: normalizedProductId
     }, () => {
         const runtimeError = getRuntimeLastError();
 
@@ -2295,15 +2380,67 @@ function sendOzonProductWorkerReady(productId) {
             log('WARN', 'OZON_PRODUCT', 'worker ready message failed', runtimeError.message);
         }
     }, 'OZON_PRODUCT');
+
+    return true;
+}
+
+function scheduleOzonProductWorkerReadyFallback(productId) {
+    const normalizedProductId = normalizeWarehouseBridgeId(productId);
+
+    if (!normalizedProductId || ozonWorkerReadyProductId === normalizedProductId || typeof setTimeout !== 'function') {
+        return false;
+    }
+
+    if (ozonWorkerReadyTimer && typeof clearTimeout === 'function') {
+        clearTimeout(ozonWorkerReadyTimer);
+    }
+
+    ozonWorkerReadyTimer = setTimeout(() => {
+        ozonWorkerReadyTimer = null;
+        sendOzonProductWorkerReady(normalizedProductId);
+    }, OZON_WORKER_READY_FALLBACK_MS);
+
+    return true;
 }
 
 function dispatchOzonUiApplyRequest(productId, barcodes = []) {
-    window.dispatchEvent(new CustomEvent(OZON_UI_APPLY_REQUEST_EVENT, {
-        detail: {
-            productId: normalizeWarehouseBridgeId(productId),
-            barcodes: Array.isArray(barcodes) ? barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : []
-        }
-    }));
+    const normalizedProductId = normalizeWarehouseBridgeId(productId);
+    const normalizedBarcodes = Array.isArray(barcodes)
+        ? barcodes.map(normalizeWarehouseBridgeId).filter(Boolean)
+        : [];
+    const isolatedApi = window?.[OZON_ISOLATED_API_KEY];
+
+    if (!isolatedApi || typeof isolatedApi.applyOzonBarcodesWithFallback !== 'function') {
+        sendOzonUiApplyResult(normalizedProductId, {
+            ok: false,
+            productId: normalizedProductId,
+            barcodes: normalizedBarcodes,
+            error: 'isolated Ozon apply bridge unavailable'
+        });
+        return false;
+    }
+
+    Promise.resolve(isolatedApi.applyOzonBarcodesWithFallback({
+        productId: normalizedProductId,
+        barcodes: normalizedBarcodes,
+        sellerId: ozonResolvedSellerId
+    })).then(result => {
+        sendOzonUiApplyResult(normalizedProductId, result || {});
+        log(result?.ok ? 'INFO' : 'WARN', 'OZON_PRODUCT', 'isolated UI apply complete', {
+            productId: normalizedProductId,
+            addedCount: Number(result?.addedCount) || 0,
+            error: result?.error || null
+        });
+    }).catch(error => {
+        sendOzonUiApplyResult(normalizedProductId, {
+            ok: false,
+            productId: normalizedProductId,
+            barcodes: normalizedBarcodes,
+            error: error?.message || 'isolated Ozon UI apply failed'
+        });
+    });
+
+    return true;
 }
 
 function sendOzonUiApplyResult(productId, result = {}) {
@@ -2324,20 +2461,6 @@ function sendOzonUiApplyResult(productId, result = {}) {
             log('WARN', 'OZON_PRODUCT', 'UI apply result failed', runtimeError.message);
         }
     }, 'OZON_PRODUCT');
-}
-
-function handleOzonUiApplyBridgeResponse(event) {
-    const detail = event?.detail || {};
-    const productId = normalizeWarehouseBridgeId(detail.productId || getOzonProductIdFromUrl());
-
-    sendOzonUiApplyResult(productId, detail);
-    log(detail.ok ? 'INFO' : 'WARN', 'OZON_PRODUCT', 'UI apply complete', {
-        productId,
-        addedCount: Number(detail.addedCount) || 0,
-        error: detail.error || null
-    });
-
-    return true;
 }
 
 function handleOzonRuntimeMessage(msg, _sender, sendResponse) {
@@ -2382,6 +2505,13 @@ function ensureOzonRuntimeMessageListener() {
 function handleOzonProductBridgeResponse(event) {
     const detail = event?.detail || {};
     const productId = normalizeWarehouseBridgeId(detail.productId || getOzonProductIdFromUrl());
+    const sellerId = normalizeWarehouseBridgeId(detail.sellerId);
+
+    if (/^\d{3,}$/.test(sellerId)) {
+        ozonResolvedSellerId = sellerId;
+    }
+
+    sendOzonProductWorkerReady(productId);
 
     if (!productId) {
         sendOzonProductResolveResult('', { ok: false, error: 'productIdMissing' });
@@ -2443,8 +2573,9 @@ function injectOzonProductBridgeScript() {
 
     script.addEventListener?.('load', () => {
         script.dataset.installed = 'true';
+        const productId = getOzonProductIdFromUrl();
         dispatchOzonProductRequest();
-        sendOzonProductWorkerReady(getOzonProductIdFromUrl());
+        scheduleOzonProductWorkerReadyFallback(productId);
     });
 
     script.addEventListener?.('error', () => {
@@ -2469,7 +2600,6 @@ function initOzonProductResolveWorker() {
 
     if (!ozonProductBridgeInitialized) {
         window.addEventListener?.(OZON_PRODUCT_RESPONSE_EVENT, handleOzonProductBridgeResponse);
-        window.addEventListener?.(OZON_UI_APPLY_RESPONSE_EVENT, handleOzonUiApplyBridgeResponse);
         ozonProductBridgeInitialized = true;
     }
 
@@ -2483,8 +2613,9 @@ function initOzonProductResolveWorker() {
     }
 
     if (injected === 'ready') {
+        const productId = getOzonProductIdFromUrl();
         dispatchOzonProductRequest();
-        sendOzonProductWorkerReady(getOzonProductIdFromUrl());
+        scheduleOzonProductWorkerReadyFallback(productId);
     }
 
     return true;

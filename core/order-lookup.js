@@ -18,6 +18,14 @@ function normalizeOrderLookupId(value) {
     return normalizeOrderLookupQuery(value);
 }
 
+
+function buildCanonicalOrderLookupUrl(orderId) {
+    const normalizedId = normalizeOrderLookupId(orderId);
+    return /^\d{1,10}-\d{4,10}$/.test(normalizedId)
+        ? `https://amperkot.ru/admin/orders/${normalizedId}/`
+        : '';
+}
+
 function getShortOrderNumber(orderId) {
     const normalized = normalizeOrderLookupId(orderId);
     const match = normalized.match(/^(\d{4})-/);
@@ -127,7 +135,7 @@ function updateOrderLookupCandidate(candidates, orderId, patch = {}) {
         ...patch,
         orderId: normalizedId,
         shortOrderNumber: getShortOrderNumber(normalizedId),
-        orderUrl: patch.orderUrl || existing.orderUrl || '',
+        orderUrl: buildCanonicalOrderLookupUrl(normalizedId),
         context: mergeOrderLookupContext(existing.context, patch.context),
         isWatched: existing.isWatched || patch.isWatched === true,
         eventCount: (Number(existing.eventCount) || 0) + (Number(patch.eventCountDelta) || 0),

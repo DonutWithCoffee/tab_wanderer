@@ -4,6 +4,7 @@
     const RESPONSE_EVENT = 'tab_wanderer:warehouse-shop-order-response';
     const MAX_SCOPES_TO_SCAN = 5000;
     const MAX_OBJECTS_TO_SCAN = 60000;
+    const SCAN_TIME_BUDGET_MS = 80;
     const MAX_DEBUG_SAMPLES = 12;
     const API_CAPTURE_ARM_EVENT = 'tab_wanderer:warehouse-api-capture-arm';
     const API_CAPTURE_WINDOW_MS = 12000;
@@ -594,11 +595,20 @@
         return roots;
     }
 
-    function collectScopeTree(rootScope, scopes, seenScopes) {
-        const queue = [{ value: rootScope, path: '$rootScope' }];
+    function createScanDeadline(budgetMs = SCAN_TIME_BUDGET_MS) {
+        return getCurrentTime() + Math.max(10, Number(budgetMs) || SCAN_TIME_BUDGET_MS);
+    }
 
-        while (queue.length && scopes.length < MAX_SCOPES_TO_SCAN) {
-            const { value: scope, path } = queue.shift();
+    function isScanDeadlineExceeded(deadline) {
+        return Number.isFinite(deadline) && getCurrentTime() > deadline;
+    }
+
+    function collectScopeTree(rootScope, scopes, seenScopes, deadline = createScanDeadline()) {
+        const queue = [{ value: rootScope, path: '$rootScope' }];
+        let queueIndex = 0;
+
+        while (queueIndex < queue.length && scopes.length < MAX_SCOPES_TO_SCAN && !isScanDeadlineExceeded(deadline)) {
+            const { value: scope, path } = queue[queueIndex++];
 
             if (!isObject(scope)) {
                 continue;
@@ -616,7 +626,7 @@
         }
     }
 
-    function collectAngularRoots() {
+    function collectAngularRoots(deadline = createScanDeadline()) {
         const roots = [];
         const seenRoots = new Set();
         const scopes = [];
@@ -639,7 +649,7 @@
         const rootScopeEntries = collectRootScopes(seenScopes);
 
         for (const entry of rootScopeEntries) {
-            collectScopeTree(entry.value, scopes, seenScopes);
+            collectScopeTree(entry.value, scopes, seenScopes, deadline);
         }
 
         const selector = [
@@ -659,7 +669,7 @@
         ].filter(Boolean);
 
         for (const node of nodes) {
-            if (scopes.length >= MAX_SCOPES_TO_SCAN) {
+            if (scopes.length >= MAX_SCOPES_TO_SCAN || isScanDeadlineExceeded(deadline)) {
                 break;
             }
 
@@ -769,14 +779,15 @@
         ].includes(key);
     }
 
-    function scanObjectGraph(rootEntries, expectedOrder) {
+    function scanObjectGraph(rootEntries, expectedOrder, deadline = createScanDeadline()) {
         const visited = new Set();
         const queue = rootEntries.filter(entry => isObject(entry.value));
         const debug = getDebug();
         let scanned = 0;
+        let queueIndex = 0;
 
-        while (queue.length && scanned < MAX_OBJECTS_TO_SCAN) {
-            const entry = queue.shift();
+        while (queueIndex < queue.length && scanned < MAX_OBJECTS_TO_SCAN && !isScanDeadlineExceeded(deadline)) {
+            const entry = queue[queueIndex++];
             const current = entry.value;
             const path = entry.path || 'root';
 
@@ -823,9 +834,11 @@
             }
         }
 
-        debug.lastResult = scanned >= MAX_OBJECTS_TO_SCAN
-            ? 'shopOrder not found: object scan limit reached'
-            : 'shopOrder not found';
+        debug.lastResult = isScanDeadlineExceeded(deadline)
+            ? 'shopOrder not found: scan time budget reached'
+            : scanned >= MAX_OBJECTS_TO_SCAN
+                ? 'shopOrder not found: object scan limit reached'
+                : 'shopOrder not found';
         return null;
     }
 
@@ -970,7 +983,7 @@
         debug.lastMatchedPath = '';
         debug.lastApiMatchedPath = '';
 
-        return scanObjectGraph([{ value: payload, path: 'api.response' }], expectedOrder);
+        return scanObjectGraph([{ value: payload, path: 'api.response' }], expectedOrder, createScanDeadline());
     }
 
     function inspectWarehouseApiPayload(payload, url = '') {
@@ -1360,7 +1373,8 @@
         const debug = getDebug();
         debug.lastExpectedOrder = expectedOrder;
 
-        return scanObjectGraph(collectAngularRoots(), expectedOrder);
+        const deadline = createScanDeadline();
+        return scanObjectGraph(collectAngularRoots(deadline), expectedOrder, deadline);
     }
 
     window.addEventListener(API_CAPTURE_ARM_EVENT, event => {
@@ -1374,16 +1388,17 @@
         try {
             const storedApiShopOrder = getStoredApiShopOrderSnapshot();
             const apiShopOrder = hasBridgeShopOrderBarcodeSnapshot(storedApiShopOrder) ? storedApiShopOrder : null;
-            const angularShopOrder = apiShopOrder ? null : findShopOrderFromAngular();
-            const domShopOrder = apiShopOrder ? null : findShopOrderFromVisibleDom(angularShopOrder);
-            const shopOrder = apiShopOrder || domShopOrder || storedApiShopOrder || angularShopOrder;
+            const visibleDomShopOrder = apiShopOrder ? null : findShopOrderFromVisibleDom(null);
+            const angularShopOrder = apiShopOrder || visibleDomShopOrder ? null : findShopOrderFromAngular();
+            const domShopOrder = visibleDomShopOrder || (angularShopOrder ? findShopOrderFromVisibleDom(angularShopOrder) : null);
+            const shopOrder = apiShopOrder || domShopOrder || angularShopOrder || storedApiShopOrder;
             const source = apiShopOrder
                 ? 'warehouse-api-response'
                 : domShopOrder
                     ? 'warehouse-dom-visible'
-                    : storedApiShopOrder
-                        ? 'warehouse-api-response-empty'
-                        : 'angular-snapshot';
+                    : angularShopOrder
+                        ? 'angular-snapshot'
+                        : 'warehouse-api-response-empty';
 
             if (apiShopOrder) {
                 const debug = getDebug();
@@ -1395,7 +1410,9 @@
                 debug.lastMatchedPath = debug.lastMatchedPath || 'api.response.shop_order';
                 debug.lastResult = domShopOrder
                     ? 'stored API shopOrder had no barcodes; using visible DOM fallback'
-                    : 'stored API shopOrder had no barcodes';
+                    : angularShopOrder
+                        ? 'stored API shopOrder had no barcodes; using Angular fallback'
+                        : 'stored API shopOrder had no barcodes';
                 persistDebug();
             }
 

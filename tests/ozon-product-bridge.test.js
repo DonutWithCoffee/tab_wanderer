@@ -107,7 +107,9 @@ function createDocumentStub(elements = []) {
 }
 
 function loadBridgeContext(documentStub, overrides = {}) {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'ozon-product-bridge.js'), 'utf8');
+    const isolated = overrides.isolated === true;
+    const bridgeFilename = isolated ? 'ozon-product-bridge.js' : 'ozon-product-page-bridge.js';
+    const source = fs.readFileSync(path.join(__dirname, '..', bridgeFilename), 'utf8');
     const listeners = {};
     const context = {
         console: { log: () => {}, warn: () => {}, error: () => {} },
@@ -161,10 +163,21 @@ function loadBridgeContext(documentStub, overrides = {}) {
     context.window.getComputedStyle = context.window.getComputedStyle;
 
     vm.createContext(context);
-    vm.runInContext(source, context, { filename: 'ozon-product-bridge.js' });
+    vm.runInContext(source, context, { filename: bridgeFilename });
 
     return context;
 }
+
+
+test('Ozon bridge runtime variants differ only by their fixed execution mode', () => {
+    const isolatedSource = fs.readFileSync(path.join(__dirname, '..', 'ozon-product-bridge.js'), 'utf8');
+    const pageSource = fs.readFileSync(path.join(__dirname, '..', 'ozon-product-page-bridge.js'), 'utf8');
+
+    assert.equal(
+        pageSource,
+        isolatedSource.replace("const BRIDGE_MODE = 'isolated-write';", "const BRIDGE_MODE = 'page-readonly';")
+    );
+});
 
 test('Ozon product bridge resolves exact product context from visible DOM row', async () => {
     const addButton = new ElementStub({ tagName: 'BUTTON', text: 'Добавить' });
@@ -173,7 +186,9 @@ test('Ozon product bridge resolves exact product context from visible DOM row', 
         text: 'Модуль реле 6 каналов 10A250V 5V Артикул 24260137 SKU 1237406094 Штрихкод Добавить',
         children: [addButton]
     });
-    const context = loadBridgeContext(createDocumentStub([productRow]));
+    const context = loadBridgeContext(createDocumentStub([productRow]), {
+        window: { __TAB_WANDERER_OZON_SELLER_ID__: '185464' }
+    });
     const responses = [];
 
     context.window.addEventListener('tab_wanderer:ozon-product-response', event => {
@@ -190,6 +205,7 @@ test('Ozon product bridge resolves exact product context from visible DOM row', 
     assert.equal(responses[0].sourceType, 'dom-row');
     assert.equal(responses[0].source.products[0].offerId, '24260137');
     assert.equal(responses[0].source.products[0].ozonSku, '1237406094');
+    assert.equal(responses[0].sellerId, '185464');
 });
 
 
@@ -326,6 +342,45 @@ test('Ozon product bridge reads full barcode list from existing barcode drawer',
 });
 
 
+test('Ozon page-world events cannot invoke barcode writes', async () => {
+    const fetchCalls = [];
+    const context = loadBridgeContext(createDocumentStub([]), {
+        window: {
+            fetch: async (url, init = {}) => {
+                fetchCalls.push({ url, init });
+                return { ok: true, status: 200, json: async () => ({ errors: [] }) };
+            }
+        }
+    });
+
+    assert.equal(context.window.__TAB_WANDERER_OZON_ISOLATED_API__, undefined);
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
+        detail: { productId: '42608563', barcodes: ['2486857'] }
+    }));
+    await flushAsyncWork(20);
+
+    assert.equal(fetchCalls.length, 0);
+});
+
+
+test('Ozon isolated-world bridge exposes write API without read-only page event listener', async () => {
+    const context = loadBridgeContext(createDocumentStub([]), { isolated: true });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:ozon-product-response', event => {
+        responses.push(event.detail);
+    });
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request', {
+        detail: { productId: '42608563' }
+    }));
+    await flushAsyncWork();
+
+    assert.equal(typeof context.window.__TAB_WANDERER_OZON_ISOLATED_API__?.applyOzonBarcodesWithFallback, 'function');
+    assert.equal(responses.length, 0);
+});
+
+
 test('Ozon product bridge writes barcodes through API and verifies drawer state', async () => {
     const fetchCalls = [];
     const productRow = new ElementStub({
@@ -349,8 +404,8 @@ test('Ozon product bridge writes barcodes through API and verifies drawer state'
         ]
     });
     const context = loadBridgeContext(createDocumentStub([productRow, drawer]), {
+        isolated: true,
         window: {
-            __TAB_WANDERER_OZON_SELLER_ID__: '185464',
             fetch: async (url, init = {}) => {
                 fetchCalls.push({ url, init });
                 return {
@@ -361,16 +416,11 @@ test('Ozon product bridge writes barcodes through API and verifies drawer state'
             }
         }
     });
-    const responses = [];
-
-    context.window.addEventListener('tab_wanderer:ozon-ui-apply-response', event => {
-        responses.push(event.detail);
+    const result = await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.applyOzonBarcodesWithFallback({
+        productId: '42608563',
+        barcodes: ['2486857'],
+        sellerId: '185464'
     });
-
-    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
-        detail: { productId: '42608563', barcodes: ['2486857'] }
-    }));
-    await flushAsyncWork(80);
 
     const writeCalls = fetchCalls.filter(call => call.url === '/api/barcode-add-v2');
     const detailsCalls = fetchCalls.filter(call => call.url === '/api/sc/barcode-details-by-item-id');
@@ -384,10 +434,9 @@ test('Ozon product bridge writes barcodes through API and verifies drawer state'
             { barcode: '2486857', item_id: '3410615250' }
         ]
     });
-    assert.equal(responses.length, 1);
-    assert.equal(responses[0].ok, true);
-    assert.equal(responses[0].verifiedCount, 1);
-    assert.equal(responses[0].details.writeMethod, 'api');
+    assert.equal(result.ok, true);
+    assert.equal(result.verifiedCount, 1);
+    assert.equal(result.details.writeMethod, 'api');
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastApiApply.result, 'verified');
 });
 
@@ -432,6 +481,7 @@ test('Ozon product bridge waits for drawer state to catch up after API write', a
     };
 
     const context = loadBridgeContext(createDocumentStub([productRow, drawer]), {
+        isolated: true,
         window: {
             __TAB_WANDERER_OZON_SELLER_ID__: '185464',
             fetch: async (url, init = {}) => {
@@ -444,26 +494,19 @@ test('Ozon product bridge waits for drawer state to catch up after API write', a
             }
         }
     });
-    const responses = [];
-
-    context.window.addEventListener('tab_wanderer:ozon-ui-apply-response', event => {
-        responses.push(event.detail);
+    const result = await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.applyOzonBarcodesWithFallback({
+        productId: '40157897',
+        barcodes: ['2400001', '2400002', '2400003']
     });
-
-    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
-        detail: { productId: '40157897', barcodes: ['2400001', '2400002', '2400003'] }
-    }));
-    await flushAsyncWork(80);
 
     const writeCalls = fetchCalls.filter(call => call.url === '/api/barcode-add-v2');
     const detailsCalls = fetchCalls.filter(call => call.url === '/api/sc/barcode-details-by-item-id');
 
     assert.equal(writeCalls.length, 1);
     assert.equal(detailsCalls.length, 1);
-    assert.equal(responses.length, 1);
-    assert.equal(responses[0].ok, true);
-    assert.equal(responses[0].verifiedCount, 3);
-    assert.equal(responses[0].details.verify.readAttempts > 1, true);
+    assert.equal(result.ok, true);
+    assert.equal(result.verifiedCount, 3);
+    assert.equal(result.details.verify.readAttempts > 1, true);
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastApiApply.result, 'verified');
 });
 
@@ -500,6 +543,7 @@ test('Ozon product bridge verifies API write from barcode details response when 
     };
 
     context = loadBridgeContext(createDocumentStub([productRow, drawer]), {
+        isolated: true,
         window: {
             __TAB_WANDERER_OZON_SELLER_ID__: '185464',
             fetch: async (url, init = {}) => {
@@ -530,31 +574,56 @@ test('Ozon product bridge verifies API write from barcode details response when 
             }
         }
     });
-    const responses = [];
-
-    context.window.addEventListener('tab_wanderer:ozon-ui-apply-response', event => {
-        responses.push(event.detail);
+    const result = await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.applyOzonBarcodesWithFallback({
+        productId: '40157897',
+        barcodes: ['2400001', '2400002', '2400003']
     });
-
-    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-ui-apply-request', {
-        detail: { productId: '40157897', barcodes: ['2400001', '2400002', '2400003'] }
-    }));
-    await flushAsyncWork(80);
 
     const writeCalls = fetchCalls.filter(call => call.url === '/api/barcode-add-v2');
     const detailsCalls = fetchCalls.filter(call => String(call.url).includes('barcode-details'));
 
     assert.equal(writeCalls.length, 1);
     assert.equal(detailsCalls.length, 1);
-    assert.equal(responses.length, 1);
-    assert.equal(responses[0].ok, true);
-    assert.equal(responses[0].verifiedCount, 3);
-    assert.deepEqual(Array.from(responses[0].missingBarcodes), []);
-    assert.equal(responses[0].details.verify.source, 'api-read-after-write-barcode-details');
-    assert.equal(responses[0].details.verify.readAttempts, 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.verifiedCount, 3);
+    assert.deepEqual(Array.from(result.missingBarcodes), []);
+    assert.equal(result.details.verify.source, 'api-read-after-write-barcode-details');
+    assert.equal(result.details.verify.readAttempts, 0);
     assert.deepEqual(JSON.parse(detailsCalls[0].init.body), { item_id: ['3410615250'] });
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastBarcodeDetailsResponse.method, 'POST');
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastBarcodeDetailsResponse.status, 200);
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastBarcodeDetailsResponse.requestBody, JSON.stringify({ item_id: ['3410615250'] }));
     assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.lastApiApply.result, 'verified');
+});
+
+test('Ozon network capture ignores unrelated responses before cloning JSON', async () => {
+    let cloneCalls = 0;
+    const context = loadBridgeContext(createDocumentStub([]), {
+        window: {
+            fetch: async () => ({
+                ok: true,
+                status: 200,
+                headers: {
+                    get(name) {
+                        return String(name).toLowerCase() === 'content-type'
+                            ? 'application/json'
+                            : null;
+                    }
+                },
+                clone() {
+                    cloneCalls += 1;
+                    return { json: async () => ({ products: [] }) };
+                },
+                json: async () => ({ products: [] })
+            })
+        }
+    });
+
+    await context.window.fetch('/api/unrelated-dashboard-data');
+    await flushAsyncWork();
+    assert.equal(cloneCalls, 0);
+
+    await context.window.fetch('/api/v1/products/list-by-filter', { method: 'POST' });
+    await flushAsyncWork();
+    assert.equal(cloneCalls, 1);
 });

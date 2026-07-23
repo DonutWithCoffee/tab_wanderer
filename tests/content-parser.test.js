@@ -2195,3 +2195,153 @@ test('createWarehouseBarcodePreviewViewModel reports loading and error states', 
     assert.equal(failed.status, 'error');
     assert.equal(failed.message, 'warehouse shopOrder not found');
 });
+
+test('order URLs are canonicalized to the trusted Amperkot origin', () => {
+    const context = loadContentContext(createDocumentStub({ headers: [] }));
+
+    assert.equal(
+        context.normalizeAmperkotOrderUrl('https://amperkot.ru/admin/orders/1000-300326/?from=list#x'),
+        'https://amperkot.ru/admin/orders/1000-300326/'
+    );
+    assert.equal(
+        context.normalizeAmperkotOrderUrl('https://evil.example/admin/orders/1000-300326/', '1001-300326'),
+        'https://amperkot.ru/admin/orders/1001-300326/'
+    );
+    assert.equal(
+        context.normalizeAmperkotOrderUrl('javascript:alert(1)'),
+        ''
+    );
+});
+
+test('synthetic warehouse actions cannot trigger an Ozon write', () => {
+    const sentMessages = [];
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub, {
+        runtime: {
+            lastError: null,
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                callback?.({ ok: true });
+            }
+        }
+    });
+
+    sentMessages.length = 0;
+    context.__preview = {
+        ok: true,
+        extraction: {
+            orderId: '1000-300326',
+            productsById: {
+                123: {
+                    productId: '123',
+                    eligibleBarcodes: [{ barcode: '2400001' }],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    };
+    vm.runInContext('lastWarehouseBarcodePreview = __preview', context);
+    delete context.__preview;
+
+    const panel = context.ensureWarehouseBarcodePreviewPanel();
+    const actionTarget = {
+        parentNode: null,
+        getAttribute(name) {
+            if (name === 'aria-disabled') return 'false';
+            if (name === 'data-tab-wanderer-action') return 'ozon-ui-apply';
+            return null;
+        }
+    };
+    panel.appendChild(actionTarget);
+
+    const target = {
+        closest() {
+            return actionTarget;
+        }
+    };
+    const createEvent = (isTrusted) => ({
+        target,
+        isTrusted,
+        preventDefault() {},
+        stopPropagation() {},
+        stopImmediatePropagation() {}
+    });
+
+    context.handleWarehousePreviewActionEvent(createEvent(false));
+    assert.equal(sentMessages.some(message => message.type === 'OZON_UI_APPLY_REQUEST'), false);
+
+    context.handleWarehousePreviewActionEvent(createEvent(true));
+    assert.equal(sentMessages.filter(message => message.type === 'OZON_UI_APPLY_REQUEST').length, 1);
+
+    const spoofedActionTarget = {
+        parentNode: null,
+        getAttribute(name) {
+            if (name === 'aria-disabled') return 'false';
+            if (name === 'data-tab-wanderer-action') return 'ozon-ui-apply';
+            return null;
+        }
+    };
+    context.handleWarehousePreviewActionEvent({
+        ...createEvent(true),
+        target: {
+            closest() {
+                return spoofedActionTarget;
+            }
+        }
+    });
+    assert.equal(sentMessages.filter(message => message.type === 'OZON_UI_APPLY_REQUEST').length, 1);
+});
+
+test('Ozon worker waits for page context before announcing readiness and passes seller id to isolated writer', async () => {
+    const sentMessages = [];
+    const applyCalls = [];
+    const context = loadContentContext(createDocumentStub({ headers: [] }), {
+        runtime: {
+            lastError: null,
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                callback?.({ ok: true });
+            }
+        },
+        window: {
+            __TAB_WANDERER_OZON_ISOLATED_API__: {
+                async applyOzonBarcodesWithFallback(options) {
+                    applyCalls.push(options);
+                    return {
+                        ok: true,
+                        productId: options.productId,
+                        barcodes: options.barcodes,
+                        addedCount: options.barcodes.length,
+                        verifiedCount: options.barcodes.length,
+                        missingBarcodes: []
+                    };
+                }
+            }
+        }
+    });
+
+    context.handleOzonProductBridgeResponse({
+        detail: {
+            ok: false,
+            productId: '42608563',
+            sellerId: '185464',
+            error: 'fixture response'
+        }
+    });
+
+    const readyMessages = sentMessages.filter(message => message.type === 'OZON_PRODUCT_WORKER_READY');
+    assert.equal(readyMessages.length, 1);
+    assert.equal(readyMessages[0].productId, '42608563');
+
+    context.dispatchOzonUiApplyRequest('42608563', ['2486857']);
+    for (let index = 0; index < 8; index += 1) {
+        await Promise.resolve();
+    }
+
+    assert.equal(applyCalls.length, 1);
+    assert.equal(applyCalls[0].sellerId, '185464');
+    assert.equal(
+        sentMessages.filter(message => message.type === 'OZON_UI_APPLY_RESULT').length,
+        1
+    );
+});

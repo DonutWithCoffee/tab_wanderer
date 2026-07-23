@@ -1016,14 +1016,18 @@ function renderMonitorDiagnostics(status = {}) {
 
     setText('optionsDiagnosticsDirect', directParts.join('; '));
 
+    const storageState = status.storage || {};
     setText(
         'optionsDiagnosticsOrders',
         [
             `известно: ${getNumber(status.knownOrdersCount)}`,
             `окно: ${getNumber(status.windowOrdersCount)}`,
             `hashes: ${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}`,
-            `целей уведомлений: ${getNumber(status.notificationTargetsCount)}`
-        ].join('; ')
+            `целей уведомлений: ${getNumber(status.notificationTargetsCount)}`,
+            `storage: ${getNumber(storageState.bytesInUse)} байт`,
+            `оценка state: ${getNumber(storageState.estimatedStateBytes)} байт`,
+            storageState.lastError ? `ошибка storage (${getTextValue(storageState.lastErrorOperation)}): ${getTextValue(storageState.lastError)}` : ''
+        ].filter(Boolean).join('; ')
     );
 
     setText(
@@ -1203,6 +1207,7 @@ function buildMonitorStatusLogHeader(status = {}) {
         `Основной worker: ${getYesNo(status.hasWorkerTab === true)}; tabId=${status.workerTabId === null || status.workerTabId === undefined ? '—' : String(status.workerTabId)}`,
         `Прямая проверка: worker=${getYesNo(status.hasDirectWorkerTab === true)}; tabId=${status.directWorkerTabId === null || status.directWorkerTabId === undefined ? '—' : String(status.directWorkerTabId)}; отслеживаемых=${getNumber(status.watchedOrdersCount)}; интервал=${getNumber(status.watchedOrderFollowUpIntervalMinutes, OPTIONS_DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES)} мин.; текущий заказ=${getTextValue(directState.currentOrderId)}`,
         `Заказы: известно=${getNumber(status.knownOrdersCount)}; окно=${getNumber(status.windowOrdersCount)}; hash=${getNumber(status.knownHashesCount)} / ${getNumber(status.windowHashesCount)}; целей уведомлений=${getNumber(status.notificationTargetsCount)}`,
+        `Хранилище: байт=${getNumber(status.storage?.bytesInUse)}; оценка state=${getNumber(status.storage?.estimatedStateBytes)}; последняя проверка=${formatTimestamp(status.storage?.lastCheckedAt)}; последняя запись=${formatTimestamp(status.storage?.lastSuccessfulWriteAt)}; удалено заказов=${getNumber(status.storage?.knownOrdersDropped)}; удалено целей=${getNumber(status.storage?.notificationTargetsDropped)}; ошибка=${getTextValue(status.storage?.lastErrorOperation)}: ${getTextValue(status.storage?.lastError)}`,
         `Журналы: диагностика=${getNumber(status.diagnosticLogCount)}; история=${getNumber(status.eventJournalCount)}; удалено диагностических=${getNumber(status.diagnosticLogDroppedEntries)}; удалено исторических=${getNumber(status.eventJournalDroppedEntries)}`,
         `Синхронизация: ожидает перебазировки=${getYesNo(status.pendingRebaseline === true)}; причина=${getTextValue(status.pendingSyncReason)}; последний baseline=${getTextValue(status.lastBaselineDate)}; последний deep sync=${formatTimestamp(status.lastDeepSyncAt)}`,
         buildLastCollectionLogHeader(status.lastCollectionMetadata)

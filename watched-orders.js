@@ -601,8 +601,9 @@ function renderOrderSummary(response) {
     }
 
     const orderId = order.orderId || response.selectedOrderId || '';
-    const orderUrl = order.orderUrl
-        ? `<a href="${escapeHtml(order.orderUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>`
+    const canonicalOrderUrl = buildWatchedOrderAdminUrl(orderId);
+    const orderUrl = canonicalOrderUrl
+        ? `<a href="${escapeHtml(canonicalOrderUrl)}" target="_blank" rel="noreferrer">Открыть в админке</a>`
         : '';
     const watched = isOrderWatched(orderId) || order.isWatched === true;
     const watchedBadge = watched

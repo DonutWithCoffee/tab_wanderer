@@ -33,9 +33,36 @@ function createChromeStub(testState) {
         storage: {
             local: {
                 set: async (payload) => {
+                    testState.storageSetConcurrent += 1;
+                    testState.storageSetMaxConcurrent = Math.max(testState.storageSetMaxConcurrent, testState.storageSetConcurrent);
                     testState.storageSetCalls.push(payload);
+
+                    try {
+                        if (typeof testState.storageSetHook === 'function') {
+                            await testState.storageSetHook(payload, testState.storageSetCalls.length);
+                        }
+                    } finally {
+                        testState.storageSetConcurrent -= 1;
+                    }
                 },
-                get: async () => ({ ...(testState.storageGetResult || {}) })
+                get: async (keys) => {
+                    if (typeof testState.storageGetHook === 'function') {
+                        return await testState.storageGetHook(keys);
+                    }
+
+                    return { ...(testState.storageGetResult || {}) };
+                },
+                getBytesInUse: async (keys) => {
+                    testState.storageGetBytesInUseCalls.push(keys);
+                    return Number(testState.storageBytesInUse) || 0;
+                },
+                setAccessLevel: async (options) => {
+                    testState.storageAccessLevelCalls.push(options);
+                    if (typeof testState.storageAccessLevelHook === 'function') {
+                        return await testState.storageAccessLevelHook(options);
+                    }
+                    return undefined;
+                }
             }
         },
         notifications: {
@@ -106,6 +133,12 @@ function runExpression(context, expression) {
 }
 
 function createBaseContext(overrides = {}) {
+    const configureTestState = typeof overrides.configureTestState === 'function'
+        ? overrides.configureTestState
+        : null;
+    const safeOverrides = { ...overrides };
+    delete safeOverrides.configureTestState;
+
     const testState = {
         notifications: [],
         createdTabs: [],
@@ -126,8 +159,20 @@ function createBaseContext(overrides = {}) {
         alarms: {},
         storageGetResult: {},
         runtimeOnUpdateAvailableListener: null,
-        runtimeReloadCalls: 0
+        runtimeReloadCalls: 0,
+        storageSetHook: null,
+        storageGetHook: null,
+        storageAccessLevelHook: null,
+        storageSetConcurrent: 0,
+        storageSetMaxConcurrent: 0,
+        storageGetBytesInUseCalls: [],
+        storageAccessLevelCalls: [],
+        storageBytesInUse: 0
     };
+
+    if (configureTestState) {
+        configureTestState(testState);
+    }
 
     const activeTimeouts = [];
     const activeIntervals = [];
@@ -180,7 +225,7 @@ function createBaseContext(overrides = {}) {
         chrome: createChromeStub(testState),
         self: {},
         __test: testState,
-        ...overrides
+        ...safeOverrides
     };
 
     context.__cleanup = () => {
@@ -228,8 +273,9 @@ function loadBackgroundContext(overrides = {}) {
 }
 
 async function settleBackgroundContext() {
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let index = 0; index < 64; index += 1) {
+        await Promise.resolve();
+    }
 }
 
 function setBackgroundState(context, state = {}) {
@@ -265,6 +311,7 @@ function setBackgroundState(context, state = {}) {
         isDiagnosticLogReady = __testState.isDiagnosticLogReady ?? true;
         pendingWatchedOrderAdd = __testState.pendingWatchedOrderAdd ?? null;
         pendingExtensionUpdate = __testState.pendingExtensionUpdate ?? null;
+        storageDiagnostics = __testState.storageDiagnostics ?? storageDiagnostics;
     `);
 
     delete context.__testState;
@@ -299,7 +346,8 @@ function getBackgroundState(context) {
         diagnosticLog,
         diagnosticLogDroppedEntries,
         pendingWatchedOrderAdd,
-        pendingExtensionUpdate
+        pendingExtensionUpdate,
+        storageDiagnostics
     })`);
 
     return JSON.parse(snapshot);

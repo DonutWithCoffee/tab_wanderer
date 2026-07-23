@@ -461,3 +461,21 @@ test('evaluateNotification suppresses Ozon orders only when quick suppressor is 
     assert.equal(disabledDecision.notify, true);
     assert.equal(disabledDecision.ruleId, null);
 });
+
+test('shared notification classifier handles wording variants without substring false positives', () => {
+    const context = loadRulesContext();
+
+    assert.deepEqual(JSON.parse(JSON.stringify(context.classifyOrderForNotifications({
+        payment: 'Безналичный расчёт (юр. лица)',
+        contractor: 'ООО Ozon Logistics'
+    }))), {
+        isLegalEntityPayment: true,
+        isOzon: true
+    });
+    assert.equal(context.isLegalEntityPaymentOrder({ tags: ['Юридическое лицо'] }), true);
+    assert.equal(context.isLegalEntityPaymentOrder({ payment: 'Безналичный расчет не для юридических лиц' }), false);
+    assert.equal(context.isLegalEntityPaymentOrder({ tags: ['Не юридическое лицо'] }), false);
+    assert.equal(context.isLegalEntityPaymentOrder({ tags: ['Клиент не является юридическим лицом'] }), false);
+    assert.equal(context.isOzonOrder({ contractor: 'Ozonation research' }), false);
+    assert.equal(context.isOzonOrder({ tags: ['НеОЗОНный'] }), false);
+});
