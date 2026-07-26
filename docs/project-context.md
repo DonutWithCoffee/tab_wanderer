@@ -19,8 +19,8 @@
 1.0.2 published
 1.0.3 published and tagged v1.0.3
 1.0.4 published and tagged v1.0.4
-Current development: fail-closed multi-barcode hotfix planned for 1.0.5
-Manifest before release-prep: 1.0.4
+Current development: release-prep for fail-closed bugfix build 1.0.4.1
+Manifest candidate: 1.0.4.1
 Automated baseline: 326 pass / 0 fail
 ```
 

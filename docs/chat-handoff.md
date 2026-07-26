@@ -8,13 +8,13 @@ Branch: main
 Public stable CWS release: 1.0.4 / Unlisted
 Published release commit: cd7d8e2
 Published annotated tag: v1.0.4
-Manifest version: 1.0.4
-Development state: fail-closed multi-barcode hotfix for 1.0.5
+Manifest candidate: 1.0.4.1
+Development state: release-prep for fail-closed multi-barcode bugfix
 Expected automated baseline: 326 pass / 0 fail
-Next CWS version: 1.0.5
+Next CWS build: 1.0.4.1
 ```
 
-1.0.4 опубликована в Chrome Web Store и помечена тегом `v1.0.4`. После live-инцидента 26 июля подтверждено, что visible DOM fallback подставлял отсутствующий `product_item.type` как `0`, из-за чего мультиштрихкод мог попасть в write flow. Текущий незарелизенный hotfix убирает эти defaults и повторно валидирует payload в background.
+1.0.4 опубликована в Chrome Web Store и помечена тегом `v1.0.4`. После live-инцидента 26 июля подтверждено, что visible DOM fallback подставлял отсутствующий `product_item.type` как `0`, из-за чего мультиштрихкод мог попасть в write flow. Исправление убирает эти defaults, повторно валидирует payload в background и оформлено как bugfix build `1.0.4.1`.
 
 ## 2. What Is In The Current Hardening
 
@@ -174,12 +174,12 @@ tests/ozon-product-bridge.test.js
 
 ## 6. Release Discipline
 
-- Версия повышена до 1.0.4 только после завершения кода и успешного live smoke.
+- Bugfix build имеет версию `1.0.4.1`: CWS требует номер выше опубликованного `1.0.4`, а продуктовая линия остаётся 1.0.4.
 - Загружать только точный проверенный CWS package с совпадающим SHA256.
 - Маленькие patch releases без новых permissions/host permissions предпочтительны.
 - Удаление permission допустимо, но требует smoke в установленной unpacked-сборке.
 - Tag создаётся только после подтверждённой публикации.
-- Current public release identity остаётся `f496d36 / v1.0.3`.
+- До публикации bugfix текущая public release identity остаётся `cd7d8e2 / v1.0.4`.
 
 ## 7. Sensitive Local Files
 
@@ -195,7 +195,7 @@ tests/ozon-product-bridge.test.js
 ## 8. Next Step After Applying This Archive
 
 1. Пользователь запускает `npm test`, `git status`, `git diff --stat`.
-2. Проверяет manifest/popup version 1.0.4 и выполняет финальный smoke из `docs/smoke-checklist.md`.
+2. Проверяет согласованность manifest/popup/version.js на `1.0.4.1` и выполняет финальный smoke из `docs/smoke-checklist.md`.
 3. После подтверждения коммитит и пушит release-preparation metadata.
-4. Загружает точный проверенный CWS ZIP из release artifacts.
-5. Создаёт annotated tag `v1.0.4` только после подтверждённой публикации.
+4. Из свежего точного HEAD собирается и проверяется CWS ZIP `1.0.4.1`.
+5. Annotated tag `v1.0.4.1` создаётся только после подтверждённой публикации.

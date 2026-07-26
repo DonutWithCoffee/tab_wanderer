@@ -1,11 +1,11 @@
-# tab_wanderer — post-1.0.4 multi-barcode hotfix smoke checklist
+# tab_wanderer — 1.0.4.1 multi-barcode bugfix smoke checklist
 
-Текущая manifest version остаётся `1.0.4` до отдельного release-prep. Этот checklist проверяет функциональный hotfix перед подготовкой 1.0.5.
+Manifest candidate — `1.0.4.1`. Этот checklist проверяет bugfix release candidate перед отправкой пользователям.
 
 ```text
 Expected automated baseline: 326 pass / 0 fail
 Public CWS release: 1.0.4 / cd7d8e2 / v1.0.4
-Hotfix target: 1.0.5 / functional commit pending
+Bugfix candidate: 1.0.4.1 / release-prep
 ```
 
 ## 0. Подготовка
@@ -22,7 +22,7 @@ npm test зелёный
 Проверить в `chrome://extensions`:
 
 ```text
-Version: 1.0.4
+Version: 1.0.4.1
 Permissions: storage, notifications, alarms
 Нет permission tabs
 Нет ошибок service worker
@@ -318,6 +318,6 @@ Permissions: storage, notifications, alarms
 - [ ] Runtime JS проходит `node --check`.
 - [ ] Нет remote code/eval/new Function.
 - [ ] `docs/private`, `.git`, tests и docs не входят в CWS runtime ZIP.
-- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4`.
+- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4.1`.
 - [ ] Permissions и host permissions отдельно зафиксированы в build report.
 - [ ] Annotated tag создаётся только после публикации.

@@ -10,7 +10,7 @@ Tag: v1.0.4
 Release baseline: 322 pass / 0 fail
 ```
 
-## Current 1.0.5 hotfix development
+## Current 1.0.4.1 bugfix release-prep
 
 Confirmed production incident on 26 July 2026:
 
@@ -18,7 +18,7 @@ Confirmed production incident on 26 July 2026:
 - Ozon API accepted and verified it;
 - visible DOM fallback had no reliable `product_item.type`, but bridge defaults converted the missing type and quantities into an eligible unit row.
 
-Implemented hotfix scope:
+Implemented bugfix scope:
 
 - [x] only explicit `itemType === 0` is eligible;
 - [x] missing type becomes `itemTypeUnknown` and is skipped;
@@ -29,18 +29,20 @@ Implemented hotfix scope:
 - [x] diagnostics store rejection counts and reasons without full warehouse payload;
 - [x] UI groups unconfirmed barcode types separately;
 - [x] regression coverage for the production-shaped multi-barcode case using synthetic identifiers;
-- [x] automated baseline: 326 pass / 0 fail.
+- [x] automated baseline: 326 pass / 0 fail;
+- [x] live smoke on a real order confirmed correct multi-barcode exclusion;
+- [x] functional bugfix committed and pushed;
+- [x] release metadata prepared as CWS build `1.0.4.1`.
 
 Release path:
 
-- [ ] Apply and live-test the hotfix replacement files while auto-add is disabled on affected installations.
-- [ ] Commit and push the functional hotfix without version bump.
-- [ ] Build a fresh HEAD archive.
-- [ ] Prepare release 1.0.5 metadata and popup notes.
+- [ ] Apply release-prep replacement files and run the full test suite.
+- [ ] Commit and push release-preparation metadata.
+- [ ] Build a fresh exact-HEAD CWS package.
 - [ ] Run final automated and Chrome smoke tests.
-- [ ] Build and verify exact CWS package SHA256.
-- [ ] Submit 1.0.5 as bugfix-only, without permission/data-handling changes.
-- [ ] Create tag `v1.0.5` only after confirmed publication.
+- [ ] Verify exact package contents and SHA256.
+- [ ] Submit `1.0.4.1` as bugfix-only, without permission or data-handling changes.
+- [ ] Create tag `v1.0.4.1` only after confirmed publication.
 
 ## Candidate product improvements
 
