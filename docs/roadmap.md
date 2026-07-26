@@ -3,72 +3,44 @@
 ## Current stable release
 
 ```text
-Version: 1.0.3
+Version: 1.0.4
 Chrome Web Store: published / Unlisted
-Commit: f496d36
-Tag: v1.0.3
-Release baseline: 264 pass / 0 fail
+Commit: cd7d8e2
+Tag: v1.0.4
+Release baseline: 322 pass / 0 fail
 ```
 
-## Current 1.0.4 release candidate
+## Current 1.0.5 hotfix development
 
-Base commit before full hardening:
+Confirmed production incident on 26 July 2026:
 
-```text
-981a9b5 feat: improve extension updates and legal-only filters
-```
+- an automatically processed Ozon order sent a warehouse multi-barcode into the write flow;
+- Ozon API accepted and verified it;
+- visible DOM fallback had no reliable `product_item.type`, but bridge defaults converted the missing type and quantities into an eligible unit row.
 
-Included release scope:
+Implemented hotfix scope:
 
-- [x] legal-only mode overrides both hide filters;
-- [x] downloaded CWS update applies at a safe moment;
-- [x] trusted-user requirement for Ozon write;
-- [x] initialization barrier for MV3 worker;
-- [x] serialized/coalesced storage writes;
-- [x] alarm-based watchdog/direct/storage maintenance;
-- [x] startup reconciliation and orphan worker cleanup;
-- [x] known-order and notification-target retention;
-- [x] storage usage/error diagnostics;
-- [x] canonical Amperkot URLs and strict marker origin checks;
-- [x] shared Ozon/legal classifier;
-- [x] page-world Ozon resolver separated from isolated-world writer;
-- [x] Ozon capture endpoint/size/content-type filtering;
-- [x] warehouse fallback scan budget;
-- [x] storage access restricted to trusted extension contexts;
-- [x] `tabs` permission removed;
-- [x] lifecycle/security/performance regression tests;
-- [x] strict manager-tab classification of Ozon / regular / unknown orders;
-- [x] 24-hour bounded order-kind cache without customer payloads;
-- [x] Ozon-only Warehouse panel auto-expand;
-- [x] explicit unknown guidance to refresh the manager order card;
-- [x] trusted post-assembly automatic Ozon write with background enforcement;
-- [x] regular/unknown orders never auto-open Ozon while manual controls stay available;
-- [x] unsuccessful Warehouse API responses cannot confirm automatic transfer;
-- [x] project documents synchronized.
+- [x] only explicit `itemType === 0` is eligible;
+- [x] missing type becomes `itemTypeUnknown` and is skipped;
+- [x] visible DOM no longer invents type `0`, stock quantity `1` or reserved quantity `1`;
+- [x] Angular metadata is resolved before DOM fallback and enriches DOM barcode candidates when available;
+- [x] background imports the shared extractor and revalidates every manual/automatic write payload;
+- [x] revalidation moves multi/unknown rows out of `eligibleBarcodes` before Ozon worker creation;
+- [x] diagnostics store rejection counts and reasons without full warehouse payload;
+- [x] UI groups unconfirmed barcode types separately;
+- [x] regression coverage for the production-shaped multi-barcode case using synthetic identifiers;
+- [x] automated baseline: 326 pass / 0 fail.
 
-Current automated baseline:
+Release path:
 
-```text
-322 pass / 0 fail
-```
-
-Manifest and release notes are prepared for 1.0.4. Publication and annotated tag are still pending.
-
-## 1.0.4 release completion
-
-- [ ] Apply the 1.0.4 release-preparation replacement files.
-- [ ] Run the full automated suite.
-- [ ] Complete final manual smoke from `docs/smoke-checklist.md`.
-- [ ] Verify worker creation/adoption without `tabs` permission.
-- [ ] Verify automatic update flow on a real CWS transition when a future version exists.
-- [ ] Verify Ozon/legal/physical manager cards classify correctly in real Amperkot.
-- [ ] Verify Ozon panel auto-expands and regular/unknown panels stay collapsed.
-- [ ] Verify enabled auto-add + trusted `$ctrl.confirm()` warehouse action triggers one automatic write only after fresh barcodes.
-- [ ] Verify disabled auto-add never opens Ozon automatically while manual buttons remain available.
-- [ ] Verify ordinary orders never open an Ozon worker automatically and manual buttons still work.
-- [ ] Commit and push the release-preparation metadata.
-- [ ] Upload the exact verified 1.0.4 CWS ZIP.
-- [ ] After confirmed publication, create and push annotated tag `v1.0.4`.
+- [ ] Apply and live-test the hotfix replacement files while auto-add is disabled on affected installations.
+- [ ] Commit and push the functional hotfix without version bump.
+- [ ] Build a fresh HEAD archive.
+- [ ] Prepare release 1.0.5 metadata and popup notes.
+- [ ] Run final automated and Chrome smoke tests.
+- [ ] Build and verify exact CWS package SHA256.
+- [ ] Submit 1.0.5 as bugfix-only, without permission/data-handling changes.
+- [ ] Create tag `v1.0.5` only after confirmed publication.
 
 ## Candidate product improvements
 

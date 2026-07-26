@@ -1,11 +1,11 @@
-# tab_wanderer — 1.0.4 release candidate smoke checklist
+# tab_wanderer — post-1.0.4 multi-barcode hotfix smoke checklist
 
-Текущая manifest version — `1.0.4`. Это финальная проверка release candidate перед загрузкой в Chrome Web Store.
+Текущая manifest version остаётся `1.0.4` до отдельного release-prep. Этот checklist проверяет функциональный hotfix перед подготовкой 1.0.5.
 
 ```text
-Expected automated baseline: 322 pass / 0 fail
-Public CWS release: 1.0.3 / f496d36 / v1.0.3
-Candidate: 1.0.4 / release commit pending / tag after publication
+Expected automated baseline: 326 pass / 0 fail
+Public CWS release: 1.0.4 / cd7d8e2 / v1.0.4
+Hotfix target: 1.0.5 / functional commit pending
 ```
 
 ## 0. Подготовка
@@ -204,6 +204,10 @@ Permissions: storage, notifications, alarms
 - ожидание сохраняется в background с привязкой к tabId/orderId и переживает SPA-переход, полный reload страницы и перезапуск service worker;
 - после полного reload новый content script восстанавливает намерение, ждёт обычный HTML/Angular preview и использует тот же payload, что ручная кнопка записи;
 - Ozon worker открывается только после свежего успешного post-action snapshot с единичными штрихкодами;
+- единичным считается только barcode entry с явным `itemType === 0`;
+- `itemType === 1`/другой ненулевой тип отображается как мультиштрихкод и не попадает в worker;
+- отсутствующий тип отображается как `Тип штрихкода не подтверждён` и не попадает в worker;
+- visible DOM без Angular/API metadata не получает искусственный type `0`;
 - неуспешный Warehouse API response не запускает перенос;
 - первый успешный fallback snapshot после подтверждённого перехода `actions → assembly` считается post-action; при клике непосредственно на assembly по-прежнему требуется известный изменившийся baseline;
 - двойной click не создаёт параллельные automatic sessions;
@@ -211,6 +215,25 @@ Permissions: storage, notifications, alarms
 - намерение погашается атомарно перед стартом Ozon worker, поэтому повторный reload или повторный snapshot не создаёт второй write;
 - compare/write/verify добавляет только отсутствующие штрихкоды;
 - после ошибки остаётся ручной retry.
+
+
+
+### Критичный regression: мультиштрихкод после reload
+
+1. Использовать тестовый Ozon-заказ с мультиштрихкодом, где один код соответствует нескольким единицам товара.
+2. Открыть карточку менеджера и подтвердить тип Ozon.
+3. Нажать штатный `$ctrl.confirm()` в Склад 3 и дождаться reload/SPA-перехода.
+4. Проверить панель до любого ручного действия.
+5. Повторить с включённой и выключенной автозаписью.
+
+Ожидаемо:
+
+- barcode с `itemType !== 0` находится только в списке пропущенных;
+- при потерянном типе причина — `Тип штрихкода не подтверждён`;
+- `OZON_UI_APPLY worker opened` для skipped-only товара отсутствует;
+- manual «Записать в Ozon» также не открывает worker для такого товара;
+- при смешанном заказе в Ozon уходят только строки с явным `itemType === 0`;
+- диагностический лог содержит только counts/rejection reasons, без полного warehouse payload.
 
 
 ### Выключенная настройка

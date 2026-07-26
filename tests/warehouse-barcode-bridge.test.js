@@ -143,7 +143,7 @@ function loadBridgeContext(documentStub, options = {}) {
     return context;
 }
 
-test('warehouse bridge extracts visible assembled barcodes from DOM without reload', () => {
+test('warehouse bridge extracts visible barcode candidates without inventing unit type', () => {
     const barcodeNode = new ElementStub({ tagName: 'SPAN', text: '2486831' });
     const card = new ElementStub({
         tagName: 'DIV',
@@ -166,9 +166,64 @@ test('warehouse bridge extracts visible assembled barcodes from DOM without relo
     assert.equal(responses[0].shopOrder.assembly.length, 1);
     assert.equal(responses[0].shopOrder.assembly[0].product_item.product_id, '43150731');
     assert.equal(responses[0].shopOrder.assembly[0].product_item.barcode, '2486831');
-    assert.equal(responses[0].shopOrder.assembly[0].product_item.type, 0);
+    assert.equal(responses[0].shopOrder.assembly[0].product_item.type, null);
 });
 
+
+
+test('warehouse DOM fallback preserves Angular multi-barcode type instead of assuming unit type', () => {
+    const barcodeNode = new ElementStub({ tagName: 'SPAN', text: '500020' });
+    const card = new ElementStub({
+        tagName: 'DIV',
+        text: 'Набор одинаковых товаров ID: 24000045, Собрано 12/12 500020',
+        children: [barcodeNode]
+    });
+    const context = loadBridgeContext(createDocumentStub([card]));
+    const angularShopOrder = {
+        number: '5147-290626',
+        assembly: [
+            {
+                quantity: 12,
+                product_item: {
+                    barcode: '',
+                    type: 1,
+                    reserved_quantity: 12,
+                    product_id: '24000045',
+                    product: { id: '24000045', title: 'Набор одинаковых товаров' }
+                }
+            }
+        ]
+    };
+    const rootScope = { ctrl: { shopOrder: angularShopOrder } };
+
+    context.window.angular = {
+        element() {
+            return {
+                injector() {
+                    return { get: () => rootScope };
+                },
+                scope: () => rootScope,
+                isolateScope: () => null,
+                data: () => ({}),
+                controller: () => null
+            };
+        }
+    };
+
+    const responses = [];
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+
+    const response = responses.at(-1);
+    assert.equal(response.ok, true);
+    assert.equal(response.source, 'warehouse-dom-visible');
+    assert.equal(response.shopOrder.assembly[0].product_item.product_id, '24000045');
+    assert.equal(response.shopOrder.assembly[0].product_item.barcode, '500020');
+    assert.equal(response.shopOrder.assembly[0].product_item.type, 1);
+    assert.equal(response.shopOrder.assembly[0].product_item.reserved_quantity, 12);
+});
 
 test('warehouse bridge captures assembly API while preloaded on actions route', () => {
     const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';

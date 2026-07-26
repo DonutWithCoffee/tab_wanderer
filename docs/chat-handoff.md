@@ -5,17 +5,16 @@
 ```text
 Repo: github.com/DonutWithCoffee/tab_wanderer
 Branch: main
-Public stable CWS release: 1.0.3 / Unlisted
-Published release commit: f496d36
-Published annotated tag: v1.0.3
-Current development base before this hardening: 981a9b5
+Public stable CWS release: 1.0.4 / Unlisted
+Published release commit: cd7d8e2
+Published annotated tag: v1.0.4
 Manifest version: 1.0.4
-Development state: 1.0.4 release candidate prepared; release commit and publication pending
-Expected automated baseline: 322 pass / 0 fail
-Next CWS version: 1.0.4
+Development state: fail-closed multi-barcode hotfix for 1.0.5
+Expected automated baseline: 326 pass / 0 fail
+Next CWS version: 1.0.5
 ```
 
-1.0.3 остаётся публичной стабильной версией. 1.0.4 подготовлена как release candidate, но ещё не опубликована и не помечена тегом.
+1.0.4 опубликована в Chrome Web Store и помечена тегом `v1.0.4`. После live-инцидента 26 июля подтверждено, что visible DOM fallback подставлял отсутствующий `product_item.type` как `0`, из-за чего мультиштрихкод мог попасть в write flow. Текущий незарелизенный hotfix убирает эти defaults и повторно валидирует payload в background.
 
 ## 2. What Is In The Current Hardening
 
@@ -60,6 +59,9 @@ order-aware warehouse automation:
 - trusted Ozon assembly action waits for a fresh successful barcode snapshot
 - automatic write is rejected by background unless the order is confirmed Ozon
 - manual preview/check/write remains available for every order kind
+- only explicit `itemType === 0` is writable; missing type is `itemTypeUnknown`
+- visible DOM never invents unit type or unit quantities
+- background revalidates manual and automatic payloads before opening Ozon
 ```
 
 ## 3. Mandatory Working Method

@@ -266,6 +266,7 @@ function loadBackgroundContext(overrides = {}) {
     runScript('core/order-lookup.js', context);
     runScript('core/runtime-api.js', context);
     runScript('core/ozon-product-search.js', context);
+    runScript('core/warehouse-barcode-extractor.js', context);
     runScript('core/ozon-barcode-binding.js', context);
     runScript('core/ozon-ui-apply-result.js', context);
     runScript('core/ozon-session-utils.js', context);

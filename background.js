@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js');
+importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -3322,7 +3322,10 @@ async function openCurrentOzonResolveProduct() {
 }
 
 async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, options = {}) {
-    const productIds = getOzonResolveProductIds(warehouseExtraction);
+    const safeWarehouseExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
+        ? revalidateWarehouseBarcodeExtraction(warehouseExtraction)
+        : warehouseExtraction;
+    const productIds = getOzonResolveProductIds(safeWarehouseExtraction);
 
     if (!senderTabId) {
         return createRuntimeFailureResponse({ error: 'warehouse tab missing' });
@@ -3333,7 +3336,7 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, op
     ozonResolveSession = createOzonResolveSessionState({
         warehouseTabId: senderTabId,
         orderId: options.orderId,
-        warehouseExtraction,
+        warehouseExtraction: safeWarehouseExtraction,
         productIds
     });
 
@@ -3529,7 +3532,23 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options =
         return createRuntimeFailureResponse({ error: 'warehouse tab missing' });
     }
 
-    const request = createOzonUiApplyRequestFromWarehouseExtraction(warehouseExtraction);
+    const safeWarehouseExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
+        ? revalidateWarehouseBarcodeExtraction(warehouseExtraction)
+        : warehouseExtraction;
+    const revalidation = safeWarehouseExtraction?.revalidation || {};
+
+    if (Number(revalidation.rejectedEligibleCount) > 0) {
+        log('WARN', 'WAREHOUSE_OZON', 'write boundary rejected unconfirmed warehouse barcodes', {
+            orderId: options.orderId || safeWarehouseExtraction?.orderId || '',
+            trigger: options.trigger === 'automatic' ? 'automatic' : 'manual',
+            sourceEligibleCount: Number(revalidation.sourceEligibleCount) || 0,
+            eligibleCount: Number(revalidation.eligibleCount) || 0,
+            rejectedEligibleCount: Number(revalidation.rejectedEligibleCount) || 0,
+            rejectionReasons: revalidation.rejectionReasons || {}
+        });
+    }
+
+    const request = createOzonUiApplyRequestFromWarehouseExtraction(safeWarehouseExtraction);
 
     if (!request.ok) {
         return createRuntimeFailureResponse({ error: request.error });

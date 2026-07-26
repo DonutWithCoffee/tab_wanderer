@@ -2051,7 +2051,7 @@ test('warehouse barcode preview groups skipped rows by actual reason', () => {
     const preview = {
         ok: true,
         shopOrder: { id: '9205-010726' },
-        summary: { productCount: 1, eligibleCount: 1, skippedCount: 3 },
+        summary: { productCount: 1, eligibleCount: 1, skippedCount: 4 },
         extraction: {
             orderId: '9205-010726',
             productsById: {
@@ -2062,7 +2062,8 @@ test('warehouse barcode preview groups skipped rows by actual reason', () => {
                     skippedBarcodes: [
                         { barcode: '2049684', reason: 'multiBarcodeType' },
                         { barcode: '2317613', reason: 'duplicateBarcode' },
-                        { barcode: '2317680', reason: 'nonUnitReservedQuantity' }
+                        { barcode: '2317680', reason: 'nonUnitReservedQuantity' },
+                        { barcode: '500020', reason: 'itemTypeUnknown' }
                     ]
                 }
             }
@@ -2072,7 +2073,7 @@ test('warehouse barcode preview groups skipped rows by actual reason', () => {
     const viewModel = context.createWarehouseBarcodePreviewViewModel(preview);
     const product = viewModel.products[0];
 
-    assert.equal(context.createWarehouseBarcodeProductSummaryText(product), '1 штрихкод · мультиштрихкоды: 1, дубликаты: 1, неединичные позиции: 1');
+    assert.equal(context.createWarehouseBarcodeProductSummaryText(product), '1 штрихкод · мультиштрихкоды: 1, дубликаты: 1, неединичные позиции: 1, тип штрихкода не подтверждён: 1');
     assert.deepEqual(
         JSON.parse(JSON.stringify(product.skippedBarcodeGroups.map(group => ({
             category: group.category,
@@ -2082,10 +2083,11 @@ test('warehouse barcode preview groups skipped rows by actual reason', () => {
         [
             { category: 'multiBarcode', count: 1, barcodes: ['2049684'] },
             { category: 'duplicate', count: 1, barcodes: ['2317613'] },
-            { category: 'nonUnitQuantity', count: 1, barcodes: ['2317680'] }
+            { category: 'nonUnitQuantity', count: 1, barcodes: ['2317680'] },
+            { category: 'unconfirmedUnit', count: 1, barcodes: ['500020'] }
         ]
     );
-    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.at(-1))), { label: 'Пропущено', value: '3' });
+    assert.deepEqual(JSON.parse(JSON.stringify(viewModel.metrics.at(-1))), { label: 'Пропущено', value: '4' });
 
     context.setWarehouseBarcodePreviewPanelCollapsed(false);
     context.setWarehouseBarcodeListExpanded(true);
@@ -2093,6 +2095,7 @@ test('warehouse barcode preview groups skipped rows by actual reason', () => {
 
     const text = collectElementText(documentStub.getElementById('tab-wanderer-warehouse-barcode-preview'));
     assert.equal(text.includes('Мультиштрихкоды (1):'), true);
+    assert.equal(text.includes('Тип штрихкода не подтверждён (1):'), true);
     assert.equal(text.includes('Дубликаты (1):'), true);
     assert.equal(text.includes('Неединичные позиции (1):'), true);
 });

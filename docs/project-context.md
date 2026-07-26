@@ -18,10 +18,10 @@
 1.0.1 published
 1.0.2 published
 1.0.3 published and tagged v1.0.3
-Current candidate: 1.0.4 — lifecycle/security hardening + order-aware Ozon automation
-Manifest: 1.0.4
-Publication/tag: pending
-Automated baseline: 322 pass / 0 fail
+1.0.4 published and tagged v1.0.4
+Current development: fail-closed multi-barcode hotfix planned for 1.0.5
+Manifest before release-prep: 1.0.4
+Automated baseline: 326 pass / 0 fail
 ```
 
 ## Monitoring model
@@ -149,6 +149,8 @@ Warehouse UI использует тип только для начальног�
 - manual preview/check/write доступен всегда.
 
 При включённой настройке trusted click по активной кнопке с Angular-маркером `ng-click="$ctrl.confirm()"` создаёт одноразовый `actionId`. Видимый текст кнопки и префикс склада не участвуют в разрешении автоматики. Automatic apply запускается только после свежего успешного snapshot того же заказа с подходящими штрихкодами. Background повторно проверяет подтверждённый тип Ozon и включённую настройку `ozonAutoBarcodeApplyEnabled`. Выключение настройки очищает pending intents, но не блокирует ручной flow. Неуспешные Warehouse API responses и синтетические события не запускают запись.
+
+Barcode classification работает fail-closed: допустим только явно подтверждённый `itemType === 0`. Тип `1` и любой другой ненулевой тип считается мультиштрихкодом; отсутствующий тип считается `itemTypeUnknown`. Visible DOM используется только как источник значения штрихкода и больше не подставляет unit type/quantity. При наличии Angular metadata DOM-кандидат обогащается реальным типом. Перед любым manual/automatic write background заново классифицирует warehouse extraction и не открывает Ozon worker, если безопасных единичных штрихкодов не осталось.
 
 ### Remote code
 

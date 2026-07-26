@@ -1367,9 +1367,9 @@
             product_item: {
                 id: normalizeId(productItem.id),
                 barcode: normalizeId(barcode),
-                type: normalizeNumber(productItem.type ?? 0),
-                quantity: normalizeNumber(productItem.quantity ?? 1),
-                reserved_quantity: normalizeNumber(productItem.reserved_quantity ?? productItem.reservedQuantity ?? 1),
+                type: normalizeNumber(productItem.type),
+                quantity: normalizeNumber(productItem.quantity),
+                reserved_quantity: normalizeNumber(productItem.reserved_quantity ?? productItem.reservedQuantity),
                 product_id: productId,
                 product: {
                     id: productId,
@@ -1448,17 +1448,23 @@
         try {
             const storedApiShopOrder = getStoredApiShopOrderSnapshot();
             const apiShopOrder = hasBridgeShopOrderBarcodeSnapshot(storedApiShopOrder) ? storedApiShopOrder : null;
-            const visibleDomShopOrder = apiShopOrder ? null : findShopOrderFromVisibleDom(null);
-            const angularShopOrder = apiShopOrder || visibleDomShopOrder ? null : findShopOrderFromAngular();
-            const domShopOrder = visibleDomShopOrder || (angularShopOrder ? findShopOrderFromVisibleDom(angularShopOrder) : null);
-            const shopOrder = apiShopOrder || domShopOrder || angularShopOrder || storedApiShopOrder;
+            const angularShopOrder = apiShopOrder ? null : findShopOrderFromAngular();
+            const angularBarcodeShopOrder = hasBridgeShopOrderBarcodeSnapshot(angularShopOrder)
+                ? angularShopOrder
+                : null;
+            const domShopOrder = apiShopOrder || angularBarcodeShopOrder
+                ? null
+                : findShopOrderFromVisibleDom(angularShopOrder);
+            const shopOrder = apiShopOrder || angularBarcodeShopOrder || domShopOrder || angularShopOrder || storedApiShopOrder;
             const source = apiShopOrder
                 ? 'warehouse-api-response'
-                : domShopOrder
-                    ? 'warehouse-dom-visible'
-                    : angularShopOrder
-                        ? 'angular-snapshot'
-                        : 'warehouse-api-response-empty';
+                : angularBarcodeShopOrder
+                    ? 'angular-snapshot'
+                    : domShopOrder
+                        ? 'warehouse-dom-visible'
+                        : angularShopOrder
+                            ? 'angular-snapshot-empty'
+                            : 'warehouse-api-response-empty';
 
             if (apiShopOrder) {
                 const debug = getDebug();
@@ -1468,11 +1474,13 @@
             } else if (storedApiShopOrder) {
                 const debug = getDebug();
                 debug.lastMatchedPath = debug.lastMatchedPath || 'api.response.shop_order';
-                debug.lastResult = domShopOrder
-                    ? 'stored API shopOrder had no barcodes; using visible DOM fallback'
-                    : angularShopOrder
-                        ? 'stored API shopOrder had no barcodes; using Angular fallback'
-                        : 'stored API shopOrder had no barcodes';
+                debug.lastResult = angularBarcodeShopOrder
+                    ? 'stored API shopOrder had no barcodes; using Angular barcode snapshot'
+                    : domShopOrder
+                        ? 'stored API shopOrder had no barcodes; using visible DOM fallback with Angular metadata when available'
+                        : angularShopOrder
+                            ? 'stored API shopOrder had no barcodes; using Angular shell fallback'
+                            : 'stored API shopOrder had no barcodes';
                 persistDebug();
             }
 

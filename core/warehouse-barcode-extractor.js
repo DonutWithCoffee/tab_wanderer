@@ -6,6 +6,7 @@ const WAREHOUSE_BARCODE_DECISIONS = {
 const WAREHOUSE_BARCODE_SKIP_REASONS = {
     MISSING_BARCODE: 'missingBarcode',
     MISSING_PRODUCT_ID: 'missingProductId',
+    ITEM_TYPE_UNKNOWN: 'itemTypeUnknown',
     MULTI_BARCODE_TYPE: 'multiBarcodeType',
     NON_UNIT_ASSEMBLY_QUANTITY: 'nonUnitAssemblyQuantity',
     NON_UNIT_RESERVED_QUANTITY: 'nonUnitReservedQuantity',
@@ -137,7 +138,15 @@ function classifyWarehouseBarcodeEntry(entry = {}) {
         );
     }
 
-    if (normalized.itemType !== null && normalized.itemType !== 0) {
+    if (normalized.itemType === null) {
+        return createWarehouseBarcodeResult(
+            WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
+            normalized,
+            WAREHOUSE_BARCODE_SKIP_REASONS.ITEM_TYPE_UNKNOWN
+        );
+    }
+
+    if (normalized.itemType !== 0) {
         return createWarehouseBarcodeResult(
             WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
             normalized,
@@ -246,6 +255,137 @@ function extractWarehouseAssemblyBarcodes(shopOrder = {}) {
     };
 }
 
+
+function createWarehouseRawEntryFromExtractionEntry(entry = {}, productGroup = {}) {
+    const safeEntry = entry && typeof entry === 'object' ? entry : {};
+    const safeGroup = productGroup && typeof productGroup === 'object' ? productGroup : {};
+    const productId = normalizeWarehouseProductId(safeEntry.productId || safeGroup.productId);
+    const productTitle = normalizeWarehouseText(safeEntry.productTitle || safeGroup.productTitle);
+
+    return {
+        id: normalizeWarehouseProductId(safeEntry.assemblyId),
+        quantity: normalizeWarehouseNumber(safeEntry.assemblyQuantity),
+        product_item: {
+            id: normalizeWarehouseProductId(safeEntry.productItemId),
+            barcode: normalizeWarehouseBarcodeValue(safeEntry.barcode),
+            type: normalizeWarehouseNumber(safeEntry.itemType),
+            quantity: normalizeWarehouseNumber(safeEntry.stockQuantity),
+            reserved_quantity: normalizeWarehouseNumber(safeEntry.reservedQuantity),
+            product_id: productId,
+            product: {
+                id: productId,
+                title: productTitle
+            },
+            state: safeEntry.stateTitle
+                ? { title: normalizeWarehouseText(safeEntry.stateTitle) }
+                : null
+        }
+    };
+}
+
+function normalizeWarehouseSkippedExtractionEntry(entry = {}, productGroup = {}) {
+    const classified = classifyWarehouseBarcodeEntry(
+        createWarehouseRawEntryFromExtractionEntry(entry, productGroup)
+    );
+
+    return {
+        ...classified,
+        decision: WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
+        reason: normalizeWarehouseText(entry?.reason) || classified.reason || WAREHOUSE_BARCODE_SKIP_REASONS.ITEM_TYPE_UNKNOWN
+    };
+}
+
+function revalidateWarehouseBarcodeExtraction(extraction = {}) {
+    const safeExtraction = extraction && typeof extraction === 'object' ? extraction : {};
+    const sourceGroups = safeExtraction.productsById && typeof safeExtraction.productsById === 'object'
+        ? Object.values(safeExtraction.productsById)
+        : [];
+    const productsById = {};
+    const eligibleBarcodes = [];
+    const skippedBarcodes = [];
+    const seenProductBarcodes = new Set();
+    const rejectionReasons = {};
+    let sourceEligibleCount = 0;
+
+    for (const sourceGroup of sourceGroups) {
+        if (!sourceGroup || typeof sourceGroup !== 'object') {
+            continue;
+        }
+
+        const productId = normalizeWarehouseProductId(sourceGroup.productId);
+        if (!productId || productId === '__unknown__') {
+            continue;
+        }
+
+        const group = createWarehouseBarcodeProductGroup(
+            productId,
+            normalizeWarehouseText(sourceGroup.productTitle)
+        );
+        productsById[productId] = group;
+
+        const sourceEligible = Array.isArray(sourceGroup.eligibleBarcodes)
+            ? sourceGroup.eligibleBarcodes
+            : [];
+        const sourceSkipped = Array.isArray(sourceGroup.skippedBarcodes)
+            ? sourceGroup.skippedBarcodes
+            : [];
+
+        sourceEligibleCount += sourceEligible.length;
+
+        for (const sourceEntry of sourceEligible) {
+            let result = classifyWarehouseBarcodeEntry(
+                createWarehouseRawEntryFromExtractionEntry(sourceEntry, sourceGroup)
+            );
+
+            if (result.decision === WAREHOUSE_BARCODE_DECISIONS.ELIGIBLE) {
+                const duplicateKey = `${result.productId}:${result.barcode}`;
+
+                if (seenProductBarcodes.has(duplicateKey)) {
+                    result = {
+                        ...result,
+                        decision: WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
+                        reason: WAREHOUSE_BARCODE_SKIP_REASONS.DUPLICATE_BARCODE
+                    };
+                } else {
+                    seenProductBarcodes.add(duplicateKey);
+                    group.eligibleBarcodes.push(result);
+                    eligibleBarcodes.push(result);
+                    continue;
+                }
+            }
+
+            const reason = result.reason || WAREHOUSE_BARCODE_SKIP_REASONS.ITEM_TYPE_UNKNOWN;
+            rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1;
+            group.skippedBarcodes.push(result);
+            skippedBarcodes.push(result);
+        }
+
+        for (const sourceEntry of sourceSkipped) {
+            const result = normalizeWarehouseSkippedExtractionEntry(sourceEntry, sourceGroup);
+            group.skippedBarcodes.push(result);
+            skippedBarcodes.push(result);
+        }
+    }
+
+    return {
+        orderId: normalizeWarehouseText(safeExtraction.orderId),
+        productsById,
+        eligibleBarcodes,
+        skippedBarcodes,
+        summary: {
+            productCount: Object.keys(productsById).length,
+            eligibleCount: eligibleBarcodes.length,
+            skippedCount: skippedBarcodes.length
+        },
+        revalidation: {
+            sourceEligibleCount,
+            eligibleCount: eligibleBarcodes.length,
+            rejectedEligibleCount: Math.max(0, sourceEligibleCount - eligibleBarcodes.length),
+            rejectionReasons
+        }
+    };
+}
+
 globalThis.WAREHOUSE_BARCODE_DECISIONS = WAREHOUSE_BARCODE_DECISIONS;
 globalThis.WAREHOUSE_BARCODE_SKIP_REASONS = WAREHOUSE_BARCODE_SKIP_REASONS;
 globalThis.normalizeWarehouseBarcodeValue = normalizeWarehouseBarcodeValue;
@@ -258,3 +398,5 @@ globalThis.getWarehouseProductTitle = getWarehouseProductTitle;
 globalThis.normalizeWarehouseBarcodeEntry = normalizeWarehouseBarcodeEntry;
 globalThis.classifyWarehouseBarcodeEntry = classifyWarehouseBarcodeEntry;
 globalThis.extractWarehouseAssemblyBarcodes = extractWarehouseAssemblyBarcodes;
+globalThis.createWarehouseRawEntryFromExtractionEntry = createWarehouseRawEntryFromExtractionEntry;
+globalThis.revalidateWarehouseBarcodeExtraction = revalidateWarehouseBarcodeExtraction;

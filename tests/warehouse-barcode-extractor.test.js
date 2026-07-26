@@ -73,6 +73,61 @@ test('classifyWarehouseBarcodeEntry skips multi barcode rows by product item typ
     assert.equal(result.productId, '23870634');
 });
 
+
+test('classifyWarehouseBarcodeEntry fails closed when unit type is missing', () => {
+    const context = loadWarehouseBarcodeContext();
+    const entry = createAssemblyEntry();
+    delete entry.product_item.type;
+
+    const result = context.classifyWarehouseBarcodeEntry(entry);
+
+    assert.equal(result.decision, 'skipped');
+    assert.equal(result.reason, 'itemTypeUnknown');
+    assert.equal(result.barcode, '2317613');
+});
+
+test('revalidateWarehouseBarcodeExtraction rejects unconfirmed and multi rows at write boundary', () => {
+    const context = loadWarehouseBarcodeContext();
+
+    const result = context.revalidateWarehouseBarcodeExtraction({
+        orderId: '9205-010726',
+        productsById: {
+            24126456: {
+                productId: '24126456',
+                productTitle: 'Unit product',
+                eligibleBarcodes: [
+                    { barcode: '2317613', productId: '24126456', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 },
+                    { barcode: '2317680', productId: '24126456' }
+                ],
+                skippedBarcodes: []
+            },
+            23870634: {
+                productId: '23870634',
+                productTitle: 'Multi product',
+                eligibleBarcodes: [
+                    { barcode: '2049684', productId: '23870634', itemType: 1, assemblyQuantity: 15, reservedQuantity: 15 }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    });
+
+    assert.equal(result.summary.eligibleCount, 1);
+    assert.equal(result.summary.skippedCount, 2);
+    assert.equal(result.productsById['24126456'].eligibleBarcodes[0].barcode, '2317613');
+    assert.equal(result.productsById['24126456'].skippedBarcodes[0].reason, 'itemTypeUnknown');
+    assert.equal(result.productsById['23870634'].skippedBarcodes[0].reason, 'multiBarcodeType');
+    assert.deepEqual(JSON.parse(JSON.stringify(result.revalidation)), {
+        sourceEligibleCount: 3,
+        eligibleCount: 1,
+        rejectedEligibleCount: 2,
+        rejectionReasons: {
+            itemTypeUnknown: 1,
+            multiBarcodeType: 1
+        }
+    });
+});
+
 test('extractWarehouseAssemblyBarcodes groups eligible and skipped barcodes by product id', () => {
     const context = loadWarehouseBarcodeContext();
 

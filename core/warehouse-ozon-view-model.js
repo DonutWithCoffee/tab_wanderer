@@ -80,6 +80,10 @@ function formatWarehouseBarcodeCountText(value) {
 }
 
 const WAREHOUSE_BARCODE_SKIP_CATEGORY_META = {
+    unconfirmedUnit: {
+        label: 'Тип штрихкода не подтверждён',
+        summaryLabel: 'тип штрихкода не подтверждён'
+    },
     multiBarcode: {
         label: 'Мультиштрихкоды',
         summaryLabel: 'мультиштрихкоды'
@@ -108,6 +112,8 @@ const WAREHOUSE_BARCODE_SKIP_CATEGORY_META = {
 
 function getWarehouseBarcodeSkipCategory(reason = '') {
     switch (normalizeWarehouseBridgeText(reason)) {
+        case 'itemTypeUnknown':
+            return 'unconfirmedUnit';
         case 'multiBarcodeType':
             return 'multiBarcode';
         case 'nonUnitAssemblyQuantity':

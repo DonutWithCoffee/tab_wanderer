@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadBackgroundContext, settleBackgroundContext, sendRuntimeMessage, runExpression } = require('./helpers/load-extension-context');
+const { loadBackgroundContext, settleBackgroundContext, sendRuntimeMessage, runExpression, getBackgroundState } = require('./helpers/load-extension-context');
 
 
 
@@ -1738,8 +1738,8 @@ test('Ozon resolve preview opens seller product worker and returns comparison pl
                 productId: '40534835',
                 productTitle: 'PETG пластик',
                 eligibleBarcodes: [
-                    { barcode: '2486857', productId: '40534835' },
-                    { barcode: '2486885', productId: '40534835' }
+                    { barcode: '2486857', productId: '40534835', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 },
+                    { barcode: '2486885', productId: '40534835', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
                 ],
                 skippedBarcodes: []
             }
@@ -1823,7 +1823,7 @@ test('Ozon resolve preview skips warehouse products without eligible barcode can
                 productId: '40534835',
                 productTitle: 'PETG пластик',
                 eligibleBarcodes: [
-                    { barcode: '2486857', productId: '40534835' }
+                    { barcode: '2486857', productId: '40534835', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
                 ],
                 skippedBarcodes: []
             }
@@ -1899,7 +1899,7 @@ test('Ozon UI apply opens seller product worker and relays UI command/result', a
                 productId: '24260137',
                 productTitle: 'Модуль реле',
                 eligibleBarcodes: [
-                    { barcode: '987654321', productId: '24260137' }
+                    { barcode: '987654321', productId: '24260137', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
                 ],
                 skippedBarcodes: []
             }
@@ -1989,6 +1989,62 @@ test('Ozon UI apply opens seller product worker and relays UI command/result', a
     assert.deepEqual(context.__test.removedTabs, [1]);
 });
 
+
+test('Ozon write boundary rejects multi and unconfirmed barcode entries even when marked eligible', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const orderId = '3235-020726';
+    const response = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        orderId,
+        warehouseExtraction: {
+            orderId,
+            productsById: {
+                24260137: {
+                    productId: '24260137',
+                    productTitle: 'Unknown type',
+                    eligibleBarcodes: [
+                        { barcode: '500020', productId: '24260137' }
+                    ],
+                    skippedBarcodes: []
+                },
+                23870634: {
+                    productId: '23870634',
+                    productTitle: 'Multi barcode',
+                    eligibleBarcodes: [
+                        { barcode: '2049684', productId: '23870634', itemType: 1, assemblyQuantity: 15, reservedQuantity: 15 }
+                    ],
+                    skippedBarcodes: []
+                }
+            }
+        }
+    }, {
+        tab: {
+            id: 7,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        }
+    });
+
+    assert.equal(response.ok, false);
+    assert.match(response.error, /no eligible warehouse barcodes/);
+    assert.equal(context.__test.createdTabs.length, 0);
+
+    const warning = getBackgroundState(context).diagnosticLog
+        .find(entry => entry.scope === 'WAREHOUSE_OZON'
+            && entry.message === 'write boundary rejected unconfirmed warehouse barcodes');
+
+    assert.ok(warning);
+    assert.equal(warning.details.rejectedEligibleCount, 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(warning.details.rejectionReasons)), {
+        itemTypeUnknown: 1,
+        multiBarcodeType: 1
+    });
+});
+
 test('Ozon UI apply keeps skipped-only warehouse products out of worker queue and errors', async () => {
     const context = loadBackgroundContext({
         setTimeout: () => 1,
@@ -2010,7 +2066,7 @@ test('Ozon UI apply keeps skipped-only warehouse products out of worker queue an
                 productId: '24260137',
                 productTitle: 'Модуль реле',
                 eligibleBarcodes: [
-                    { barcode: '987654321', productId: '24260137' }
+                    { barcode: '987654321', productId: '24260137', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
                 ],
                 skippedBarcodes: []
             }
@@ -2098,7 +2154,7 @@ test('Ozon UI apply processes multiple products sequentially', async () => {
                 productId: '24260137',
                 productTitle: 'Модуль реле',
                 eligibleBarcodes: [
-                    { barcode: '987654321', productId: '24260137' }
+                    { barcode: '987654321', productId: '24260137', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
                 ],
                 skippedBarcodes: []
             },
@@ -2106,8 +2162,8 @@ test('Ozon UI apply processes multiple products sequentially', async () => {
                 productId: '42608563',
                 productTitle: 'Промышленный модуль',
                 eligibleBarcodes: [
-                    { barcode: '123456789', productId: '42608563' },
-                    { barcode: '123456780', productId: '42608563' }
+                    { barcode: '123456789', productId: '42608563', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 },
+                    { barcode: '123456780', productId: '42608563', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
                 ],
                 skippedBarcodes: []
             }
@@ -2447,7 +2503,7 @@ test('automatic Ozon apply is allowed only for a confirmed Ozon order', async ()
             10000001: {
                 productId: '10000001',
                 productTitle: 'Модуль защиты',
-                eligibleBarcodes: [{ barcode: '123456789', productId: '10000001' }],
+                eligibleBarcodes: [{ barcode: '123456789', productId: '10000001', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }],
                 skippedBarcodes: []
             }
         }
@@ -2574,7 +2630,7 @@ test('warehouse automatic apply intent survives page reload and is consumed once
             10000003: {
                 productId: '10000003',
                 productTitle: 'Тестовый товар',
-                eligibleBarcodes: [{ barcode: '123456700', productId: '10000003' }],
+                eligibleBarcodes: [{ barcode: '123456700', productId: '10000003', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }],
                 skippedBarcodes: []
             }
         }
