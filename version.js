@@ -1,8 +1,8 @@
 const VERSION = {
-    version: '1.0.4.1',
-    build: '1.0.4.1',
-    stage: 'multi-barcode fail-closed hotfix',
-    date: '2026-07-26'
+    version: '1.0.4.2',
+    build: '1.0.4.2',
+    stage: 'Ozon barcode automation stability patch',
+    date: '2026-07-29'
 };
 
 const CHANGELOG = {
@@ -21,5 +21,6 @@ const CHANGELOG = {
     '1.0.2': 'UI clarity patch: clearer Ozon barcode result states, compact service text and separated quick notification filters',
     '1.0.3': 'Ozon verification hardening: fresh rechecks override stale states and skipped barcode reasons stay accurate',
     '1.0.4': 'order-aware Ozon automation, safe full-reload recovery, configurable auto-add and lifecycle/security hardening',
-    '1.0.4.1': 'bugfix: multi-barcode and unconfirmed warehouse barcode types are blocked before Ozon write'
+    '1.0.4.1': 'bugfix: multi-barcode and unconfirmed warehouse barcode types are blocked before Ozon write',
+    '1.0.4.2': 'Ozon stability patch: automatic read-only checks for assembled orders, serialized operations and corrected unit barcode classification'
 };

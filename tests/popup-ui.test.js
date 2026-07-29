@@ -175,7 +175,7 @@ function loadPopupContext(overrides = {}) {
         ]
     };
     const storageState = {
-        lastSeenReleaseNotesVersion: '1.0.4.1',
+        lastSeenReleaseNotesVersion: '1.0.4.2',
         ...(overrides.storageState || {})
     };
 
@@ -482,28 +482,28 @@ test('popup legal-entity-only filter disables conflicting suppressors', () => {
 test('popup shows release notes until current version is acknowledged', () => {
     const context = loadPopupContext({
         storageState: {
-            lastSeenReleaseNotesVersion: '1.0.4'
+            lastSeenReleaseNotesVersion: '1.0.4.1'
         }
     });
     const document = context.__test.document;
 
     assert.equal(document.getElementById('popupReleaseNotes').hidden, false);
-    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Исправление 1.0.4.1');
-    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /Мультиштрихкоды больше не передаются в Ozon/);
+    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Обновление 1.0.4.2');
+    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /штрихкоды один раз проверяются автоматически без записи/);
 
     document.getElementById('dismissReleaseNotes').dispatchEvent({
         type: 'click',
         target: document.getElementById('dismissReleaseNotes')
     });
 
-    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.4.1');
+    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.4.2');
     assert.equal(document.getElementById('popupReleaseNotes').hidden, true);
 });
 
 test('popup keeps release notes hidden after acknowledgement', () => {
     const context = loadPopupContext({
         storageState: {
-            lastSeenReleaseNotesVersion: '1.0.4.1'
+            lastSeenReleaseNotesVersion: '1.0.4.2'
         }
     });
     const document = context.__test.document;

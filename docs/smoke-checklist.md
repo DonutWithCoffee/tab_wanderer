@@ -1,11 +1,12 @@
-# tab_wanderer — post-1.0.4.1 Warehouse/Ozon smoke checklist
+# tab_wanderer — 1.0.4.2 Warehouse/Ozon smoke checklist
 
-Manifest — `1.0.4.1`. Bugfix уже отправлен на проверку; checklist дополнен текущей read-only проверкой уже собранных Ozon-заказов, сериализацией Ozon-операций и regression-проверкой единичности независимо от quantity/reserved/stock.
+Manifest — `1.0.4.2`. Patch включает read-only проверку уже собранных Ozon-заказов, сериализацию Ozon-операций и regression-исправление единичности независимо от quantity/reserved/stock.
 
 ```text
 Expected automated baseline: 340 pass / 0 fail
-Public CWS release: 1.0.4 / cd7d8e2 / v1.0.4
-Bugfix submission: 1.0.4.1 / aa7daa1 / no tag
+Public CWS release: 1.0.4.1 / no tag
+Patch source before release-prep: 1.0.4.1 / 6243b03
+Patch candidate: 1.0.4.2 / no tag
 ```
 
 ## 0. Подготовка
@@ -22,7 +23,7 @@ npm test зелёный
 Проверить в `chrome://extensions`:
 
 ```text
-Version: 1.0.4.1
+Version: 1.0.4.2
 Permissions: storage, notifications, alarms
 Нет permission tabs
 Нет ошибок service worker
@@ -382,6 +383,6 @@ Permissions: storage, notifications, alarms
 - [x] Runtime JS проходит `node --check`: `47 / 47`.
 - [ ] Нет remote code/eval/new Function.
 - [ ] `docs/private`, `.git`, tests и docs не входят в CWS runtime ZIP.
-- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4.1`.
+- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4.2`.
 - [ ] Permissions и host permissions отдельно зафиксированы в build report.
-- [ ] Annotated tag создаётся только после публикации.
+- [x] Git tag для patch-релиза не создаётся.

@@ -67,6 +67,7 @@ test('extension version comparison handles patch versions numerically', () => {
     assert.equal(context.compareExtensionVersions('1.0.4', '1.0.4.0'), 0);
     assert.equal(context.compareExtensionVersions('1.0.4', '1.0.4.1'), -1);
     assert.equal(context.compareExtensionVersions('1.0.4.1', '1.0.4.1.0'), 0);
+    assert.equal(context.compareExtensionVersions('1.0.4.1', '1.0.4.2'), -1);
     assert.equal(context.compareExtensionVersions('1.0.3', '1.0.4'), -1);
 });
 

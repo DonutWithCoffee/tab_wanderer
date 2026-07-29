@@ -19,9 +19,10 @@
 1.0.2 published
 1.0.3 published and tagged v1.0.3
 1.0.4 published and tagged v1.0.4
-1.0.4.1 submitted to Chrome Web Store review without a Git tag
-Current development: one-time read-only Ozon check + serialized Ozon operations + corrected Warehouse unit classification
-Manifest: 1.0.4.1
+1.0.4.1 published without a Git tag
+1.0.4.2 patch candidate prepared from source commit 6243b03
+Current scope: one-time read-only Ozon check + serialized Ozon operations + corrected Warehouse unit classification
+Manifest: 1.0.4.2
 Automated baseline: 340 pass / 0 fail
 ```
 

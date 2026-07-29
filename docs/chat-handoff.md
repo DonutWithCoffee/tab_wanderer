@@ -5,17 +5,17 @@
 ```text
 Repo: github.com/DonutWithCoffee/tab_wanderer
 Branch: main
-Public stable CWS release: 1.0.4 / Unlisted
-Published release commit: cd7d8e2
-Published annotated tag: v1.0.4
-Manifest: 1.0.4.1
-1.0.4.1 status: submitted to Chrome Web Store review, no Git tag
-Development state: read-only Ozon check + serialized Ozon operations + fixed unit classification; uncommitted
+Public stable CWS release: 1.0.4.1 / Unlisted
+Last substantial tagged release: 1.0.4 / cd7d8e2 / v1.0.4
+Manifest: 1.0.4.2
+1.0.4.2 status: release-prep patch candidate, no Git tag
+Source commit before release-prep: 6243b03
+Development state: committed and pushed; release metadata pending commit
 Expected automated baseline: 340 pass / 0 fail
-Next release number: not assigned
+Next release number: 1.0.4.2
 ```
 
-1.0.4 опубликована в Chrome Web Store и помечена тегом `v1.0.4`. Fail-closed bugfix собран как `1.0.4.1`, отправлен на проверку и намеренно не тегируется. Текущий незакоммиченный post-release slice добавляет единичную read-only проверку уже укомплектованных штрихкодов при открытии подтверждённого Ozon-заказа в Склад 3, закрывает найденные аудитом гонки resolve/apply и усиливает Warehouse-валидацию. Live regression дополнительно исправил ложную причину `неединичная позиция`: quantity/reserved/stock больше не участвуют в определении единичности при явном `itemType === 0`. Baseline и live smoke: `340 pass / 0 fail`, автопроверка и автоматическая запись работают. Предварительный patch, ослаблявший проверку изменения barcode fingerprint после `$ctrl.confirm()`, был основан на неверной гипотезе, пользователем не применялся и в текущий slice не входит.
+1.0.4 опубликована и помечена тегом `v1.0.4`; 1.0.4.1 опубликована как hotfix без тега. Текущий patch candidate `1.0.4.2` построен поверх коммита `6243b03`. Он добавляет единичную read-only проверку уже укомплектованных штрихкодов при открытии подтверждённого Ozon-заказа, сериализует resolve/apply операции и усиливает Warehouse-валидацию. Live regression дополнительно исправил ложную причину `неединичная позиция`: quantity/reserved/stock не участвуют в определении единичности при явном `itemType === 0`. Baseline и live smoke: `340 pass / 0 fail`. Экспериментальный fingerprint-патч не применялся и в код не входит.
 
 ## 2. What Is In The Current Hardening
 
@@ -191,12 +191,12 @@ tests/ozon-product-bridge.test.js
 
 ## 6. Release Discipline
 
-- Bugfix build `1.0.4.1` уже отправлен на проверку CWS.
+- Hotfix `1.0.4.1` опубликован без Git tag; текущий CWS patch candidate — `1.0.4.2`.
 - Загружать только точный проверенный CWS package с совпадающим SHA256.
 - Маленькие patch releases без новых permissions/host permissions предпочтительны.
 - Удаление permission допустимо, но требует smoke в установленной unpacked-сборке.
 - Git tags создаются только для крупных обновлений; patch/hotfix builds не тегируются.
-- До публикации bugfix текущая public release identity остаётся `cd7d8e2 / v1.0.4`.
+- Git tags остаются только для крупных обновлений; `1.0.4.2` не тегируется.
 
 ## 7. Sensitive Local Files
 
@@ -211,13 +211,10 @@ tests/ozon-product-bridge.test.js
 
 ## 8. Next Step After Applying This Archive
 
-1. Пользователь заменяет обновлённые docs-файлы.
+1. Пользователь заменяет release-prep файлы.
 2. Запускает `npm test`, `git status`, `git diff --stat`.
-3. Ожидаемый baseline: `340 pass / 0 fail`; рабочее дерево содержит код, тесты и документацию одного общего среза.
-4. Live smoke уже пройден:
-   - существующие собранные Ozon-штрихкоды проверяются один раз без записи;
-   - автопроверка работает при выключенной автозаписи;
-   - новый единичный штрихкод с Warehouse-состоянием `1/1` записывается, даже если quantity/reserved/stock больше одного;
-   - multi/unknown типы остаются заблокированы.
-5. Конкуренция resolve/apply остаётся automated-only regression и не требует искусственного ручного воспроизведения.
-6. После проверки выполнить один consolidated Conventional Commit и push без Git tag.
+3. Ожидаемый baseline: `340 pass / 0 fail`.
+4. Коммитит release metadata одним `chore: prepare patch release 1.0.4.2` и пушит.
+5. Создаёт свежий `git archive HEAD`.
+6. Из точного HEAD собирается финальный CWS ZIP с SHA256 и submission notes.
+7. Git tag не создаётся.

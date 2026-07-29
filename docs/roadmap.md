@@ -10,7 +10,7 @@ Tag: v1.0.4
 Release baseline: 322 pass / 0 fail
 ```
 
-## Current 1.0.4.1 bugfix submission
+## Published 1.0.4.1 bugfix
 
 Confirmed production incident on 26 July 2026:
 
@@ -33,7 +33,7 @@ Implemented bugfix scope:
 - [x] live smoke on a real order confirmed correct multi-barcode exclusion;
 - [x] functional bugfix committed and pushed;
 - [x] release metadata prepared as CWS build `1.0.4.1`;
-- [x] exact-HEAD package submitted to Chrome Web Store review;
+- [x] exact-HEAD package published in Chrome Web Store;
 - [x] no Git tag created: tags are reserved for substantial releases.
 
 Submitted package:
@@ -45,7 +45,7 @@ Baseline: 326 pass / 0 fail
 Tag: intentionally omitted
 ```
 
-## Current post-1.0.4.1 development
+## Current 1.0.4.2 patch candidate
 
 Automatic read-only verification for already assembled Ozon orders:
 
@@ -69,7 +69,11 @@ Automatic read-only verification for already assembled Ozon orders:
 - [x] automated baseline: 340 pass / 0 fail;
 - [x] live smoke on an already assembled Ozon order;
 - [x] live smoke on a newly scanned `1/1` unit barcode with warehouse stock metadata greater than one;
-- [ ] one consolidated feature/fix/docs commit and push.
+- [x] one consolidated feature/fix/docs commit and push: `6243b03`;
+- [x] release metadata prepared as version `1.0.4.2`;
+- [ ] commit and push release-prep;
+- [ ] build final CWS package from exact HEAD;
+- [ ] submit without Git tag.
 
 ## Candidate product improvements
 
