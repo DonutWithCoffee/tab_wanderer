@@ -1804,6 +1804,103 @@ test('Ozon resolve preview opens seller product worker and returns comparison pl
     assert.deepEqual(context.__test.removedTabs, [1]);
 });
 
+test('automatic page-open Ozon check requires confirmed Ozon kind but ignores automatic-write setting', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const orderId = '4172-010726';
+    const warehouseExtraction = {
+        orderId,
+        productsById: {
+            40534835: {
+                productId: '40534835',
+                productTitle: 'PETG пластик',
+                eligibleBarcodes: [
+                    { barcode: '2486857', productId: '40534835', itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    };
+    const warehouseSender = {
+        tab: {
+            id: 7,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        }
+    };
+
+    const rejected = await sendRuntimeMessage(context, {
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        trigger: 'automatic-on-open',
+        documentInstanceId: 'warehouse-document-1',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error, /confirmed Ozon order/);
+    assert.equal(context.__test.createdTabs.length, 0);
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123456/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 77,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    const configBefore = await sendRuntimeMessage(context, { type: 'GET_CONFIG' });
+    const configUpdated = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: {
+            ...configBefore.userConfig,
+            ozonAutoBarcodeApplyEnabled: false
+        }
+    });
+    assert.equal(configUpdated.userConfig.ozonAutoBarcodeApplyEnabled, false);
+
+    const accepted = await sendRuntimeMessage(context, {
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        trigger: 'automatic-on-open',
+        documentInstanceId: 'warehouse-document-1',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.started, true);
+    assert.equal(accepted.trigger, 'automatic-on-open');
+    assert.equal(context.__test.createdTabs.length, 1);
+
+    const duplicate = await sendRuntimeMessage(context, {
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        trigger: 'automatic-on-open',
+        documentInstanceId: 'warehouse-document-1',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+
+    assert.equal(duplicate.ok, true);
+    assert.equal(duplicate.started, true);
+    assert.equal(duplicate.alreadyActive, true);
+    assert.equal(context.__test.createdTabs.length, 1);
+
+    const state = getBackgroundState(context);
+    assert.equal(state.ozonResolveSession.trigger, 'automatic-on-open');
+    assert.equal(state.ozonResolveSession.documentInstanceId, 'warehouse-document-1');
+});
+
 test('Ozon resolve preview skips warehouse products without eligible barcode candidates', async () => {
     const context = loadBackgroundContext({
         setTimeout: () => 1,
@@ -2795,4 +2892,328 @@ test('disabling Ozon automatic barcode adding clears pending intents and blocks 
 
     assert.equal(rejected.ok, false);
     assert.match(rejected.error, /disabled/);
+});
+
+test('automatic Ozon check queues behind active barcode write and starts after completion', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const orderId = '4173-010726';
+    const productId = '40534835';
+    const warehouseExtraction = {
+        orderId,
+        productsById: {
+            [productId]: {
+                productId,
+                productTitle: 'PETG пластик',
+                eligibleBarcodes: [
+                    { barcode: '2486857', productId, itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    };
+    const warehouseSender = {
+        tab: {
+            id: 7,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        }
+    };
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123456/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 77,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    const apply = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+    assert.equal(apply.ok, true);
+    assert.equal(apply.started, true);
+    assert.equal(context.__test.createdTabs.length, 1);
+
+    const queued = await sendRuntimeMessage(context, {
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        trigger: 'automatic-on-open',
+        documentInstanceId: 'warehouse-document-queue',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+    assert.equal(queued.ok, true);
+    assert.equal(queued.queued, true);
+    assert.equal(queued.activeOperation, 'apply');
+    assert.equal(getBackgroundState(context).ozonQueuedResolveRequests.length, 1);
+
+    const ready = await sendRuntimeMessage(context, {
+        type: 'OZON_PRODUCT_WORKER_READY',
+        productId
+    }, {
+        tab: {
+            id: 1,
+            url: `https://seller.ozon.ru/app/products?search=${productId}`
+        }
+    });
+    assert.equal(ready.ok, true);
+
+    const result = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_RESULT',
+        productId,
+        result: {
+            ok: true,
+            addedCount: 1,
+            verifiedCount: 1,
+            missingBarcodes: []
+        }
+    }, {
+        tab: {
+            id: 1,
+            url: `https://seller.ozon.ru/app/products?search=${productId}`
+        }
+    });
+    assert.equal(result.ok, true);
+
+    const state = getBackgroundState(context);
+    assert.equal(state.ozonActiveOperation.type, 'resolve');
+    assert.equal(state.ozonResolveSession.trigger, 'automatic-on-open');
+    assert.equal(state.ozonResolveSession.documentInstanceId, 'warehouse-document-queue');
+    assert.equal(state.ozonQueuedResolveRequests.length, 0);
+    assert.equal(context.__test.createdTabs.length, 2);
+    assert.deepEqual(context.__test.removedTabs, [1]);
+});
+
+test('barcode write preempts automatic read check and safely resumes it afterwards', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const orderId = '4174-010726';
+    const productId = '40534836';
+    const warehouseExtraction = {
+        orderId,
+        productsById: {
+            [productId]: {
+                productId,
+                productTitle: 'ABS пластик',
+                eligibleBarcodes: [
+                    { barcode: '2486858', productId, itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    };
+    const warehouseSender = {
+        tab: {
+            id: 8,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4337?order=${orderId}`
+        }
+    };
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123457/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 78,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    const resolve = await sendRuntimeMessage(context, {
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        trigger: 'automatic-on-open',
+        documentInstanceId: 'warehouse-document-preempt',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+    assert.equal(resolve.ok, true);
+    assert.equal(resolve.started, true);
+    assert.equal(context.__test.createdTabs.length, 1);
+
+    const apply = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+    assert.equal(apply.ok, true);
+    assert.equal(apply.started, true);
+
+    let state = getBackgroundState(context);
+    assert.equal(state.ozonActiveOperation.type, 'apply');
+    assert.equal(state.ozonResolveSession, null);
+    assert.equal(state.ozonQueuedResolveRequests.length, 1);
+    assert.equal(context.__test.createdTabs.length, 2);
+    assert.deepEqual(context.__test.removedTabs, [1]);
+
+    await sendRuntimeMessage(context, {
+        type: 'OZON_PRODUCT_WORKER_READY',
+        productId
+    }, {
+        tab: {
+            id: 2,
+            url: `https://seller.ozon.ru/app/products?search=${productId}`
+        }
+    });
+
+    await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_RESULT',
+        productId,
+        result: {
+            ok: true,
+            addedCount: 1,
+            verifiedCount: 1,
+            missingBarcodes: []
+        }
+    }, {
+        tab: {
+            id: 2,
+            url: `https://seller.ozon.ru/app/products?search=${productId}`
+        }
+    });
+
+    state = getBackgroundState(context);
+    assert.equal(state.ozonActiveOperation.type, 'resolve');
+    assert.equal(state.ozonResolveSession.documentInstanceId, 'warehouse-document-preempt');
+    assert.equal(state.ozonQueuedResolveRequests.length, 0);
+    assert.equal(context.__test.createdTabs.length, 3);
+    assert.deepEqual(context.__test.removedTabs, [1, 2]);
+});
+
+test('pending automatic write claim blocks competing operations before intent persistence completes', async () => {
+    const context = loadBackgroundContext({
+        setTimeout: () => 1,
+        clearTimeout: () => {}
+    });
+    await settleBackgroundContext();
+
+    const orderId = '4175-010726';
+    const productId = '40534837';
+    const actionId = `${orderId}:pending-claim`;
+    const warehouseExtraction = {
+        orderId,
+        productsById: {
+            [productId]: {
+                productId,
+                productTitle: 'Нейлон пластик',
+                eligibleBarcodes: [
+                    { barcode: '2486859', productId, itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    };
+    const warehouseSender = {
+        tab: {
+            id: 9,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4338?order=${orderId}`
+        }
+    };
+
+    await sendRuntimeMessage(context, {
+        type: 'REPORT_ORDER_KIND',
+        orderId,
+        evidence: {
+            pageComplete: true,
+            source: 'OZON',
+            contractor: 'OZON (ОЗОН)',
+            ozonShipActionUrl: `/admin/_api/shop-orders/${orderId}/ozon/123458/posting/fbs/ship`
+        }
+    }, {
+        tab: {
+            id: 79,
+            url: `https://amperkot.ru/admin/orders/${orderId}/`
+        }
+    });
+
+    await sendRuntimeMessage(context, {
+        type: 'ARM_WAREHOUSE_AUTO_APPLY',
+        orderId,
+        actionId,
+        actionText: 'СПБ: собрать заказ',
+        sourceRoute: 'actions',
+        documentInstanceId: 'document-before-pending-claim'
+    }, warehouseSender);
+
+    let releaseBlockedSave;
+    let signalBlockedSave;
+    const blockedSave = new Promise(resolve => { signalBlockedSave = resolve; });
+    const releaseSave = new Promise(resolve => { releaseBlockedSave = resolve; });
+    let shouldBlockNextSave = true;
+    context.__test.storageSetHook = async () => {
+        if (!shouldBlockNextSave) {
+            return;
+        }
+        shouldBlockNextSave = false;
+        signalBlockedSave();
+        await releaseSave;
+    };
+
+    const automaticWritePromise = sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        trigger: 'automatic',
+        actionId,
+        documentInstanceId: 'document-after-pending-claim',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+
+    await blockedSave;
+
+    let state = getBackgroundState(context);
+    assert.equal(state.ozonActiveOperation, null);
+    assert.equal(state.ozonPendingApplyRequest.trigger, 'automatic');
+    assert.equal(state.ozonPendingApplyRequest.orderId, orderId);
+
+    const competingWrite = await sendRuntimeMessage(context, {
+        type: 'OZON_UI_APPLY_REQUEST',
+        trigger: 'manual',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+    assert.equal(competingWrite.ok, false);
+    assert.equal(competingWrite.busy, true);
+
+    const queuedCheck = await sendRuntimeMessage(context, {
+        type: 'OZON_RESOLVE_PREVIEW_REQUEST',
+        trigger: 'automatic-on-open',
+        documentInstanceId: 'document-after-pending-claim',
+        orderId,
+        warehouseExtraction
+    }, warehouseSender);
+    assert.equal(queuedCheck.ok, true);
+    assert.equal(queuedCheck.queued, true);
+    assert.equal(queuedCheck.activeOperation, 'apply');
+
+    releaseBlockedSave();
+    const automaticWrite = await automaticWritePromise;
+    assert.equal(automaticWrite.ok, true);
+    assert.equal(automaticWrite.started, true);
+
+    state = getBackgroundState(context);
+    assert.equal(state.ozonPendingApplyRequest, null);
+    assert.equal(state.ozonActiveOperation.type, 'apply');
+    assert.equal(state.ozonQueuedResolveRequests.length, 1);
 });

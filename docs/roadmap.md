@@ -10,7 +10,7 @@ Tag: v1.0.4
 Release baseline: 322 pass / 0 fail
 ```
 
-## Current 1.0.4.1 bugfix release-prep
+## Current 1.0.4.1 bugfix submission
 
 Confirmed production incident on 26 July 2026:
 
@@ -32,17 +32,44 @@ Implemented bugfix scope:
 - [x] automated baseline: 326 pass / 0 fail;
 - [x] live smoke on a real order confirmed correct multi-barcode exclusion;
 - [x] functional bugfix committed and pushed;
-- [x] release metadata prepared as CWS build `1.0.4.1`.
+- [x] release metadata prepared as CWS build `1.0.4.1`;
+- [x] exact-HEAD package submitted to Chrome Web Store review;
+- [x] no Git tag created: tags are reserved for substantial releases.
 
-Release path:
+Submitted package:
 
-- [ ] Apply release-prep replacement files and run the full test suite.
-- [ ] Commit and push release-preparation metadata.
-- [ ] Build a fresh exact-HEAD CWS package.
-- [ ] Run final automated and Chrome smoke tests.
-- [ ] Verify exact package contents and SHA256.
-- [ ] Submit `1.0.4.1` as bugfix-only, without permission or data-handling changes.
-- [ ] Create tag `v1.0.4.1` only after confirmed publication.
+```text
+Commit: aa7daa1
+SHA256: 221443df4eb1092a400cd522c700e530ff22a09a1dbaa9c1a518f00ee446e1a1
+Baseline: 326 pass / 0 fail
+Tag: intentionally omitted
+```
+
+## Current post-1.0.4.1 development
+
+Automatic read-only verification for already assembled Ozon orders:
+
+- [x] wait for a confirmed `ozon` order kind;
+- [x] wait for a non-empty eligible warehouse barcode snapshot;
+- [x] debounce the first accepted snapshot before starting the check;
+- [x] run the existing Ozon resolve/preview flow exactly once per document/order;
+- [x] keep the check independent from `ozonAutoBarcodeApplyEnabled`;
+- [x] skip multi-barcodes and unconfirmed types through the shared fail-closed extractor;
+- [x] suppress the read check when a pending automatic write intent must take precedence;
+- [x] ignore delayed resolve results from another warehouse document instance;
+- [x] keep manual recheck available;
+- [x] operation owner/token prevents resolve/apply from sharing or closing another session worker;
+- [x] automatic read checks queue behind writes with deduplication, TTL and bounded retry;
+- [x] writes preempt automatic reads safely and resume them after completion;
+- [x] pending write claim closes the async persistence race before worker acquisition;
+- [x] coercive `itemType` values (`false`, arrays, objects, hex) fail closed; quantity/reserved/stock values are preserved only as diagnostics and do not define barcode unit type;
+- [x] warehouse payload product/row/string limits are checked before worker creation;
+- [x] reused XHR capture uses one-shot `loadend` listeners;
+- [x] confirmed unit `itemType === 0` remains eligible when Warehouse quantity/reserved/stock metadata is `0`, greater than `1` or reflects stock rather than barcode multiplicity;
+- [x] automated baseline: 340 pass / 0 fail;
+- [x] live smoke on an already assembled Ozon order;
+- [x] live smoke on a newly scanned `1/1` unit barcode with warehouse stock metadata greater than one;
+- [ ] one consolidated feature/fix/docs commit and push.
 
 ## Candidate product improvements
 
@@ -59,7 +86,10 @@ Release path:
 
 - Move large known-order state to a more compact schema or IndexedDB if retention becomes insufficient.
 - Split `background.js` into lifecycle/storage/monitor/direct/Ozon orchestration modules.
-- Split Ozon and warehouse bridge logic into smaller testable modules.
+- Split Ozon and warehouse bridge logic into smaller testable modules and remove the near-duplicate read/write bridge implementations.
+- Replace known-order insertion-order retention with explicit `lastSeenAt`/LRU semantics.
+- Apply barcode chunking in the UI write path and aggregate verification per chunk.
+- Rename ambiguous apply result `ok` into explicit `completed`/`success` fields through a backward-compatible migration.
 - Add browser-level Playwright/Puppeteer smoke harness with fixture pages.
 - Add schema version and explicit storage migrations.
 - Add support bundle export with manifest/version, diagnostics, alarms and storage counters.

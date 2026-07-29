@@ -19,9 +19,10 @@
 1.0.2 published
 1.0.3 published and tagged v1.0.3
 1.0.4 published and tagged v1.0.4
-Current development: release-prep for fail-closed bugfix build 1.0.4.1
-Manifest candidate: 1.0.4.1
-Automated baseline: 326 pass / 0 fail
+1.0.4.1 submitted to Chrome Web Store review without a Git tag
+Current development: one-time read-only Ozon check + serialized Ozon operations + corrected Warehouse unit classification
+Manifest: 1.0.4.1
+Automated baseline: 340 pass / 0 fail
 ```
 
 ## Monitoring model
@@ -148,9 +149,27 @@ Warehouse UI использует тип только для начальног�
 - неизвестный тип показывает `Тип не определён — обновите карточку заказа`;
 - manual preview/check/write доступен всегда.
 
+Если подтверждённый Ozon-заказ открывается сразу на assembly page и snapshot уже содержит подходящие укомплектованные штрихкоды, content script один раз запускает существующий read-only resolve/preview flow. Проверка:
+
+- не зависит от `ozonAutoBarcodeApplyEnabled`;
+- не создаёт write intent и не выполняет POST-запись;
+- стартует только после короткой стабилизации непустого eligible snapshot;
+- выполняется один раз для текущего document instance и order ID;
+- повторный SPA-переход на другой заказ сбрасывает guard;
+- multi/unknown barcode rows отбрасываются общим fail-closed extractor;
+- pending automatic write intent имеет приоритет и подавляет параллельную read-check session;
+- delayed result другого document instance игнорируется;
+- ручная повторная проверка остаётся доступной.
+
 При включённой настройке trusted click по активной кнопке с Angular-маркером `ng-click="$ctrl.confirm()"` создаёт одноразовый `actionId`. Видимый текст кнопки и префикс склада не участвуют в разрешении автоматики. Automatic apply запускается только после свежего успешного snapshot того же заказа с подходящими штрихкодами. Background повторно проверяет подтверждённый тип Ozon и включённую настройку `ozonAutoBarcodeApplyEnabled`. Выключение настройки очищает pending intents, но не блокирует ручной flow. Неуспешные Warehouse API responses и синтетические события не запускают запись.
 
-Barcode classification работает fail-closed: допустим только явно подтверждённый `itemType === 0`. Тип `1` и любой другой ненулевой тип считается мультиштрихкодом; отсутствующий тип считается `itemTypeUnknown`. Visible DOM используется только как источник значения штрихкода и больше не подставляет unit type/quantity. При наличии Angular metadata DOM-кандидат обогащается реальным типом. Перед любым manual/automatic write background заново классифицирует warehouse extraction и не открывает Ozon worker, если безопасных единичных штрихкодов не осталось.
+Ozon resolve и apply используют единый operation owner поверх общей worker-вкладки. Каждая активная операция получает token; stale timeout/result не может завершить более новую сессию. Apply имеет приоритет: automatic-on-open resolve переносится в bounded deduplicated queue, manual resolve получает явную отмену. Очередь проверяет tab/order/document/TTL перед запуском, а content повторяет queued request ограниченное число раз, чтобы восстановиться после перезапуска service worker. Pending apply claim создаётся до асинхронного сохранения intent, поэтому конкурирующая операция не может захватить worker в промежутке.
+
+Barcode classification работает fail-closed: допустим только явно подтверждённый `itemType === 0`. Тип `1` и любой другой ненулевой тип считается мультиштрихкодом; отсутствующий или coercive тип считается `itemTypeUnknown`. Числа принимаются только как finite number либо строгая десятичная строка; boolean, array, object и hex не преобразуются. Quantity-поля сохраняются только как диагностические данные и не определяют единичность штрихкода: решение принимается исключительно по явно подтверждённому `itemType`. Visible DOM используется только как источник значения штрихкода и больше не подставляет unit type/quantity. При наличии Angular metadata DOM-кандидат обогащается реальным типом. Перед любым manual/automatic write background заново классифицирует warehouse extraction, применяет product/row/string limits и не открывает Ozon worker, если безопасных единичных штрихкодов не осталось.
+
+Live regression подтвердила важную границу: Warehouse может показывать сборку `1/1`, но одновременно отдавать quantity/reserved/stock больше единицы, например из-за складского остатка. Такие значения не являются признаком мультиштрихкода. После исправления строка с подтверждённым `itemType === 0` остаётся eligible при любых корректно нормализованных quantity-метаданных; multi/unknown по-прежнему блокируются на content и background write boundary.
+
+Предварительная гипотеза о необходимости разрешить неизменившийся pre/post-action barcode fingerprint была отклонена после получения точного UI-кода ошибки. Соответствующий экспериментальный patch не входит в текущую рабочую копию: freshness-guard автозаписи не ослаблялся.
 
 ### Remote code
 

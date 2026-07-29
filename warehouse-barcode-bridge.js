@@ -106,13 +106,21 @@
     }
 
     function normalizeText(value) {
-        return String(value || '')
+        if (typeof value !== 'string' && typeof value !== 'number') {
+            return '';
+        }
+
+        return String(value)
             .replace(/\s+/g, ' ')
             .trim();
     }
 
     function normalizeId(value) {
-        return String(value || '')
+        if (typeof value !== 'string' && typeof value !== 'number') {
+            return '';
+        }
+
+        return String(value)
             .replace(/\s+/g, '')
             .trim();
     }
@@ -205,16 +213,32 @@
     }
 
     function firstValue(...values) {
-        return values.find(value => value !== undefined && value !== null && value !== '') || '';
+        return values.find(value => value !== undefined && value !== null && value !== '') ?? '';
     }
 
     function normalizeNumber(value) {
-        if (value === null || value === undefined || value === '') {
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : null;
+        }
+
+        if (typeof value !== 'string') {
             return null;
         }
 
-        const number = Number(value);
+        const normalized = value.trim();
+        if (!normalized || !/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) {
+            return null;
+        }
+
+        const number = Number(normalized);
         return Number.isFinite(number) ? number : null;
+    }
+
+    function isNumberInvalid(value) {
+        return value !== undefined
+            && value !== null
+            && value !== ''
+            && normalizeNumber(value) === null;
     }
 
     function asArray(value) {
@@ -264,12 +288,17 @@
             title: normalizedOrderItem.title
         });
 
+        const rawReservedQuantity = firstValue(item.reserved_quantity, item.reservedQuantity);
+
         return {
             id: normalizeId(firstValue(item.id, item.item_id, item.itemId)),
             barcode: normalizeId(firstValue(item.barcode, item.bar_code, item.code)),
             type: normalizeNumber(item.type),
+            ...(isNumberInvalid(item.type) ? { type_invalid: true } : {}),
             quantity: normalizeNumber(item.quantity),
-            reserved_quantity: normalizeNumber(firstValue(item.reserved_quantity, item.reservedQuantity)),
+            ...(isNumberInvalid(item.quantity) ? { quantity_invalid: true } : {}),
+            reserved_quantity: normalizeNumber(rawReservedQuantity),
+            ...(isNumberInvalid(rawReservedQuantity) ? { reserved_quantity_invalid: true } : {}),
             product_id: normalizeId(firstValue(item.product_id, item.productId, product.id, normalizedOrderItem.item_id)),
             product,
             state: isObject(item.state)
@@ -288,9 +317,12 @@
             ? (assemblyEntry.order_item || assemblyEntry.orderItem)
             : orderItem;
 
+        const rawQuantity = firstValue(assemblyEntry.quantity, assemblyEntry.assembly_quantity, assemblyEntry.assemblyQuantity);
+
         return {
             id: normalizeId(firstValue(assemblyEntry.id, assemblyEntry.assembly_id, assemblyEntry.assemblyId)),
-            quantity: normalizeNumber(firstValue(assemblyEntry.quantity, assemblyEntry.assembly_quantity, assemblyEntry.assemblyQuantity)),
+            quantity: normalizeNumber(rawQuantity),
+            ...(isNumberInvalid(rawQuantity) ? { quantity_invalid: true } : {}),
             product_item: normalizeProductItemForBridge(
                 firstValue(assemblyEntry.product_item, assemblyEntry.productItem, assemblyEntry.product_item_data, assemblyEntry.productItemData) || {},
                 sourceOrderItem
@@ -327,9 +359,12 @@
             ? (source.order_item || source.orderItem)
             : orderItem;
 
+        const rawQuantity = firstValue(source.quantity, source.assembly_quantity, source.assemblyQuantity, 1);
+
         return {
             id: normalizeId(firstValue(source.id, source.assembly_id, source.assemblyId, normalizedProductItem.id)),
-            quantity: normalizeNumber(firstValue(source.quantity, source.assembly_quantity, source.assemblyQuantity, 1)),
+            quantity: normalizeNumber(rawQuantity),
+            ...(isNumberInvalid(rawQuantity) ? { quantity_invalid: true } : {}),
             product_item: normalizedProductItem,
             order_item: normalizeOrderItemForBridge(sourceOrderItem)
         };
@@ -1187,7 +1222,7 @@
                         this.__tabWandererWarehouseUrl || this.responseURL || '',
                         captureGeneration
                     );
-                });
+                }, { once: true });
             } catch {}
 
             return originalSend.apply(this, arguments);

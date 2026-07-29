@@ -1,11 +1,11 @@
-# tab_wanderer — 1.0.4.1 multi-barcode bugfix smoke checklist
+# tab_wanderer — post-1.0.4.1 Warehouse/Ozon smoke checklist
 
-Manifest candidate — `1.0.4.1`. Этот checklist проверяет bugfix release candidate перед отправкой пользователям.
+Manifest — `1.0.4.1`. Bugfix уже отправлен на проверку; checklist дополнен текущей read-only проверкой уже собранных Ozon-заказов, сериализацией Ozon-операций и regression-проверкой единичности независимо от quantity/reserved/stock.
 
 ```text
-Expected automated baseline: 326 pass / 0 fail
+Expected automated baseline: 340 pass / 0 fail
 Public CWS release: 1.0.4 / cd7d8e2 / v1.0.4
-Bugfix candidate: 1.0.4.1 / release-prep
+Bugfix submission: 1.0.4.1 / aa7daa1 / no tag
 ```
 
 ## 0. Подготовка
@@ -182,7 +182,66 @@ Permissions: storage, notifications, alarms
 - UI не зависает при fallback scan;
 - multi barcode отображается отдельно от других причин.
 
-## 9. Автозапись после складской сборки
+## 9. Единичная проверка уже укомплектованного Ozon-заказа
+
+### Автозапись включена
+
+1. Открыть/обновить карточку Ozon-заказа в менеджерской вкладке.
+2. Взять заказ, в котором уже есть укомплектованные единичные штрихкоды.
+3. Открыть его сразу на Warehouse assembly page без нового нажатия `$ctrl.confirm()`.
+4. Наблюдать панель и фоновые Ozon-вкладки.
+5. Дождаться нескольких повторных Angular/API/DOM snapshots.
+
+Ожидаемо:
+
+- после подтверждения типа Ozon и непустого eligible snapshot запускается одна read-only проверка;
+- используется существующий `OZON_RESOLVE`, POST-записи нет;
+- короткая задержка позволяет принять более свежий snapshot до старта;
+- повторные одинаковые snapshots не открывают второй worker;
+- после результата ручная кнопка «Проверить» остаётся доступной;
+- multi/unknown rows не участвуют в проверке;
+- delayed acknowledgement/result другого document instance игнорируется;
+- если worker занят записью, check получает queued-state и автоматически стартует после освобождения;
+- повторная отправка queued request дедуплицируется и не создаёт второй worker.
+
+### Автозапись выключена
+
+1. Снять «Автоматически добавлять штрихкоды в Ozon».
+2. Полностью обновить тот же уже собранный Ozon-заказ.
+3. Дождаться проверки.
+
+Ожидаемо:
+
+- единичная read-only проверка запускается как обычно;
+- `OZON_UI_APPLY_REQUEST` автоматически не отправляется;
+- отсутствие части штрихкодов отображается в панели;
+- ручная запись остаётся доступной.
+
+### Конкуренция resolve/apply — automated regression
+
+Этот сценарий маловероятен в обычной работе: заказы обрабатываются последовательно, а Ozon write обычно завершается быстро. Обязательная проверка выполняется автоматическими тестами; ручное воспроизведение не входит в основной live smoke.
+
+Автоматически проверяется:
+
+- одновременно существует только одна активная Ozon-операция и один принадлежащий ей worker;
+- read-only check ждёт в bounded queue и не получает terminal failure только из-за busy worker;
+- одинаковые tab/order/document requests дедуплицируются;
+- write имеет приоритет и не теряет automatic intent во время асинхронного `save()`;
+- automatic read, прерванный записью, возобновляется после write;
+- stale timeout/result старой операции не закрывает worker новой операции.
+
+### Приоритет pending automatic write
+
+1. На подтверждённом Ozon-заказе доверенно нажать финальную `$ctrl.confirm()`.
+2. Дождаться SPA-перехода или полного reload с восстановленным action intent.
+
+Ожидаемо:
+
+- pending write intent подавляет page-open read check;
+- не открываются параллельные resolve и apply workers;
+- запускается существующий automatic compare/write/verify flow.
+
+## 10. Автозапись после складской сборки
 
 ### Подтверждённый Ozon-заказ
 
@@ -233,7 +292,12 @@ Permissions: storage, notifications, alarms
 - `OZON_UI_APPLY worker opened` для skipped-only товара отсутствует;
 - manual «Записать в Ozon» также не открывает worker для такого товара;
 - при смешанном заказе в Ozon уходят только строки с явным `itemType === 0`;
-- диагностический лог содержит только counts/rejection reasons, без полного warehouse payload.
+- диагностический лог содержит только counts/rejection reasons, без полного warehouse payload;
+- `type: false`, `type: []`, `type: [0]`, `type: {}`, `type: "0x0"` и пробельные значения не считаются unit type;
+- значения `quantity`, `reserved_quantity` и складского остатка не влияют на единичность: при подтверждённом `itemType === 0` строка остаётся допустимой;
+- отдельный live regression: после одного сканирования интерфейс Склад 3 показывает `Собрано 1/1`, а складской остаток/резерв может быть больше одного; панель расширения должна показать один eligible штрихкод, а не `неединичные позиции: 1`;
+- проверка непосредственно перед Ozon write должна сохранить такой confirmed-unit barcode eligible;
+- oversized product/barcode payload отклоняется до открытия Ozon worker.
 
 
 ### Выключенная настройка
@@ -314,8 +378,8 @@ Permissions: storage, notifications, alarms
 ## 12. Финальная проверка release candidate
 
 - [ ] Все пункты выше пройдены.
-- [ ] `npm test` зелёный.
-- [ ] Runtime JS проходит `node --check`.
+- [x] `npm test` зелёный: `340 pass / 0 fail`.
+- [x] Runtime JS проходит `node --check`: `47 / 47`.
 - [ ] Нет remote code/eval/new Function.
 - [ ] `docs/private`, `.git`, tests и docs не входят в CWS runtime ZIP.
 - [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4.1`.

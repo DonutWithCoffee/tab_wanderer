@@ -297,6 +297,11 @@ function setBackgroundState(context, state = {}) {
         ozonWorkerTabId = __testState.ozonWorkerTabId ?? null;
         ozonResolveSession = __testState.ozonResolveSession ?? null;
         ozonUiApplySession = __testState.ozonUiApplySession ?? null;
+        ozonActiveOperation = __testState.ozonActiveOperation ?? null;
+        ozonPendingApplyRequest = __testState.ozonPendingApplyRequest ?? null;
+        ozonQueuedResolveRequests = Array.isArray(__testState.ozonQueuedResolveRequests)
+            ? __testState.ozonQueuedResolveRequests
+            : [];
         directFollowUpState = __testState.directFollowUpState ?? normalizeDirectFollowUpState();
         directFollowUpOrdersDB = __testState.directFollowUpOrdersDB || {};
         directFollowUpHashDB = __testState.directFollowUpHashDB || {};
@@ -336,6 +341,9 @@ function getBackgroundState(context) {
         ozonWorkerTabId,
         ozonResolveSession,
         ozonUiApplySession,
+        ozonActiveOperation,
+        ozonPendingApplyRequest,
+        ozonQueuedResolveRequests,
         directFollowUpState,
         directFollowUpOrdersDB,
         directFollowUpHashDB,

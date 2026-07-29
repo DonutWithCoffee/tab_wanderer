@@ -3,6 +3,13 @@ const WAREHOUSE_BARCODE_DECISIONS = {
     SKIPPED: 'skipped'
 };
 
+const MAX_WAREHOUSE_OZON_PRODUCTS = 100;
+const MAX_WAREHOUSE_OZON_ENTRIES_PER_PRODUCT = 500;
+const MAX_WAREHOUSE_OZON_TOTAL_ENTRIES = 2000;
+const MAX_WAREHOUSE_BARCODE_LENGTH = 80;
+const MAX_WAREHOUSE_PRODUCT_ID_LENGTH = 80;
+const MAX_WAREHOUSE_PRODUCT_TITLE_LENGTH = 500;
+
 const WAREHOUSE_BARCODE_SKIP_REASONS = {
     MISSING_BARCODE: 'missingBarcode',
     MISSING_PRODUCT_ID: 'missingProductId',
@@ -13,32 +20,145 @@ const WAREHOUSE_BARCODE_SKIP_REASONS = {
     DUPLICATE_BARCODE: 'duplicateBarcode'
 };
 
-function normalizeWarehouseBarcodeValue(value) {
-    return String(value || '')
-        .replace(/\s+/g, '')
+function normalizeWarehouseScalarString(value, maxLength = 500) {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return '';
+    }
+
+    return String(value)
+        .slice(0, maxLength)
         .trim();
+}
+
+function normalizeWarehouseBarcodeValue(value) {
+    return normalizeWarehouseScalarString(value, MAX_WAREHOUSE_BARCODE_LENGTH)
+        .replace(/\s+/g, '');
 }
 
 function normalizeWarehouseProductId(value) {
-    return String(value || '')
-        .replace(/\s+/g, '')
-        .trim();
+    return normalizeWarehouseScalarString(value, MAX_WAREHOUSE_PRODUCT_ID_LENGTH)
+        .replace(/\s+/g, '');
 }
 
 function normalizeWarehouseText(value) {
-    return String(value || '')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return normalizeWarehouseScalarString(value, MAX_WAREHOUSE_PRODUCT_TITLE_LENGTH)
+        .replace(/\s+/g, ' ');
+}
+
+function firstDefinedWarehouseValue(...values) {
+    return values.find(value => value !== undefined && value !== null && value !== '') ?? null;
 }
 
 function normalizeWarehouseNumber(value) {
-    if (value === null || value === undefined || value === '') {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+    }
+
+    if (typeof value !== 'string') {
         return null;
     }
 
-    const numeric = Number(value);
+    const normalized = value.trim();
+    if (!normalized || !/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) {
+        return null;
+    }
 
+    const numeric = Number(normalized);
     return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isWarehouseNumberProvided(value) {
+    return value !== undefined && value !== null && value !== '';
+}
+
+function isWarehouseNumberInvalid(value) {
+    return isWarehouseNumberProvided(value) && normalizeWarehouseNumber(value) === null;
+}
+
+
+function isWarehouseScalarWithinLimit(value, maxLength) {
+    if (value === undefined || value === null || value === '') {
+        return true;
+    }
+
+    return (typeof value === 'string' || typeof value === 'number')
+        && String(value).length <= maxLength;
+}
+
+function validateWarehouseBarcodeExtractionBounds(extraction = {}) {
+    const safeExtraction = extraction && typeof extraction === 'object' && !Array.isArray(extraction)
+        ? extraction
+        : {};
+    const groupsObject = safeExtraction.productsById;
+
+    if (!groupsObject || typeof groupsObject !== 'object' || Array.isArray(groupsObject)) {
+        return { ok: true, productCount: 0, totalEntryCount: 0 };
+    }
+
+    const productKeys = Object.keys(groupsObject);
+    if (productKeys.length > MAX_WAREHOUSE_OZON_PRODUCTS) {
+        return {
+            ok: false,
+            error: `warehouse payload has too many products (${productKeys.length})`,
+            productCount: productKeys.length,
+            totalEntryCount: 0
+        };
+    }
+
+    let totalEntryCount = 0;
+
+    for (const key of productKeys) {
+        const group = groupsObject[key];
+        if (!group || typeof group !== 'object' || Array.isArray(group)) {
+            return { ok: false, error: 'warehouse payload contains an invalid product group' };
+        }
+
+        if (!isWarehouseScalarWithinLimit(group.productId || key, MAX_WAREHOUSE_PRODUCT_ID_LENGTH)
+            || !isWarehouseScalarWithinLimit(group.productTitle, MAX_WAREHOUSE_PRODUCT_TITLE_LENGTH)) {
+            return { ok: false, error: 'warehouse payload contains oversized product metadata' };
+        }
+
+        const eligible = Array.isArray(group.eligibleBarcodes) ? group.eligibleBarcodes : [];
+        const skipped = Array.isArray(group.skippedBarcodes) ? group.skippedBarcodes : [];
+        const groupEntryCount = eligible.length + skipped.length;
+
+        if (groupEntryCount > MAX_WAREHOUSE_OZON_ENTRIES_PER_PRODUCT) {
+            return {
+                ok: false,
+                error: `warehouse payload has too many barcode rows for product ${normalizeWarehouseProductId(group.productId || key)}`,
+                productCount: productKeys.length,
+                totalEntryCount: totalEntryCount + groupEntryCount
+            };
+        }
+
+        totalEntryCount += groupEntryCount;
+        if (totalEntryCount > MAX_WAREHOUSE_OZON_TOTAL_ENTRIES) {
+            return {
+                ok: false,
+                error: `warehouse payload has too many barcode rows (${totalEntryCount})`,
+                productCount: productKeys.length,
+                totalEntryCount
+            };
+        }
+
+        for (const entry of eligible.concat(skipped)) {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                return { ok: false, error: 'warehouse payload contains an invalid barcode row' };
+            }
+
+            if (!isWarehouseScalarWithinLimit(entry.barcode, MAX_WAREHOUSE_BARCODE_LENGTH)
+                || !isWarehouseScalarWithinLimit(entry.productId || group.productId || key, MAX_WAREHOUSE_PRODUCT_ID_LENGTH)
+                || !isWarehouseScalarWithinLimit(entry.productTitle, MAX_WAREHOUSE_PRODUCT_TITLE_LENGTH)) {
+                return { ok: false, error: 'warehouse payload contains oversized barcode metadata' };
+            }
+        }
+    }
+
+    return {
+        ok: true,
+        productCount: productKeys.length,
+        totalEntryCount
+    };
 }
 
 function getWarehouseProductItem(entry = {}) {
@@ -88,16 +208,25 @@ function normalizeWarehouseBarcodeEntry(entry = {}) {
         entry.code
     );
 
+    const rawItemType = productItem.type;
+    const rawAssemblyQuantity = firstDefinedWarehouseValue(entry.quantity, entry.assembly_quantity, entry.assemblyQuantity);
+    const rawReservedQuantity = firstDefinedWarehouseValue(productItem.reserved_quantity, productItem.reservedQuantity);
+    const rawStockQuantity = firstDefinedWarehouseValue(productItem.quantity, productItem.stockQuantity);
+
     return {
         barcode,
         productId,
         productTitle: getWarehouseProductTitle(entry, productItem),
         productItemId: normalizeWarehouseProductId(productItem.id || productItem.item_id || productItem.itemId),
         assemblyId: normalizeWarehouseProductId(entry.id || entry.assembly_id || entry.assemblyId),
-        itemType: normalizeWarehouseNumber(productItem.type),
-        assemblyQuantity: normalizeWarehouseNumber(entry.quantity || entry.assembly_quantity || entry.assemblyQuantity),
-        reservedQuantity: normalizeWarehouseNumber(productItem.reserved_quantity || productItem.reservedQuantity),
-        stockQuantity: normalizeWarehouseNumber(productItem.quantity || productItem.stockQuantity),
+        itemType: normalizeWarehouseNumber(rawItemType),
+        itemTypeInvalid: Boolean(productItem.type_invalid || productItem.typeInvalid) || isWarehouseNumberInvalid(rawItemType),
+        assemblyQuantity: normalizeWarehouseNumber(rawAssemblyQuantity),
+        assemblyQuantityInvalid: Boolean(entry.quantity_invalid || entry.quantityInvalid) || isWarehouseNumberInvalid(rawAssemblyQuantity),
+        reservedQuantity: normalizeWarehouseNumber(rawReservedQuantity),
+        reservedQuantityInvalid: Boolean(productItem.reserved_quantity_invalid || productItem.reservedQuantityInvalid) || isWarehouseNumberInvalid(rawReservedQuantity),
+        stockQuantity: normalizeWarehouseNumber(rawStockQuantity),
+        stockQuantityInvalid: Boolean(productItem.quantity_invalid || productItem.quantityInvalid) || isWarehouseNumberInvalid(rawStockQuantity),
         stateTitle: normalizeWarehouseText(productItem.state?.title || productItem.state_title || productItem.stateTitle)
     };
 }
@@ -112,9 +241,13 @@ function createWarehouseBarcodeResult(decision, entry, reason = null) {
         productItemId: entry.productItemId,
         assemblyId: entry.assemblyId,
         itemType: entry.itemType,
+        itemTypeInvalid: entry.itemTypeInvalid === true,
         assemblyQuantity: entry.assemblyQuantity,
+        assemblyQuantityInvalid: entry.assemblyQuantityInvalid === true,
         reservedQuantity: entry.reservedQuantity,
+        reservedQuantityInvalid: entry.reservedQuantityInvalid === true,
         stockQuantity: entry.stockQuantity,
+        stockQuantityInvalid: entry.stockQuantityInvalid === true,
         stateTitle: entry.stateTitle
     };
 }
@@ -138,7 +271,7 @@ function classifyWarehouseBarcodeEntry(entry = {}) {
         );
     }
 
-    if (normalized.itemType === null) {
+    if (normalized.itemType === null || normalized.itemTypeInvalid) {
         return createWarehouseBarcodeResult(
             WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
             normalized,
@@ -151,22 +284,6 @@ function classifyWarehouseBarcodeEntry(entry = {}) {
             WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
             normalized,
             WAREHOUSE_BARCODE_SKIP_REASONS.MULTI_BARCODE_TYPE
-        );
-    }
-
-    if (normalized.assemblyQuantity !== null && normalized.assemblyQuantity !== 1) {
-        return createWarehouseBarcodeResult(
-            WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
-            normalized,
-            WAREHOUSE_BARCODE_SKIP_REASONS.NON_UNIT_ASSEMBLY_QUANTITY
-        );
-    }
-
-    if (normalized.reservedQuantity !== null && normalized.reservedQuantity !== 1) {
-        return createWarehouseBarcodeResult(
-            WAREHOUSE_BARCODE_DECISIONS.SKIPPED,
-            normalized,
-            WAREHOUSE_BARCODE_SKIP_REASONS.NON_UNIT_RESERVED_QUANTITY
         );
     }
 
@@ -265,12 +382,16 @@ function createWarehouseRawEntryFromExtractionEntry(entry = {}, productGroup = {
     return {
         id: normalizeWarehouseProductId(safeEntry.assemblyId),
         quantity: normalizeWarehouseNumber(safeEntry.assemblyQuantity),
+        quantity_invalid: safeEntry.assemblyQuantityInvalid === true,
         product_item: {
             id: normalizeWarehouseProductId(safeEntry.productItemId),
             barcode: normalizeWarehouseBarcodeValue(safeEntry.barcode),
             type: normalizeWarehouseNumber(safeEntry.itemType),
+            type_invalid: safeEntry.itemTypeInvalid === true,
             quantity: normalizeWarehouseNumber(safeEntry.stockQuantity),
+            quantity_invalid: safeEntry.stockQuantityInvalid === true,
             reserved_quantity: normalizeWarehouseNumber(safeEntry.reservedQuantity),
+            reserved_quantity_invalid: safeEntry.reservedQuantityInvalid === true,
             product_id: productId,
             product: {
                 id: productId,
@@ -296,6 +417,25 @@ function normalizeWarehouseSkippedExtractionEntry(entry = {}, productGroup = {})
 }
 
 function revalidateWarehouseBarcodeExtraction(extraction = {}) {
+    const bounds = validateWarehouseBarcodeExtractionBounds(extraction);
+    if (!bounds.ok) {
+        return {
+            orderId: '',
+            productsById: {},
+            eligibleBarcodes: [],
+            skippedBarcodes: [],
+            summary: { productCount: 0, eligibleCount: 0, skippedCount: 0 },
+            revalidation: {
+                sourceEligibleCount: 0,
+                eligibleCount: 0,
+                rejectedEligibleCount: 0,
+                rejectionReasons: {},
+                limitsExceeded: true,
+                error: bounds.error || 'warehouse payload limits exceeded'
+            }
+        };
+    }
+
     const safeExtraction = extraction && typeof extraction === 'object' ? extraction : {};
     const sourceGroups = safeExtraction.productsById && typeof safeExtraction.productsById === 'object'
         ? Object.values(safeExtraction.productsById)
@@ -386,12 +526,19 @@ function revalidateWarehouseBarcodeExtraction(extraction = {}) {
     };
 }
 
+globalThis.MAX_WAREHOUSE_OZON_PRODUCTS = MAX_WAREHOUSE_OZON_PRODUCTS;
+globalThis.MAX_WAREHOUSE_OZON_ENTRIES_PER_PRODUCT = MAX_WAREHOUSE_OZON_ENTRIES_PER_PRODUCT;
+globalThis.MAX_WAREHOUSE_OZON_TOTAL_ENTRIES = MAX_WAREHOUSE_OZON_TOTAL_ENTRIES;
 globalThis.WAREHOUSE_BARCODE_DECISIONS = WAREHOUSE_BARCODE_DECISIONS;
 globalThis.WAREHOUSE_BARCODE_SKIP_REASONS = WAREHOUSE_BARCODE_SKIP_REASONS;
 globalThis.normalizeWarehouseBarcodeValue = normalizeWarehouseBarcodeValue;
 globalThis.normalizeWarehouseProductId = normalizeWarehouseProductId;
 globalThis.normalizeWarehouseText = normalizeWarehouseText;
+globalThis.firstDefinedWarehouseValue = firstDefinedWarehouseValue;
 globalThis.normalizeWarehouseNumber = normalizeWarehouseNumber;
+globalThis.isWarehouseNumberProvided = isWarehouseNumberProvided;
+globalThis.isWarehouseNumberInvalid = isWarehouseNumberInvalid;
+globalThis.validateWarehouseBarcodeExtractionBounds = validateWarehouseBarcodeExtractionBounds;
 globalThis.getWarehouseProductItem = getWarehouseProductItem;
 globalThis.getWarehouseProductId = getWarehouseProductId;
 globalThis.getWarehouseProductTitle = getWarehouseProductTitle;

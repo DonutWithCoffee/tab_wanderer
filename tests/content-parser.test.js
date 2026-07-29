@@ -2435,6 +2435,33 @@ function createWarehouseShopOrderWithBarcode(orderId = '7001-010126', barcode = 
     };
 }
 
+function createControlledTimeouts() {
+    let sequence = 0;
+    const callbacks = new Map();
+
+    return {
+        setTimeout(callback) {
+            sequence += 1;
+            callbacks.set(sequence, callback);
+            return sequence;
+        },
+        clearTimeout(id) {
+            callbacks.delete(id);
+        },
+        runNext() {
+            const next = callbacks.entries().next().value;
+            if (!next) return false;
+            const [id, callback] = next;
+            callbacks.delete(id);
+            callback();
+            return true;
+        },
+        get size() {
+            return callbacks.size;
+        }
+    };
+}
+
 test('order detail observation distinguishes Ozon and regular manager pages', () => {
     const ozonDocument = createOrderKindObservationDocument({
         bodyText: [
@@ -2523,6 +2550,222 @@ test('warehouse panel opens for Ozon and keeps exact unknown guidance visible', 
     const panel = documentStub.getElementById('tab-wanderer-warehouse-barcode-preview');
     assert.equal(context.isWarehouseBarcodePreviewPanelCollapsed(), true);
     assert.match(collectElementText(panel), /Тип не определён — обновите карточку заказа/);
+});
+
+test('warehouse automatically checks existing Ozon barcodes once even when automatic writes are disabled', () => {
+    const orderId = '7001-010126';
+    const sentMessages = [];
+    const timers = createControlledTimeouts();
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub, {
+        windowLocation: {
+            origin: 'https://amperkot.ru',
+            href: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        },
+        window: { dispatchEvent: () => {}, addEventListener: () => {} },
+        setTimeout: callback => timers.setTimeout(callback),
+        clearTimeout: id => timers.clearTimeout(id),
+        runtime: {
+            lastError: null,
+            getURL: path => `chrome-extension://test/${path}`,
+            onMessage: { addListener: () => {} },
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                if (payload.type === 'GET_ORDER_KIND') {
+                    callback?.({
+                        ok: true,
+                        orderKind: { orderId, kind: 'ozon', reason: 'source-action' }
+                    });
+                    return;
+                }
+                if (payload.type === 'GET_WAREHOUSE_AUTO_APPLY') {
+                    callback?.({ ok: true, enabled: false, intent: null });
+                    return;
+                }
+                callback?.({
+                    ok: true,
+                    started: true,
+                    orderId: payload.orderId || '',
+                    trigger: payload.trigger || 'manual'
+                });
+            }
+        }
+    });
+
+    sentMessages.length = 0;
+    context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            source: 'warehouse-dom-visible',
+            shopOrder: createWarehouseShopOrderWithBarcode(orderId)
+        }
+    });
+
+    assert.equal(context.getWarehouseAutoBarcodeApplyEnabled(), false);
+    assert.equal(context.getWarehouseAutoResolveCheckState().status, 'scheduled');
+    assert.equal(timers.size, 1);
+
+    assert.equal(timers.runNext(), true);
+    const resolveMessages = sentMessages.filter(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST');
+    assert.equal(resolveMessages.length, 1);
+    assert.equal(resolveMessages[0].trigger, 'automatic-on-open');
+    assert.equal(resolveMessages[0].orderId, orderId);
+    assert.equal(resolveMessages[0].warehouseExtraction.summary.eligibleCount, 1);
+    assert.equal(sentMessages.some(message => message.type === 'OZON_UI_APPLY_REQUEST'), false);
+    assert.equal(context.getWarehouseAutoResolveCheckState().status, 'started');
+
+    context.handleWarehouseRuntimeMessage({
+        type: 'OZON_RESOLVE_PREVIEW_RESULT',
+        orderId,
+        trigger: 'automatic-on-open',
+        documentInstanceId: resolveMessages[0].documentInstanceId,
+        ok: true,
+        plan: {
+            summary: {
+                productCount: 1,
+                readyProductCount: 0,
+                skippedProductCount: 1,
+                errorProductCount: 0,
+                toAddCount: 0,
+                alreadyExistsCount: 1,
+                skippedWarehouseCount: 0
+            },
+            productPlans: []
+        }
+    }, null, () => {});
+
+    assert.equal(context.getWarehouseAutoResolveCheckState().status, 'completed');
+
+    context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            source: 'warehouse-api-response',
+            shopOrder: createWarehouseShopOrderWithBarcode(orderId)
+        }
+    });
+
+    assert.equal(timers.size, 0);
+    assert.equal(sentMessages.filter(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST').length, 1);
+});
+
+test('warehouse automatic Ozon check waits for confirmed order kind and skips multi-only snapshots', () => {
+    const orderId = '7002-010126';
+    const sentMessages = [];
+    const timers = createControlledTimeouts();
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub, {
+        windowLocation: {
+            origin: 'https://amperkot.ru',
+            href: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        },
+        window: { dispatchEvent: () => {}, addEventListener: () => {} },
+        setTimeout: callback => timers.setTimeout(callback),
+        clearTimeout: id => timers.clearTimeout(id),
+        runtime: {
+            lastError: null,
+            getURL: path => `chrome-extension://test/${path}`,
+            onMessage: { addListener: () => {} },
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                if (payload.type === 'GET_ORDER_KIND') {
+                    callback?.({ ok: true, orderKind: { orderId, kind: 'unknown' } });
+                    return;
+                }
+                if (payload.type === 'GET_WAREHOUSE_AUTO_APPLY') {
+                    callback?.({ ok: true, enabled: false, intent: null });
+                    return;
+                }
+                callback?.({ ok: true, started: true, orderId: payload.orderId || '' });
+            }
+        }
+    });
+
+    sentMessages.length = 0;
+    const unitOrder = createWarehouseShopOrderWithBarcode(orderId, '2317614');
+    context.handleWarehouseShopOrderBridgeResponse({
+        detail: { ok: true, source: 'warehouse-api-response', shopOrder: unitOrder }
+    });
+
+    assert.equal(timers.size, 0);
+    assert.equal(sentMessages.some(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST'), false);
+
+    context.applyWarehouseOrderKindRecord({ orderId, kind: 'ozon', reason: 'source-action' }, { render: false });
+    assert.equal(timers.size, 1);
+
+    context.resetWarehouseOrderContext();
+    context.applyWarehouseOrderKindRecord({ orderId, kind: 'ozon', reason: 'source-action' }, { render: false });
+    const multiOrder = createWarehouseShopOrderWithBarcode(orderId, '2049684');
+    multiOrder.assembly[0].quantity = 15;
+    multiOrder.assembly[0].product_item.type = 1;
+    multiOrder.assembly[0].product_item.reserved_quantity = 15;
+    context.handleWarehouseShopOrderBridgeResponse({
+        detail: { ok: true, source: 'warehouse-api-response', shopOrder: multiOrder }
+    });
+
+    assert.equal(timers.size, 0);
+    assert.equal(sentMessages.some(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST'), false);
+});
+
+test('warehouse pending automatic write suppresses the page-open read check', () => {
+    const orderId = '7003-010126';
+    const actionId = `${orderId}:pending-write`;
+    const sentMessages = [];
+    const timers = createControlledTimeouts();
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub, {
+        windowLocation: {
+            origin: 'https://amperkot.ru',
+            href: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        },
+        window: { dispatchEvent: () => {}, addEventListener: () => {} },
+        setTimeout: callback => timers.setTimeout(callback),
+        clearTimeout: id => timers.clearTimeout(id),
+        runtime: {
+            lastError: null,
+            getURL: path => `chrome-extension://test/${path}`,
+            onMessage: { addListener: () => {} },
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                if (payload.type === 'GET_ORDER_KIND') {
+                    callback?.({
+                        ok: true,
+                        orderKind: { orderId, kind: 'ozon', reason: 'source-action' }
+                    });
+                    return;
+                }
+                if (payload.type === 'GET_WAREHOUSE_AUTO_APPLY') {
+                    callback?.({
+                        ok: true,
+                        enabled: true,
+                        intent: {
+                            orderId,
+                            actionId,
+                            sourceDocumentId: 'warehouse-document-before-reload',
+                            sourceRoute: 'actions',
+                            armedAt: Date.now() - 1000,
+                            expiresAt: Date.now() + 60_000
+                        }
+                    });
+                    return;
+                }
+                callback?.({ ok: true, started: true, orderId: payload.orderId || '' });
+            }
+        }
+    });
+
+    sentMessages.length = 0;
+    context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            source: 'warehouse-dom-visible',
+            shopOrder: createWarehouseShopOrderWithBarcode(orderId)
+        }
+    });
+
+    assert.equal(sentMessages.some(message => message.type === 'OZON_UI_APPLY_REQUEST'), true);
+    assert.equal(sentMessages.some(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST'), false);
+    assert.equal(timers.size, 0);
+    assert.equal(context.getWarehouseAutoResolveCheckState().status, 'suppressed');
 });
 
 
@@ -3030,4 +3273,82 @@ test('automatic Ozon apply restores the click intent after full reload and reuse
     assert.equal(applyMessage.warehouseExtraction.orderId, orderId);
     assert.equal(context.getWarehouseAutoApplyIntent()?.resumedAfterReload, true);
     assert.equal(context.getWarehouseAutoApplyIntent()?.status, 'started');
+});
+
+test('queued automatic Ozon check retries its request without starting a second check', () => {
+    const orderId = '7005-010126';
+    const sentMessages = [];
+    const timers = createControlledTimeouts();
+    let resolveRequestCount = 0;
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub, {
+        windowLocation: {
+            origin: 'https://amperkot.ru',
+            href: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`
+        },
+        window: { dispatchEvent: () => {}, addEventListener: () => {} },
+        setTimeout: callback => timers.setTimeout(callback),
+        clearTimeout: id => timers.clearTimeout(id),
+        runtime: {
+            lastError: null,
+            getURL: path => `chrome-extension://test/${path}`,
+            onMessage: { addListener: () => {} },
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                if (payload.type === 'GET_ORDER_KIND') {
+                    callback?.({
+                        ok: true,
+                        orderKind: { orderId, kind: 'ozon', reason: 'source-action' }
+                    });
+                    return;
+                }
+                if (payload.type === 'GET_WAREHOUSE_AUTO_APPLY') {
+                    callback?.({ ok: true, enabled: false, intent: null });
+                    return;
+                }
+                if (payload.type === 'OZON_RESOLVE_PREVIEW_REQUEST') {
+                    resolveRequestCount += 1;
+                    callback?.(resolveRequestCount === 1
+                        ? {
+                            ok: true,
+                            queued: true,
+                            activeOperation: 'apply',
+                            orderId,
+                            trigger: 'automatic-on-open'
+                        }
+                        : {
+                            ok: true,
+                            started: true,
+                            alreadyActive: true,
+                            activeOperation: 'resolve',
+                            orderId,
+                            trigger: 'automatic-on-open'
+                        });
+                    return;
+                }
+                callback?.({ ok: true });
+            }
+        }
+    });
+
+    sentMessages.length = 0;
+    context.handleWarehouseShopOrderBridgeResponse({
+        detail: {
+            ok: true,
+            source: 'warehouse-api-response',
+            shopOrder: createWarehouseShopOrderWithBarcode(orderId)
+        }
+    });
+
+    assert.equal(timers.size, 1);
+    assert.equal(timers.runNext(), true);
+    assert.equal(context.getWarehouseAutoResolveCheckState().status, 'queued');
+    assert.equal(timers.size, 1);
+
+    assert.equal(timers.runNext(), true);
+    assert.equal(context.getWarehouseAutoResolveCheckState().status, 'started');
+    assert.equal(
+        sentMessages.filter(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST').length,
+        2
+    );
 });

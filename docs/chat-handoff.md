@@ -8,13 +8,14 @@ Branch: main
 Public stable CWS release: 1.0.4 / Unlisted
 Published release commit: cd7d8e2
 Published annotated tag: v1.0.4
-Manifest candidate: 1.0.4.1
-Development state: release-prep for fail-closed multi-barcode bugfix
-Expected automated baseline: 326 pass / 0 fail
-Next CWS build: 1.0.4.1
+Manifest: 1.0.4.1
+1.0.4.1 status: submitted to Chrome Web Store review, no Git tag
+Development state: read-only Ozon check + serialized Ozon operations + fixed unit classification; uncommitted
+Expected automated baseline: 340 pass / 0 fail
+Next release number: not assigned
 ```
 
-1.0.4 опубликована в Chrome Web Store и помечена тегом `v1.0.4`. После live-инцидента 26 июля подтверждено, что visible DOM fallback подставлял отсутствующий `product_item.type` как `0`, из-за чего мультиштрихкод мог попасть в write flow. Исправление убирает эти defaults, повторно валидирует payload в background и оформлено как bugfix build `1.0.4.1`.
+1.0.4 опубликована в Chrome Web Store и помечена тегом `v1.0.4`. Fail-closed bugfix собран как `1.0.4.1`, отправлен на проверку и намеренно не тегируется. Текущий незакоммиченный post-release slice добавляет единичную read-only проверку уже укомплектованных штрихкодов при открытии подтверждённого Ozon-заказа в Склад 3, закрывает найденные аудитом гонки resolve/apply и усиливает Warehouse-валидацию. Live regression дополнительно исправил ложную причину `неединичная позиция`: quantity/reserved/stock больше не участвуют в определении единичности при явном `itemType === 0`. Baseline и live smoke: `340 pass / 0 fail`, автопроверка и автоматическая запись работают. Предварительный patch, ослаблявший проверку изменения barcode fingerprint после `$ctrl.confirm()`, был основан на неверной гипотезе, пользователем не применялся и в текущий slice не входит.
 
 ## 2. What Is In The Current Hardening
 
@@ -62,6 +63,16 @@ order-aware warehouse automation:
 - only explicit `itemType === 0` is writable; missing type is `itemTypeUnknown`
 - visible DOM never invents unit type or unit quantities
 - background revalidates manual and automatic payloads before opening Ozon
+- existing assembled barcodes trigger one debounced read-only Ozon check per document/order
+- read-only check is independent from the automatic-write setting
+- one Ozon operation owns the shared worker at a time; operation/session tokens reject stale callbacks
+- pending/active writes have priority over read-only checks
+- automatic read-only checks queue with deduplication, TTL and bounded content retry when the worker is busy
+- pending automatic write intent suppresses the page-open check temporarily; suppression returns to idle when the intent clears
+- Warehouse `itemType` is scalar-only; coercive boolean/array/object/hex inputs fail closed, while quantity/reserved/stock remain diagnostic and never define unit type
+- Warehouse/Ozon payloads are bounded before worker creation
+- reused Warehouse XHR requests install one-shot `loadend` listeners
+- delayed resolve acknowledgements/results from another Warehouse document instance are ignored
 ```
 
 ## 3. Mandatory Working Method
@@ -140,6 +151,12 @@ Dynamic local-time text города удаляется из hash/diff.
 - В Warehouse Ozon раскрывается автоматически, regular/unknown остаются свернутыми.
 - Автозапись разрешена только после trusted assembly action и свежего успешного post-action snapshot.
 - Ручные кнопки доступны для всех типов заказа.
+- При открытии assembly page подтверждённого Ozon-заказа уже существующие eligible штрихкоды проверяются один раз без записи.
+- Выключенная автозапись не отключает эту read-only проверку.
+- Pending automatic write intent имеет приоритет и не запускается параллельно с page-open check.
+- Автоматическая read-only проверка при занятом worker не теряется: она дедуплицируется в bounded queue и запускается после записи.
+- Manual resolve при занятой операции возвращает busy; новая запись отменяет manual resolve, но automatic-on-open resolve безопасно переносится в очередь.
+- Boolean/array/object/hex не могут стать `itemType === 0`; quantity/reserved/stock сохраняются для диагностики и не блокируют явно подтверждённый единичный штрихкод.
 
 ## 5. Files To Read First
 
@@ -174,11 +191,11 @@ tests/ozon-product-bridge.test.js
 
 ## 6. Release Discipline
 
-- Bugfix build имеет версию `1.0.4.1`: CWS требует номер выше опубликованного `1.0.4`, а продуктовая линия остаётся 1.0.4.
+- Bugfix build `1.0.4.1` уже отправлен на проверку CWS.
 - Загружать только точный проверенный CWS package с совпадающим SHA256.
 - Маленькие patch releases без новых permissions/host permissions предпочтительны.
 - Удаление permission допустимо, но требует smoke в установленной unpacked-сборке.
-- Tag создаётся только после подтверждённой публикации.
+- Git tags создаются только для крупных обновлений; patch/hotfix builds не тегируются.
 - До публикации bugfix текущая public release identity остаётся `cd7d8e2 / v1.0.4`.
 
 ## 7. Sensitive Local Files
@@ -194,8 +211,13 @@ tests/ozon-product-bridge.test.js
 
 ## 8. Next Step After Applying This Archive
 
-1. Пользователь запускает `npm test`, `git status`, `git diff --stat`.
-2. Проверяет согласованность manifest/popup/version.js на `1.0.4.1` и выполняет финальный smoke из `docs/smoke-checklist.md`.
-3. После подтверждения коммитит и пушит release-preparation metadata.
-4. Из свежего точного HEAD собирается и проверяется CWS ZIP `1.0.4.1`.
-5. Annotated tag `v1.0.4.1` создаётся только после подтверждённой публикации.
+1. Пользователь заменяет обновлённые docs-файлы.
+2. Запускает `npm test`, `git status`, `git diff --stat`.
+3. Ожидаемый baseline: `340 pass / 0 fail`; рабочее дерево содержит код, тесты и документацию одного общего среза.
+4. Live smoke уже пройден:
+   - существующие собранные Ozon-штрихкоды проверяются один раз без записи;
+   - автопроверка работает при выключенной автозаписи;
+   - новый единичный штрихкод с Warehouse-состоянием `1/1` записывается, даже если quantity/reserved/stock больше одного;
+   - multi/unknown типы остаются заблокированы.
+5. Конкуренция resolve/apply остаётся automated-only regression и не требует искусственного ручного воспроизведения.
+6. После проверки выполнить один consolidated Conventional Commit и push без Git tag.

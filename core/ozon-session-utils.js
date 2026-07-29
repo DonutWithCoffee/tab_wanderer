@@ -48,7 +48,15 @@ function buildOzonResolveWorkerUrl(productId, options = {}) {
     return url.toString();
 }
 
-function createOzonResolveSessionState({ warehouseTabId, orderId = '', warehouseExtraction = {}, productIds = [], now = Date.now() } = {}) {
+function createOzonResolveSessionState({
+    warehouseTabId,
+    orderId = '',
+    warehouseExtraction = {},
+    productIds = [],
+    trigger = 'manual',
+    documentInstanceId = '',
+    now = Date.now()
+} = {}) {
     return {
         warehouseTabId,
         orderId: normalizeOzonSessionOrderId(orderId),
@@ -56,6 +64,8 @@ function createOzonResolveSessionState({ warehouseTabId, orderId = '', warehouse
         productIds,
         index: 0,
         ozonProductsByProductId: {},
+        trigger: trigger === 'automatic-on-open' ? 'automatic-on-open' : 'manual',
+        documentInstanceId: String(documentInstanceId || '').slice(0, 160),
         startedAt: now
     };
 }

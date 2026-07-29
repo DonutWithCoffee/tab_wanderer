@@ -47,12 +47,13 @@ function createDocumentStub(elements = []) {
 }
 
 function createXhrStub(responsePayloadByUrl = {}) {
-    return class XMLHttpRequestStub {
+    class XMLHttpRequestStub {
         constructor() {
             this.listeners = {};
             this.status = 0;
             this.responseText = '';
             this.responseURL = '';
+            XMLHttpRequestStub.instances.push(this);
         }
 
         open(method, url) {
@@ -71,16 +72,23 @@ function createXhrStub(responsePayloadByUrl = {}) {
             this.status = wrapped ? Number(responseConfig.httpStatus) || 0 : payload ? 200 : 404;
             this.responseText = payload ? JSON.stringify(payload) : '';
 
-            for (const listener of this.listeners.loadend || []) {
-                listener.call(this);
+            const listeners = [...(this.listeners.loadend || [])];
+            for (const entry of listeners) {
+                entry.listener.call(this);
+                if (entry.once) {
+                    this.listeners.loadend = (this.listeners.loadend || []).filter(item => item !== entry);
+                }
             }
         }
 
-        addEventListener(type, listener) {
+        addEventListener(type, listener, options = {}) {
             this.listeners[type] = this.listeners[type] || [];
-            this.listeners[type].push(listener);
+            this.listeners[type].push({ listener, once: options?.once === true });
         }
-    };
+    }
+
+    XMLHttpRequestStub.instances = [];
+    return XMLHttpRequestStub;
 }
 
 function loadBridgeContext(documentStub, options = {}) {
@@ -563,4 +571,81 @@ test('warehouse bridge treats status zero as unsuccessful on a real XHR object',
     const lastResponse = responses.at(-1);
     assert.equal(lastResponse.source, 'warehouse-dom-visible');
     assert.equal(lastResponse.shopOrder.assembly[0].product_item.barcode, '2486831');
+});
+
+test('warehouse XHR capture uses one-shot loadend listeners on reused requests', () => {
+    const orderId = '5147-290626';
+    const apiUrl = 'https://amperkot.ru/web-apps/wh3/api/shop-orders/4336';
+    const payload = {
+        id: 4336,
+        number: orderId,
+        assembly: []
+    };
+    const context = loadBridgeContext(createDocumentStub([]), {
+        locationHref: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`,
+        responsePayloadByUrl: {
+            [apiUrl]: payload
+        }
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm', {
+        detail: { reason: 'test', durationMs: 12000 }
+    }));
+
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('GET', apiUrl);
+    xhr.send();
+    assert.equal((xhr.listeners.loadend || []).length, 0);
+
+    xhr.open('GET', apiUrl);
+    xhr.send();
+    assert.equal((xhr.listeners.loadend || []).length, 0);
+});
+
+test('warehouse bridge preserves zero quantities and marks coercive types invalid', () => {
+    const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
+    const context = loadBridgeContext(createDocumentStub([]), {
+        responsePayloadByUrl: {
+            [apiUrl]: {
+                shop_order: {
+                    number: '5147-290626',
+                    assembly: [
+                        {
+                            quantity: 0,
+                            product_item: {
+                                barcode: '2486831',
+                                type: false,
+                                quantity: 0,
+                                reserved_quantity: 0,
+                                product_id: '43150731',
+                                product: { id: '43150731', title: 'Промышленный модуль' }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    });
+    const responses = [];
+
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => {
+        responses.push(event.detail);
+    });
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-api-capture-arm', {
+        detail: { durationMs: 5000 }
+    }));
+
+    const xhr = new context.window.XMLHttpRequest();
+    xhr.open('POST', apiUrl);
+    xhr.send();
+
+    const entry = responses.at(-1).shopOrder.assembly[0];
+    assert.equal(entry.quantity, 0);
+    assert.equal(entry.quantity_invalid, undefined);
+    assert.equal(entry.product_item.type, null);
+    assert.equal(entry.product_item.type_invalid, true);
+    assert.equal(entry.product_item.quantity, 0);
+    assert.equal(entry.product_item.quantity_invalid, undefined);
+    assert.equal(entry.product_item.reserved_quantity, 0);
+    assert.equal(entry.product_item.reserved_quantity_invalid, undefined);
 });

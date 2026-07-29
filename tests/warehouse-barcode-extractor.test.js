@@ -165,3 +165,114 @@ test('extractWarehouseAssemblyBarcodes deduplicates repeated product barcodes', 
     assert.equal(extraction.skippedBarcodes.length, 1);
     assert.equal(extraction.skippedBarcodes[0].reason, 'duplicateBarcode');
 });
+
+test('warehouse number normalization rejects coercive non-scalar unit types', () => {
+    const context = loadWarehouseBarcodeContext();
+    const invalidTypes = [false, true, [], [0], {}, '0x0', '  ', '0abc'];
+
+    for (const type of invalidTypes) {
+        const result = context.classifyWarehouseBarcodeEntry(createAssemblyEntry({ type }));
+        assert.equal(result.decision, 'skipped', `type ${JSON.stringify(type)} must be skipped`);
+        assert.equal(result.reason, 'itemTypeUnknown', `type ${JSON.stringify(type)} must stay unknown`);
+    }
+
+    const decimalString = context.classifyWarehouseBarcodeEntry(createAssemblyEntry({ type: '0' }));
+    assert.equal(decimalString.decision, 'eligible');
+    assert.equal(decimalString.itemType, 0);
+});
+
+test('warehouse quantities stay diagnostic and do not define barcode unit type', () => {
+    const context = loadWarehouseBarcodeContext();
+
+    const stockThree = context.classifyWarehouseBarcodeEntry(createAssemblyEntry({
+        quantity: 1,
+        reservedQuantity: 3,
+        stockQuantity: 3,
+        type: 0
+    }));
+    assert.equal(stockThree.decision, 'eligible');
+    assert.equal(stockThree.reason, null);
+    assert.equal(stockThree.assemblyQuantity, 1);
+    assert.equal(stockThree.reservedQuantity, 3);
+    assert.equal(stockThree.stockQuantity, 3);
+
+    const zeroAssembly = context.classifyWarehouseBarcodeEntry(createAssemblyEntry({ quantity: 0, type: 0 }));
+    assert.equal(zeroAssembly.decision, 'eligible');
+    assert.equal(zeroAssembly.assemblyQuantity, 0);
+
+    const invalidQuantity = context.classifyWarehouseBarcodeEntry(createAssemblyEntry({ quantity: [1], type: 0 }));
+    assert.equal(invalidQuantity.decision, 'eligible');
+    assert.equal(invalidQuantity.assemblyQuantity, null);
+    assert.equal(invalidQuantity.assemblyQuantityInvalid, true);
+});
+
+test('write-boundary revalidation keeps confirmed unit type eligible despite warehouse quantity metadata', () => {
+    const context = loadWarehouseBarcodeContext();
+
+    const result = context.revalidateWarehouseBarcodeExtraction({
+        orderId: '6373-280726',
+        productsById: {
+            41764825: {
+                productId: '41764825',
+                productTitle: 'Отладочная плата Waveshare RP2350-Zero',
+                eligibleBarcodes: [
+                    {
+                        barcode: '1234567890',
+                        productId: '41764825',
+                        itemType: 0,
+                        assemblyQuantity: 1,
+                        reservedQuantity: 3,
+                        stockQuantity: 3
+                    }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    });
+
+    assert.equal(result.summary.eligibleCount, 1);
+    assert.equal(result.summary.skippedCount, 0);
+    assert.equal(result.productsById['41764825'].eligibleBarcodes[0].itemType, 0);
+});
+
+test('warehouse extraction bounds reject oversized Ozon payloads before processing', () => {
+    const context = loadWarehouseBarcodeContext();
+    const tooManyProducts = {};
+
+    for (let index = 0; index < context.MAX_WAREHOUSE_OZON_PRODUCTS + 1; index += 1) {
+        const productId = String(10000000 + index);
+        tooManyProducts[productId] = {
+            productId,
+            eligibleBarcodes: [],
+            skippedBarcodes: []
+        };
+    }
+
+    const productLimit = context.validateWarehouseBarcodeExtractionBounds({ productsById: tooManyProducts });
+    assert.equal(productLimit.ok, false);
+    assert.match(productLimit.error, /too many products/);
+
+    const oversizedBarcode = context.validateWarehouseBarcodeExtractionBounds({
+        productsById: {
+            24126456: {
+                productId: '24126456',
+                eligibleBarcodes: [
+                    {
+                        barcode: '1'.repeat(81),
+                        productId: '24126456',
+                        itemType: 0,
+                        assemblyQuantity: 1,
+                        reservedQuantity: 1
+                    }
+                ],
+                skippedBarcodes: []
+            }
+        }
+    });
+    assert.equal(oversizedBarcode.ok, false);
+    assert.match(oversizedBarcode.error, /oversized barcode metadata/);
+
+    const revalidated = context.revalidateWarehouseBarcodeExtraction({ productsById: tooManyProducts });
+    assert.equal(revalidated.revalidation.limitsExceeded, true);
+    assert.equal(revalidated.summary.eligibleCount, 0);
+});

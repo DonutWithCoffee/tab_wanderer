@@ -14,6 +14,11 @@ let ozonResolveSession = null;
 let ozonResolveTimeoutTimer = null;
 let ozonUiApplySession = null;
 let ozonUiApplyTimeoutTimer = null;
+let ozonActiveOperation = null;
+let ozonPendingApplyRequest = null;
+let ozonQueuedResolveRequests = [];
+let ozonOperationSequence = 0;
+let isDrainingOzonResolveQueue = false;
 let directFollowUpState = normalizeDirectFollowUpState();
 let directFollowUpOrdersDB = {};
 let directFollowUpHashDB = {};
@@ -67,6 +72,8 @@ const OZON_PRODUCTS_URL = 'https://seller.ozon.ru/app/products';
 const OZON_RESOLVE_TIMEOUT_MS = 30000;
 const OZON_UI_APPLY_TIMEOUT_MS = 60000;
 const OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT = false;
+const MAX_QUEUED_OZON_RESOLVE_REQUESTS = 12;
+const OZON_QUEUED_RESOLVE_TTL_MS = 2 * 60 * 1000;
 const DIRECT_FOLLOW_UP_TIMEOUT_MS = 60 * 1000;
 const WATCHED_ORDER_REMINDER_ALARM_PREFIX = 'tab_wanderer_watched_order_reminder:';
 const FAST_POLL_INTERVAL_MS = 15000;
@@ -2256,6 +2263,9 @@ async function loadState() {
     ozonWorkerTabId = null;
     ozonResolveSession = null;
     ozonUiApplySession = null;
+    ozonActiveOperation = null;
+    ozonPendingApplyRequest = null;
+    ozonQueuedResolveRequests = [];
 
     applyStateRetention();
 
@@ -2370,6 +2380,9 @@ async function reconcileWorkerTabsOnStartup() {
     ozonWorkerTabId = null;
     ozonResolveSession = null;
     ozonUiApplySession = null;
+    ozonActiveOperation = null;
+    ozonPendingApplyRequest = null;
+    ozonQueuedResolveRequests = [];
 
     return {
         adoptedMainWorker: workerTabId,
@@ -2497,8 +2510,15 @@ if (chrome?.runtime?.onUpdateAvailable?.addListener) {
 chrome.tabs.onRemoved.addListener((tabId) => {
     ensureInitialized().then(async () => {
         const removedWarehouseAutoApplyIntents = clearWarehouseAutoApplyIntentsForTab(tabId);
+        const removedQueuedOzonChecks = removeQueuedOzonResolveRequestsForTab(tabId);
         if (removedWarehouseAutoApplyIntents > 0) {
             await save();
+        }
+        if (removedQueuedOzonChecks > 0) {
+            log('INFO', 'OZON_RESOLVE', 'removed queued checks for closed warehouse tab', {
+                tabId,
+                removedCount: removedQueuedOzonChecks
+            });
         }
 
         if (tabId === directWorkerTabId) {
@@ -2515,12 +2535,20 @@ chrome.tabs.onRemoved.addListener((tabId) => {
         }
 
         if (tabId === ozonWorkerTabId) {
+            const activeOperation = ozonActiveOperation;
             ozonWorkerTabId = null;
+            if (activeOperation) {
+                activeOperation.workerTabId = null;
+            }
 
-            if (ozonUiApplySession) {
-                await failOzonUiApply('Ozon worker tab closed');
-            } else {
-                await failOzonResolvePreview('Ozon worker tab closed');
+            if (activeOperation?.type === 'apply') {
+                await failOzonUiApply('Ozon worker tab closed', {
+                    operationId: activeOperation.id
+                });
+            } else if (activeOperation?.type === 'resolve') {
+                await failOzonResolvePreview('Ozon worker tab closed', {
+                    operationId: activeOperation.id
+                });
             }
             return;
         }
@@ -3204,6 +3232,236 @@ async function runStorageMaintenance() {
 }
 
 
+// ---------- OZON OPERATION COORDINATION ----------
+function createOzonOperationId(type = 'operation') {
+    ozonOperationSequence += 1;
+    return `${String(type || 'operation')}-${Date.now()}-${ozonOperationSequence}`;
+}
+
+function claimOzonApplyRequest({ warehouseTabId = null, orderId = '', trigger = 'manual' } = {}) {
+    if (ozonPendingApplyRequest || isCurrentOzonOperation('apply')) {
+        return null;
+    }
+
+    const claim = {
+        id: createOzonOperationId('apply-request'),
+        warehouseTabId: Number(warehouseTabId) || null,
+        orderId: normalizeOzonSessionOrderId(orderId),
+        trigger: trigger === 'automatic' ? 'automatic' : 'manual',
+        claimedAt: Date.now()
+    };
+    ozonPendingApplyRequest = claim;
+    return claim;
+}
+
+function isCurrentOzonApplyClaim(claimId = '') {
+    return Boolean(ozonPendingApplyRequest
+        && claimId
+        && ozonPendingApplyRequest.id === claimId);
+}
+
+function releaseOzonApplyClaim(claimId = '') {
+    if (!isCurrentOzonApplyClaim(claimId)) {
+        return false;
+    }
+
+    ozonPendingApplyRequest = null;
+    return true;
+}
+
+function getOzonBusyOperationType() {
+    if (ozonPendingApplyRequest) {
+        return 'apply';
+    }
+
+    return ozonActiveOperation?.type || '';
+}
+
+function isCurrentOzonOperation(type, operationId = '') {
+    return Boolean(ozonActiveOperation
+        && ozonActiveOperation.type === type
+        && (!operationId || ozonActiveOperation.id === operationId));
+}
+
+function beginOzonOperation(type, session = null) {
+    if (ozonActiveOperation) {
+        return '';
+    }
+
+    const operationId = createOzonOperationId(type);
+    ozonActiveOperation = {
+        id: operationId,
+        type,
+        workerTabId: null,
+        startedAt: Date.now()
+    };
+
+    if (session && typeof session === 'object') {
+        session.operationId = operationId;
+    }
+
+    return operationId;
+}
+
+function assignOzonWorkerToOperation(tabId, operationId) {
+    if (!tabId || !ozonActiveOperation || ozonActiveOperation.id !== operationId) {
+        return false;
+    }
+
+    ozonWorkerTabId = tabId;
+    ozonActiveOperation.workerTabId = tabId;
+    return true;
+}
+
+function releaseOzonOperation(operationId) {
+    if (!ozonActiveOperation || ozonActiveOperation.id !== operationId) {
+        return false;
+    }
+
+    ozonActiveOperation = null;
+    return true;
+}
+
+function createQueuedOzonResolveKey(request = {}) {
+    return [
+        Number(request.warehouseTabId) || 0,
+        normalizeOzonSessionOrderId(request.orderId),
+        String(request.documentInstanceId || '').slice(0, 160)
+    ].join(':');
+}
+
+function enqueueOzonResolveRequest({
+    warehouseTabId,
+    orderId = '',
+    warehouseExtraction = {},
+    trigger = 'automatic-on-open',
+    documentInstanceId = ''
+} = {}) {
+    const normalizedOrderId = normalizeOzonSessionOrderId(orderId || warehouseExtraction?.orderId);
+    const normalizedDocumentId = String(documentInstanceId || '').slice(0, 160);
+
+    if (!warehouseTabId || !normalizedOrderId || trigger !== 'automatic-on-open') {
+        return { queued: false, error: 'invalid queued Ozon resolve request' };
+    }
+
+    const request = {
+        warehouseTabId,
+        orderId: normalizedOrderId,
+        warehouseExtraction,
+        trigger: 'automatic-on-open',
+        documentInstanceId: normalizedDocumentId,
+        queuedAt: Date.now()
+    };
+    const key = createQueuedOzonResolveKey(request);
+    const existingIndex = ozonQueuedResolveRequests.findIndex(item => createQueuedOzonResolveKey(item) === key);
+
+    if (existingIndex >= 0) {
+        ozonQueuedResolveRequests[existingIndex] = request;
+        return { queued: true, deduplicated: true, queueLength: ozonQueuedResolveRequests.length };
+    }
+
+    ozonQueuedResolveRequests.push(request);
+    if (ozonQueuedResolveRequests.length > MAX_QUEUED_OZON_RESOLVE_REQUESTS) {
+        ozonQueuedResolveRequests.splice(0, ozonQueuedResolveRequests.length - MAX_QUEUED_OZON_RESOLVE_REQUESTS);
+    }
+
+    return { queued: true, deduplicated: false, queueLength: ozonQueuedResolveRequests.length };
+}
+
+function removeQueuedOzonResolveRequestsForTab(tabId) {
+    const before = ozonQueuedResolveRequests.length;
+    ozonQueuedResolveRequests = ozonQueuedResolveRequests.filter(request => request.warehouseTabId !== tabId);
+    return before - ozonQueuedResolveRequests.length;
+}
+
+async function getQueuedOzonResolveSenderTab(request = {}) {
+    if (!request.warehouseTabId) {
+        return null;
+    }
+
+    if (typeof chrome?.tabs?.get !== 'function') {
+        return {
+            id: request.warehouseTabId,
+            url: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/queued?order=${request.orderId}`
+        };
+    }
+
+    try {
+        return await chrome.tabs.get(request.warehouseTabId);
+    } catch {
+        return null;
+    }
+}
+
+async function drainQueuedOzonResolveRequests() {
+    if (isDrainingOzonResolveQueue || ozonActiveOperation || ozonPendingApplyRequest) {
+        return false;
+    }
+
+    isDrainingOzonResolveQueue = true;
+
+    try {
+        while (!ozonActiveOperation && !ozonPendingApplyRequest && ozonQueuedResolveRequests.length > 0) {
+            const request = ozonQueuedResolveRequests.shift();
+            if (!request || Date.now() - request.queuedAt > OZON_QUEUED_RESOLVE_TTL_MS) {
+                continue;
+            }
+
+            const senderTab = await getQueuedOzonResolveSenderTab(request);
+
+            if (ozonActiveOperation || ozonPendingApplyRequest) {
+                enqueueOzonResolveRequest(request);
+                return false;
+            }
+
+            const currentOrderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+            if (!senderTab
+                || !isWarehouseOzonResolveSender(senderTab)
+                || currentOrderId !== request.orderId
+                || getOrderKindRecord(request.orderId).kind !== ORDER_KIND_OZON) {
+                continue;
+            }
+
+            const response = await startOzonResolvePreview(
+                request.warehouseTabId,
+                request.warehouseExtraction,
+                request
+            );
+
+            if (response?.started || ozonActiveOperation) {
+                return true;
+            }
+        }
+    } finally {
+        isDrainingOzonResolveQueue = false;
+    }
+
+    return false;
+}
+
+async function closeOrphanOzonWorker() {
+    if (!ozonWorkerTabId || ozonActiveOperation) {
+        return false;
+    }
+
+    const tabId = ozonWorkerTabId;
+    ozonWorkerTabId = null;
+
+    try {
+        await chrome.tabs.remove(tabId);
+    } catch {}
+
+    return true;
+}
+
+function validateWarehouseOzonExtractionPayload(warehouseExtraction = {}) {
+    if (typeof validateWarehouseBarcodeExtractionBounds !== 'function') {
+        return { ok: true };
+    }
+
+    return validateWarehouseBarcodeExtractionBounds(warehouseExtraction);
+}
+
 // ---------- OZON BARCODE RESOLVE PREVIEW ----------
 function clearOzonResolveTimeout() {
     if (ozonResolveTimeoutTimer && typeof clearTimeout === 'function') {
@@ -3213,27 +3471,40 @@ function clearOzonResolveTimeout() {
     ozonResolveTimeoutTimer = null;
 }
 
-async function cleanupOzonResolveWorker({ closeTab = true } = {}) {
+async function cleanupOzonResolveWorker({ closeTab = true, operationId = ozonResolveSession?.operationId || '', drainQueue = true } = {}) {
+    if (!operationId || !isCurrentOzonOperation('resolve', operationId)) {
+        return false;
+    }
+
     clearOzonResolveTimeout();
 
-    const tabId = ozonWorkerTabId;
+    const tabId = ozonActiveOperation?.workerTabId || ozonWorkerTabId;
     ozonWorkerTabId = null;
     ozonResolveSession = null;
+    releaseOzonOperation(operationId);
 
     if (closeTab && tabId) {
         try {
             await chrome.tabs.remove(tabId);
         } catch {}
     }
+
+    if (drainQueue) {
+        await drainQueuedOzonResolveRequests();
+    }
+
+    return true;
 }
 
-async function sendOzonResolvePreviewToWarehouse(payload = {}) {
+async function sendOzonResolvePreviewToWarehouse(payload = {}, session = ozonResolveSession) {
     return sendOzonWarehouseMessage({
-        session: ozonResolveSession,
+        session,
         type: 'OZON_RESOLVE_PREVIEW_RESULT',
         payload: {
             ...payload,
-            orderId: ozonResolveSession?.orderId || ''
+            orderId: session?.orderId || '',
+            trigger: session?.trigger || 'manual',
+            documentInstanceId: session?.documentInstanceId || ''
         },
         logCategory: 'OZON_RESOLVE',
         logMessage: 'failed to send preview to warehouse tab'
@@ -3247,42 +3518,60 @@ function createOzonResolvePreviewPlanForSession(session = ozonResolveSession) {
     });
 }
 
-async function finishOzonResolvePreview() {
-    if (!ozonResolveSession) {
+async function finishOzonResolvePreview(operationId = ozonResolveSession?.operationId || '') {
+    const session = ozonResolveSession;
+    if (!session || !isCurrentOzonOperation('resolve', operationId)) {
         return false;
     }
 
-    const plan = createOzonResolvePreviewPlanForSession(ozonResolveSession);
+    const plan = createOzonResolvePreviewPlanForSession(session);
 
-    log('INFO', 'OZON_RESOLVE', 'preview ready', plan.summary);
-    await sendOzonResolvePreviewToWarehouse({ ok: true, plan });
-    await cleanupOzonResolveWorker();
+    log('INFO', 'OZON_RESOLVE', 'preview ready', {
+        ...plan.summary,
+        trigger: session.trigger || 'manual',
+        operationId
+    });
+    await sendOzonResolvePreviewToWarehouse({ ok: true, plan }, session);
+    await cleanupOzonResolveWorker({ operationId });
 
     return true;
 }
 
-async function failOzonResolvePreview(errorMessage = 'Ozon resolve failed') {
-    if (!ozonResolveSession) {
+async function failOzonResolvePreview(errorMessage = 'Ozon resolve failed', options = {}) {
+    const session = ozonResolveSession;
+    const operationId = options.operationId || session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('resolve', operationId)) {
         return false;
     }
 
-    log('WARN', 'OZON_RESOLVE', 'preview failed', errorMessage);
-    await sendOzonResolvePreviewToWarehouse({ ok: false, error: errorMessage });
-    await cleanupOzonResolveWorker();
+    log('WARN', 'OZON_RESOLVE', 'preview failed', {
+        error: errorMessage,
+        trigger: session.trigger || 'manual',
+        operationId
+    });
+
+    if (options.notify !== false) {
+        await sendOzonResolvePreviewToWarehouse({ ok: false, error: errorMessage }, session);
+    }
+
+    await cleanupOzonResolveWorker({
+        operationId,
+        drainQueue: options.drainQueue !== false
+    });
 
     return true;
 }
 
-function scheduleOzonResolveTimeout() {
+function scheduleOzonResolveTimeout(operationId = ozonResolveSession?.operationId || '') {
     clearOzonResolveTimeout();
 
-    if (typeof setTimeout !== 'function') {
+    if (typeof setTimeout !== 'function' || !operationId) {
         return false;
     }
 
     ozonResolveTimeoutTimer = setTimeout(() => {
         ozonResolveTimeoutTimer = null;
-        failOzonResolvePreview('Ozon resolve timeout').catch((err) => {
+        failOzonResolvePreview('Ozon resolve timeout', { operationId }).catch((err) => {
             log('ERROR', 'OZON_RESOLVE', 'timeout cleanup failed', err?.message || err);
         });
     }, OZON_RESOLVE_TIMEOUT_MS);
@@ -3291,63 +3580,128 @@ function scheduleOzonResolveTimeout() {
 }
 
 async function openCurrentOzonResolveProduct() {
-    if (!ozonResolveSession) {
+    const session = ozonResolveSession;
+    const operationId = session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('resolve', operationId)) {
         return false;
     }
 
-    const productId = ozonResolveSession.productIds[ozonResolveSession.index];
+    const productId = session.productIds[session.index];
 
     if (!productId) {
-        return finishOzonResolvePreview();
+        return finishOzonResolvePreview(operationId);
     }
 
     const url = buildOzonResolveWorkerUrl(productId);
-    scheduleOzonResolveTimeout();
+    scheduleOzonResolveTimeout(operationId);
 
     if (ozonWorkerTabId) {
         await chrome.tabs.update(ozonWorkerTabId, { url, active: false });
     } else {
         const tab = await chrome.tabs.create({ url, active: false, pinned: true });
-        ozonWorkerTabId = tab.id;
+        if (!isCurrentOzonOperation('resolve', operationId)) {
+            try {
+                await chrome.tabs.remove(tab.id);
+            } catch {}
+            return false;
+        }
+        assignOzonWorkerToOperation(tab.id, operationId);
     }
 
     log('INFO', 'OZON_RESOLVE', 'worker opened', {
         productId,
-        index: ozonResolveSession.index + 1,
-        total: ozonResolveSession.productIds.length,
-        tabId: ozonWorkerTabId
+        index: session.index + 1,
+        total: session.productIds.length,
+        tabId: ozonWorkerTabId,
+        trigger: session.trigger || 'manual',
+        operationId
     });
 
     return true;
 }
 
 async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, options = {}) {
-    const safeWarehouseExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
-        ? revalidateWarehouseBarcodeExtraction(warehouseExtraction)
-        : warehouseExtraction;
-    const productIds = getOzonResolveProductIds(safeWarehouseExtraction);
-
     if (!senderTabId) {
         return createRuntimeFailureResponse({ error: 'warehouse tab missing' });
     }
 
-    await cleanupOzonResolveWorker();
+    const bounds = validateWarehouseOzonExtractionPayload(warehouseExtraction);
+    if (!bounds.ok) {
+        return createRuntimeFailureResponse({
+            error: bounds.error || 'warehouse payload limits exceeded',
+            limitsExceeded: true
+        });
+    }
 
-    ozonResolveSession = createOzonResolveSessionState({
+    const queueBehindBusyOperation = () => {
+        const activeOperation = getOzonBusyOperationType();
+        if (options.trigger === 'automatic-on-open' && activeOperation) {
+            const queued = enqueueOzonResolveRequest({
+                warehouseTabId: senderTabId,
+                orderId: options.orderId || warehouseExtraction?.orderId,
+                warehouseExtraction,
+                trigger: options.trigger,
+                documentInstanceId: options.documentInstanceId
+            });
+            return createRuntimeOkResponse({
+                queued: queued.queued === true,
+                deduplicated: queued.deduplicated === true,
+                queueLength: queued.queueLength || ozonQueuedResolveRequests.length,
+                orderId: normalizeOzonSessionOrderId(options.orderId || warehouseExtraction?.orderId),
+                trigger: 'automatic-on-open',
+                documentInstanceId: String(options.documentInstanceId || '').slice(0, 160),
+                activeOperation
+            });
+        }
+
+        return createRuntimeFailureResponse({
+            error: `Ozon ${activeOperation || 'unknown'} operation is already active`,
+            busy: true
+        });
+    };
+
+    if (ozonActiveOperation || ozonPendingApplyRequest) {
+        return queueBehindBusyOperation();
+    }
+
+    if (ozonWorkerTabId) {
+        await closeOrphanOzonWorker();
+    }
+
+    if (ozonActiveOperation || ozonPendingApplyRequest) {
+        return queueBehindBusyOperation();
+    }
+
+    const safeWarehouseExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
+        ? revalidateWarehouseBarcodeExtraction(warehouseExtraction)
+        : warehouseExtraction;
+    const productIds = getOzonResolveProductIds(safeWarehouseExtraction);
+    const session = createOzonResolveSessionState({
         warehouseTabId: senderTabId,
         orderId: options.orderId,
         warehouseExtraction: safeWarehouseExtraction,
-        productIds
+        productIds,
+        trigger: options.trigger,
+        documentInstanceId: options.documentInstanceId
     });
+    const operationId = beginOzonOperation('resolve', session);
+
+    if (!operationId) {
+        return createRuntimeFailureResponse({ error: 'failed to claim Ozon resolve operation' });
+    }
+
+    ozonResolveSession = session;
 
     if (!productIds.length) {
-        const plan = createOzonResolvePreviewPlanForSession(ozonResolveSession);
-        await sendOzonResolvePreviewToWarehouse({ ok: true, plan });
-        await cleanupOzonResolveWorker({ closeTab: false });
+        const plan = createOzonResolvePreviewPlanForSession(session);
+        await sendOzonResolvePreviewToWarehouse({ ok: true, plan }, session);
+        await cleanupOzonResolveWorker({ closeTab: false, operationId });
         return createRuntimeOkResponse({
             started: false,
             plan,
-            orderId: ozonResolveSession?.orderId || options.orderId || ''
+            orderId: session.orderId || options.orderId || '',
+            trigger: session.trigger || 'manual',
+            operationId
         });
     }
 
@@ -3356,16 +3710,22 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, op
     return createRuntimeOkResponse({
         started: true,
         productCount: productIds.length,
-        orderId: ozonResolveSession.orderId
+        orderId: session.orderId,
+        trigger: session.trigger,
+        operationId
     });
 }
 
 async function handleOzonProductResolveResult(senderTabId, msg = {}) {
-    if (!ozonResolveSession || senderTabId !== ozonWorkerTabId) {
+    const session = ozonResolveSession;
+    const operationId = session?.operationId || '';
+    if (!session
+        || !isCurrentOzonOperation('resolve', operationId)
+        || senderTabId !== ozonWorkerTabId) {
         return createRuntimeIgnoredResponse();
     }
 
-    const expectedProductId = ozonResolveSession.productIds[ozonResolveSession.index];
+    const expectedProductId = session.productIds[session.index];
     const productId = normalizeOzonResolveId(msg.productId || msg.result?.productId);
 
     if (!expectedProductId || productId !== expectedProductId) {
@@ -3373,18 +3733,18 @@ async function handleOzonProductResolveResult(senderTabId, msg = {}) {
     }
 
     clearOzonResolveTimeout();
-    ozonResolveSession.ozonProductsByProductId[productId] = msg.result && typeof msg.result === 'object'
+    session.ozonProductsByProductId[productId] = msg.result && typeof msg.result === 'object'
         ? msg.result
         : { ok: false, error: 'ozon product result missing', product: null };
-    ozonResolveSession.index += 1;
+    session.index += 1;
 
-    if (ozonResolveSession.index >= ozonResolveSession.productIds.length) {
-        await finishOzonResolvePreview();
+    if (session.index >= session.productIds.length) {
+        await finishOzonResolvePreview(operationId);
     } else {
         await openCurrentOzonResolveProduct();
     }
 
-    return createRuntimeOkResponse({ accepted: true });
+    return createRuntimeOkResponse({ accepted: true, operationId });
 }
 
 
@@ -3397,59 +3757,72 @@ function clearOzonUiApplyTimeout() {
     ozonUiApplyTimeoutTimer = null;
 }
 
-async function cleanupOzonUiApply({ closeTab = false } = {}) {
+async function cleanupOzonUiApply({ closeTab = false, operationId = ozonUiApplySession?.operationId || '', drainQueue = true } = {}) {
+    if (!operationId || !isCurrentOzonOperation('apply', operationId)) {
+        return false;
+    }
+
     clearOzonUiApplyTimeout();
 
-    const tabId = ozonWorkerTabId;
+    const tabId = ozonActiveOperation?.workerTabId || ozonWorkerTabId;
+    ozonWorkerTabId = null;
     ozonUiApplySession = null;
-
-    if (!ozonResolveSession) {
-        ozonWorkerTabId = closeTab ? null : ozonWorkerTabId;
-    }
+    releaseOzonOperation(operationId);
 
     if (closeTab && tabId) {
         try {
             await chrome.tabs.remove(tabId);
         } catch {}
     }
+
+    if (drainQueue) {
+        await drainQueuedOzonResolveRequests();
+    }
+
+    return true;
 }
 
-async function sendOzonUiApplyResultToWarehouse(payload = {}) {
+async function sendOzonUiApplyResultToWarehouse(payload = {}, session = ozonUiApplySession) {
     return sendOzonWarehouseMessage({
-        session: ozonUiApplySession,
+        session,
         type: 'OZON_UI_APPLY_RESULT',
         payload: {
             ...payload,
-            orderId: ozonUiApplySession?.orderId || '',
-            trigger: ozonUiApplySession?.trigger || 'manual',
-            actionId: ozonUiApplySession?.actionId || ''
+            orderId: session?.orderId || '',
+            trigger: session?.trigger || 'manual',
+            actionId: session?.actionId || ''
         },
         logCategory: 'OZON_UI_APPLY',
         logMessage: 'failed to send apply result to warehouse tab'
     });
 }
 
-async function failOzonUiApply(errorMessage = 'Ozon UI apply failed') {
-    if (!ozonUiApplySession) {
+async function failOzonUiApply(errorMessage = 'Ozon UI apply failed', options = {}) {
+    const session = ozonUiApplySession;
+    const operationId = options.operationId || session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('apply', operationId)) {
         return false;
     }
 
-    log('WARN', 'OZON_UI_APPLY', 'apply failed', errorMessage);
-    await sendOzonUiApplyResultToWarehouse({ ok: false, error: errorMessage });
-    await cleanupOzonUiApply({ closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT });
+    log('WARN', 'OZON_UI_APPLY', 'apply failed', { error: errorMessage, operationId });
+    await sendOzonUiApplyResultToWarehouse({ ok: false, error: errorMessage }, session);
+    await cleanupOzonUiApply({
+        closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT,
+        operationId
+    });
     return true;
 }
 
-function scheduleOzonUiApplyTimeout() {
+function scheduleOzonUiApplyTimeout(operationId = ozonUiApplySession?.operationId || '') {
     clearOzonUiApplyTimeout();
 
-    if (typeof setTimeout !== 'function') {
+    if (typeof setTimeout !== 'function' || !operationId) {
         return false;
     }
 
     ozonUiApplyTimeoutTimer = setTimeout(() => {
         ozonUiApplyTimeoutTimer = null;
-        failOzonUiApply('Ozon UI apply timeout').catch((err) => {
+        failOzonUiApply('Ozon UI apply timeout', { operationId }).catch((err) => {
             log('ERROR', 'OZON_UI_APPLY', 'timeout cleanup failed', err?.message || err);
         });
     }, OZON_UI_APPLY_TIMEOUT_MS);
@@ -3458,11 +3831,15 @@ function scheduleOzonUiApplyTimeout() {
 }
 
 async function sendOzonUiApplyCommandToWorker() {
-    if (!ozonUiApplySession || !ozonWorkerTabId) {
+    const session = ozonUiApplySession;
+    const operationId = session?.operationId || '';
+    if (!session
+        || !isCurrentOzonOperation('apply', operationId)
+        || !ozonWorkerTabId) {
         return false;
     }
 
-    const currentProduct = getCurrentOzonUiApplyProductRequest();
+    const currentProduct = getCurrentOzonUiApplyProductRequest(session);
 
     if (!currentProduct) {
         return false;
@@ -3471,7 +3848,7 @@ async function sendOzonUiApplyCommandToWorker() {
     const { productId, barcodes } = currentProduct;
 
     try {
-        ozonUiApplySession.status = 'command-sent';
+        session.status = 'command-sent';
         await chrome.tabs.sendMessage(ozonWorkerTabId, {
             type: 'OZON_UI_APPLY_IN_WORKER',
             productId,
@@ -3480,48 +3857,63 @@ async function sendOzonUiApplyCommandToWorker() {
         log('INFO', 'OZON_UI_APPLY', 'apply command sent', {
             productId,
             barcodeCount: barcodes.length,
-            index: ozonUiApplySession.index + 1,
-            total: ozonUiApplySession.productRequests.length
+            index: session.index + 1,
+            total: session.productRequests.length
         });
         return true;
     } catch (error) {
-        await failOzonUiApply(error?.message || 'failed to send apply command to Ozon worker');
+        await failOzonUiApply(error?.message || 'failed to send apply command to Ozon worker', { operationId });
         return false;
     }
 }
 
 async function openCurrentOzonUiApplyProduct() {
-    if (!ozonUiApplySession) {
+    const session = ozonUiApplySession;
+    const operationId = session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('apply', operationId)) {
         return false;
     }
 
-    const currentProduct = getCurrentOzonUiApplyProductRequest();
+    const currentProduct = getCurrentOzonUiApplyProductRequest(session);
 
     if (!currentProduct) {
-        const payload = createOzonUiApplyFinalPayload(ozonUiApplySession);
-        log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', payload);
-        await sendOzonUiApplyResultToWarehouse(payload);
-        await cleanupOzonUiApply({ closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT });
+        const payload = createOzonUiApplyFinalPayload(session);
+        log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', {
+            ...payload,
+            operationId
+        });
+        await sendOzonUiApplyResultToWarehouse(payload, session);
+        await cleanupOzonUiApply({
+            closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT,
+            operationId
+        });
         return true;
     }
 
     const url = buildOzonUiApplyWorkerUrl(currentProduct.productId);
-    scheduleOzonUiApplyTimeout();
-    ozonUiApplySession.status = 'opening';
+    scheduleOzonUiApplyTimeout(operationId);
+    session.status = 'opening';
 
     if (ozonWorkerTabId) {
         await chrome.tabs.update(ozonWorkerTabId, { url, active: false });
     } else {
         const tab = await chrome.tabs.create({ url, active: false, pinned: true });
-        ozonWorkerTabId = tab.id;
+        if (!isCurrentOzonOperation('apply', operationId)) {
+            try {
+                await chrome.tabs.remove(tab.id);
+            } catch {}
+            return false;
+        }
+        assignOzonWorkerToOperation(tab.id, operationId);
     }
 
     log('INFO', 'OZON_UI_APPLY', 'worker opened', {
         productId: currentProduct.productId,
         barcodeCount: currentProduct.barcodes.length,
-        index: ozonUiApplySession.index + 1,
-        total: ozonUiApplySession.productRequests.length,
-        tabId: ozonWorkerTabId
+        index: session.index + 1,
+        total: session.productRequests.length,
+        tabId: ozonWorkerTabId,
+        operationId
     });
 
     return true;
@@ -3530,6 +3922,28 @@ async function openCurrentOzonUiApplyProduct() {
 async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options = {}) {
     if (!senderTabId) {
         return createRuntimeFailureResponse({ error: 'warehouse tab missing' });
+    }
+
+    if (!isCurrentOzonApplyClaim(options.claimId)) {
+        return createRuntimeFailureResponse({
+            error: 'Ozon barcode write request lost its operation claim',
+            busy: true
+        });
+    }
+
+    if (isCurrentOzonOperation('apply')) {
+        return createRuntimeFailureResponse({
+            error: 'another Ozon barcode write is already active',
+            busy: true
+        });
+    }
+
+    const bounds = validateWarehouseOzonExtractionPayload(warehouseExtraction);
+    if (!bounds.ok) {
+        return createRuntimeFailureResponse({
+            error: bounds.error || 'warehouse payload limits exceeded',
+            limitsExceeded: true
+        });
     }
 
     const safeWarehouseExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
@@ -3549,22 +3963,65 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options =
     }
 
     const request = createOzonUiApplyRequestFromWarehouseExtraction(safeWarehouseExtraction);
-
     if (!request.ok) {
         return createRuntimeFailureResponse({ error: request.error });
     }
 
-    await cleanupOzonResolveWorker({ closeTab: false });
-    await cleanupOzonUiApply({ closeTab: true });
+    if (isCurrentOzonOperation('resolve')) {
+        const activeResolveSession = ozonResolveSession;
+        if (activeResolveSession?.trigger === 'automatic-on-open') {
+            enqueueOzonResolveRequest({
+                warehouseTabId: activeResolveSession.warehouseTabId,
+                orderId: activeResolveSession.orderId,
+                warehouseExtraction: activeResolveSession.warehouseExtraction,
+                trigger: activeResolveSession.trigger,
+                documentInstanceId: activeResolveSession.documentInstanceId
+            });
+            await failOzonResolvePreview('Ozon check postponed until barcode write completes', {
+                operationId: activeResolveSession.operationId,
+                notify: false,
+                drainQueue: false
+            });
+        } else {
+            await failOzonResolvePreview('Ozon check cancelled because barcode write started', {
+                operationId: activeResolveSession?.operationId,
+                drainQueue: false
+            });
+        }
+    }
 
-    ozonUiApplySession = createOzonUiApplySessionState({
+    if (!isCurrentOzonApplyClaim(options.claimId)) {
+        return createRuntimeFailureResponse({
+            error: 'Ozon barcode write request lost its operation claim',
+            busy: true
+        });
+    }
+
+    if (ozonWorkerTabId) {
+        await closeOrphanOzonWorker();
+    }
+
+    if (!isCurrentOzonApplyClaim(options.claimId) || ozonActiveOperation) {
+        return createRuntimeFailureResponse({
+            error: 'another Ozon operation started before barcode write could claim the worker',
+            busy: true
+        });
+    }
+
+    const session = createOzonUiApplySessionState({
         warehouseTabId: senderTabId,
         orderId: options.orderId,
         productRequests: request.productRequests,
         trigger: options.trigger,
         actionId: options.actionId
     });
+    const operationId = beginOzonOperation('apply', session);
 
+    if (!operationId) {
+        return createRuntimeFailureResponse({ error: 'failed to claim Ozon write operation' });
+    }
+
+    ozonUiApplySession = session;
     await openCurrentOzonUiApplyProduct();
 
     return createRuntimeOkResponse({
@@ -3572,18 +4029,23 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options =
         productId: request.productRequests[0]?.productId || '',
         productCount: request.productCount,
         barcodeCount: request.barcodeCount,
-        orderId: ozonUiApplySession.orderId,
-        trigger: ozonUiApplySession.trigger,
-        actionId: ozonUiApplySession.actionId
+        orderId: session.orderId,
+        trigger: session.trigger,
+        actionId: session.actionId,
+        operationId
     });
 }
 
 async function handleOzonProductWorkerReady(senderTabId, msg = {}) {
-    if (!ozonUiApplySession || senderTabId !== ozonWorkerTabId) {
+    const session = ozonUiApplySession;
+    const operationId = session?.operationId || '';
+    if (!session
+        || !isCurrentOzonOperation('apply', operationId)
+        || senderTabId !== ozonWorkerTabId) {
         return createRuntimeIgnoredResponse();
     }
 
-    const currentProduct = getCurrentOzonUiApplyProductRequest();
+    const currentProduct = getCurrentOzonUiApplyProductRequest(session);
     const productId = normalizeOzonResolveId(msg.productId);
 
     if (!currentProduct || !productId || productId !== currentProduct.productId) {
@@ -3591,15 +4053,19 @@ async function handleOzonProductWorkerReady(senderTabId, msg = {}) {
     }
 
     await sendOzonUiApplyCommandToWorker();
-    return createRuntimeOkResponse({ accepted: true });
+    return createRuntimeOkResponse({ accepted: true, operationId });
 }
 
 async function handleOzonUiApplyResult(senderTabId, msg = {}) {
-    if (!ozonUiApplySession || senderTabId !== ozonWorkerTabId) {
+    const session = ozonUiApplySession;
+    const operationId = session?.operationId || '';
+    if (!session
+        || !isCurrentOzonOperation('apply', operationId)
+        || senderTabId !== ozonWorkerTabId) {
         return createRuntimeIgnoredResponse();
     }
 
-    const currentProduct = getCurrentOzonUiApplyProductRequest();
+    const currentProduct = getCurrentOzonUiApplyProductRequest(session);
     const productId = normalizeOzonResolveId(msg.productId);
 
     if (!currentProduct || !productId || productId !== currentProduct.productId) {
@@ -3609,25 +4075,32 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
     clearOzonUiApplyTimeout();
 
     const productResult = buildOzonUiApplyProductResult(currentProduct, msg);
-    ozonUiApplySession.results.push(productResult);
-    ozonUiApplySession.index += 1;
+    session.results.push(productResult);
+    session.index += 1;
 
     log(productResult.ok ? 'INFO' : 'WARN', 'OZON_UI_APPLY', 'apply product result received', {
         ...productResult,
-        index: ozonUiApplySession.index,
-        total: ozonUiApplySession.productRequests.length
+        index: session.index,
+        total: session.productRequests.length,
+        operationId
     });
 
-    if (ozonUiApplySession.index >= ozonUiApplySession.productRequests.length) {
-        const payload = createOzonUiApplyFinalPayload(ozonUiApplySession);
-        log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', payload);
-        await sendOzonUiApplyResultToWarehouse(payload);
-        await cleanupOzonUiApply({ closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT });
+    if (session.index >= session.productRequests.length) {
+        const payload = createOzonUiApplyFinalPayload(session);
+        log(payload.errorCount > 0 ? 'WARN' : 'INFO', 'OZON_UI_APPLY', 'apply batch complete', {
+            ...payload,
+            operationId
+        });
+        await sendOzonUiApplyResultToWarehouse(payload, session);
+        await cleanupOzonUiApply({
+            closeTab: !OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT,
+            operationId
+        });
     } else {
         await openCurrentOzonUiApplyProduct();
     }
 
-    return createRuntimeOkResponse({ accepted: true });
+    return createRuntimeOkResponse({ accepted: true, operationId });
 }
 
 
@@ -3944,6 +4417,9 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 const requestedOrderId = normalizeOrderKindOrderId(
                     msg.orderId || msg.warehouseExtraction?.orderId
                 );
+                const trigger = msg.trigger === 'automatic-on-open'
+                    ? 'automatic-on-open'
+                    : 'manual';
 
                 if (!isWarehouseOzonResolveSender(senderTab)
                     || !senderOrderId
@@ -3952,8 +4428,76 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
+                if (trigger === 'automatic-on-open'
+                    && getOrderKindRecord(requestedOrderId).kind !== ORDER_KIND_OZON) {
+                    send(createRuntimeFailureResponse({
+                        error: 'automatic Ozon check requires a confirmed Ozon order',
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                const extractionBounds = validateWarehouseOzonExtractionPayload(msg.warehouseExtraction || {});
+                if (!extractionBounds.ok) {
+                    send(createRuntimeFailureResponse({
+                        error: extractionBounds.error || 'warehouse payload limits exceeded',
+                        limitsExceeded: true,
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                if (ozonActiveOperation || ozonPendingApplyRequest) {
+                    const activeOperation = getOzonBusyOperationType();
+                    if (trigger === 'automatic-on-open') {
+                        const documentInstanceId = String(msg.documentInstanceId || '').slice(0, 160);
+                        const alreadyActive = ozonActiveOperation?.type === 'resolve'
+                            && ozonResolveSession?.warehouseTabId === senderTabId
+                            && ozonResolveSession?.orderId === requestedOrderId
+                            && ozonResolveSession?.documentInstanceId === documentInstanceId;
+
+                        if (alreadyActive) {
+                            send(createRuntimeOkResponse({
+                                started: true,
+                                alreadyActive: true,
+                                orderId: requestedOrderId,
+                                trigger,
+                                documentInstanceId,
+                                activeOperation: 'resolve'
+                            }));
+                            return;
+                        }
+
+                        const queued = enqueueOzonResolveRequest({
+                            warehouseTabId: senderTabId,
+                            orderId: requestedOrderId,
+                            warehouseExtraction: msg.warehouseExtraction || {},
+                            trigger,
+                            documentInstanceId
+                        });
+                        send(createRuntimeOkResponse({
+                            queued: queued.queued === true,
+                            deduplicated: queued.deduplicated === true,
+                            queueLength: queued.queueLength || ozonQueuedResolveRequests.length,
+                            orderId: requestedOrderId,
+                            trigger,
+                            documentInstanceId,
+                            activeOperation
+                        }));
+                    } else {
+                        send(createRuntimeFailureResponse({
+                            error: `Ozon ${activeOperation} operation is already active`,
+                            busy: true,
+                            orderId: requestedOrderId
+                        }));
+                    }
+                    return;
+                }
+
                 send(await startOzonResolvePreview(senderTabId, msg.warehouseExtraction || {}, {
-                    orderId: requestedOrderId
+                    orderId: requestedOrderId,
+                    trigger,
+                    documentInstanceId: msg.documentInstanceId
                 }));
                 return;
             }
@@ -3976,7 +4520,50 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
-                let consumedAutoIntent = null;
+                const extractionBounds = validateWarehouseOzonExtractionPayload(msg.warehouseExtraction || {});
+                if (!extractionBounds.ok) {
+                    send(createRuntimeFailureResponse({
+                        error: extractionBounds.error || 'warehouse payload limits exceeded',
+                        limitsExceeded: true,
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                if (msg.trigger !== 'automatic' && (isCurrentOzonOperation('apply') || ozonPendingApplyRequest)) {
+                    send(createRuntimeFailureResponse({
+                        error: 'another Ozon barcode write is already active',
+                        busy: true,
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                const preflightExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
+                    ? revalidateWarehouseBarcodeExtraction(msg.warehouseExtraction || {})
+                    : (msg.warehouseExtraction || {});
+                const preflightRevalidation = preflightExtraction?.revalidation || {};
+                if (Number(preflightRevalidation.rejectedEligibleCount) > 0) {
+                    log('WARN', 'WAREHOUSE_OZON', 'write boundary rejected unconfirmed warehouse barcodes', {
+                        orderId: requestedOrderId,
+                        trigger: msg.trigger === 'automatic' ? 'automatic' : 'manual',
+                        sourceEligibleCount: Number(preflightRevalidation.sourceEligibleCount) || 0,
+                        eligibleCount: Number(preflightRevalidation.eligibleCount) || 0,
+                        rejectedEligibleCount: Number(preflightRevalidation.rejectedEligibleCount) || 0,
+                        rejectionReasons: preflightRevalidation.rejectionReasons || {}
+                    });
+                }
+
+                const preflightRequest = createOzonUiApplyRequestFromWarehouseExtraction(preflightExtraction);
+                if (!preflightRequest.ok) {
+                    send(createRuntimeFailureResponse({
+                        error: preflightRequest.error,
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                let pendingAutoIntent = null;
                 if (msg.trigger === 'automatic') {
                     if (userConfig?.ozonAutoBarcodeApplyEnabled !== true) {
                         send(createRuntimeFailureResponse({
@@ -3994,31 +4581,68 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                         return;
                     }
 
-                    consumedAutoIntent = consumeWarehouseAutoApplyIntent(
-                        senderTabId,
-                        requestedOrderId,
-                        msg.actionId
-                    );
-                    if (!consumedAutoIntent) {
+                    pendingAutoIntent = getWarehouseAutoApplyIntent(senderTabId, requestedOrderId);
+                    if (!pendingAutoIntent || pendingAutoIntent.actionId !== String(msg.actionId || '')) {
                         send(createRuntimeFailureResponse({
                             error: 'automatic Ozon write intent is missing or expired',
                             orderId: requestedOrderId
                         }));
                         return;
                     }
-
-                    await save();
-                    log('INFO', 'WAREHOUSE_AUTO_APPLY', 'intent consumed', {
-                        orderId: requestedOrderId,
-                        actionId: consumedAutoIntent.actionId,
-                        senderTabId
-                    });
                 }
 
-                send(await startOzonUiApply(senderTabId, msg.warehouseExtraction || {}, {
+                const applyClaim = claimOzonApplyRequest({
+                    warehouseTabId: senderTabId,
                     orderId: requestedOrderId,
-                    trigger: msg.trigger,
-                    actionId: msg.trigger === 'automatic' ? msg.actionId : ''
+                    trigger: msg.trigger
+                });
+                if (!applyClaim) {
+                    send(createRuntimeFailureResponse({
+                        error: 'another Ozon barcode write is already active',
+                        busy: true,
+                        orderId: requestedOrderId
+                    }));
+                    return;
+                }
+
+                let applyResponse = null;
+                try {
+                    if (msg.trigger === 'automatic') {
+                        const consumedAutoIntent = consumeWarehouseAutoApplyIntent(
+                            senderTabId,
+                            requestedOrderId,
+                            msg.actionId
+                        );
+                        if (!consumedAutoIntent) {
+                            applyResponse = createRuntimeFailureResponse({
+                                error: 'automatic Ozon write intent is missing or expired',
+                                orderId: requestedOrderId
+                            });
+                        } else {
+                            await save();
+                            log('INFO', 'WAREHOUSE_AUTO_APPLY', 'intent consumed', {
+                                orderId: requestedOrderId,
+                                actionId: consumedAutoIntent.actionId,
+                                senderTabId
+                            });
+                        }
+                    }
+
+                    if (!applyResponse) {
+                        applyResponse = await startOzonUiApply(senderTabId, msg.warehouseExtraction || {}, {
+                            orderId: requestedOrderId,
+                            trigger: msg.trigger,
+                            actionId: msg.trigger === 'automatic' ? msg.actionId : '',
+                            claimId: applyClaim.id
+                        });
+                    }
+                } finally {
+                    releaseOzonApplyClaim(applyClaim.id);
+                }
+
+                send(applyResponse || createRuntimeFailureResponse({
+                    error: 'Ozon barcode write did not start',
+                    orderId: requestedOrderId
                 }));
                 return;
             }
