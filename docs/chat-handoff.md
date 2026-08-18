@@ -7,15 +7,15 @@ Repo: github.com/DonutWithCoffee/tab_wanderer
 Branch: main
 Public stable CWS release: 1.0.4.1 / Unlisted
 Last substantial tagged release: 1.0.4 / cd7d8e2 / v1.0.4
-Manifest: 1.0.4.2
-1.0.4.2 status: release-prep patch candidate, no Git tag
-Source commit before release-prep: 6243b03
-Development state: committed and pushed; release metadata pending commit
-Expected automated baseline: 340 pass / 0 fail
-Next release number: 1.0.4.2
+Manifest: 1.0.4.3
+1.0.4.3 status: release-prep patch candidate, no Git tag
+Development base commit before release-prep: a697c1d
+Development state: working tree contains the final Warehouse/lifecycle patch; release metadata pending commit
+Expected automated baseline: 359 pass / 1 known fail
+Next release number: 1.0.4.3
 ```
 
-1.0.4 опубликована и помечена тегом `v1.0.4`; 1.0.4.1 опубликована как hotfix без тега. Текущий patch candidate `1.0.4.2` построен поверх коммита `6243b03`. Он добавляет единичную read-only проверку уже укомплектованных штрихкодов при открытии подтверждённого Ozon-заказа, сериализует resolve/apply операции и усиливает Warehouse-валидацию. Live regression дополнительно исправил ложную причину `неединичная позиция`: quantity/reserved/stock не участвуют в определении единичности при явном `itemType === 0`. Baseline и live smoke: `340 pass / 0 fail`. Экспериментальный fingerprint-патч не применялся и в код не входит.
+1.0.4 опубликована и помечена тегом `v1.0.4`; 1.0.4.1 опубликована как hotfix без тега. Patch `1.0.4.2` добавил read-only Ozon checks и сериализацию операций. Текущий `1.0.4.3` закрывает production-проблемы Warehouse income: восстановление сохранённого города, правильный порядок income-route initialization, доступный остаток `quantity - reserved_quantity`, отображение названия перед ID и startup adoption существующего worker вместо преждевременного создания дубля. `cityDebug` оставлен fail-safe. Известный тест многотоварного оприходования остаётся отдельной незавершённой задачей.
 
 ## 2. What Is In The Current Hardening
 
@@ -196,7 +196,7 @@ tests/ozon-product-bridge.test.js
 - Маленькие patch releases без новых permissions/host permissions предпочтительны.
 - Удаление permission допустимо, но требует smoke в установленной unpacked-сборке.
 - Git tags создаются только для крупных обновлений; patch/hotfix builds не тегируются.
-- Git tags остаются только для крупных обновлений; `1.0.4.2` не тегируется.
+- Git tags остаются только для крупных обновлений; `1.0.4.3` не тегируется.
 
 ## 7. Sensitive Local Files
 
@@ -213,8 +213,8 @@ tests/ozon-product-bridge.test.js
 
 1. Пользователь заменяет release-prep файлы.
 2. Запускает `npm test`, `git status`, `git diff --stat`.
-3. Ожидаемый baseline: `340 pass / 0 fail`.
-4. Коммитит release metadata одним `chore: prepare patch release 1.0.4.2` и пушит.
+3. Ожидаемый baseline: `359 pass / 1 known fail` (многотоварное оприходование).
+4. Коммитит release metadata одним `chore: prepare patch release 1.0.4.3` и пушит.
 5. Создаёт свежий `git archive HEAD`.
 6. Из точного HEAD собирается финальный CWS ZIP с SHA256 и submission notes.
 7. Git tag не создаётся.

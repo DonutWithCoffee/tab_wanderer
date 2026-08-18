@@ -1,12 +1,12 @@
-# tab_wanderer — 1.0.4.2 Warehouse/Ozon smoke checklist
+# tab_wanderer — 1.0.4.3 Warehouse/Ozon smoke checklist
 
-Manifest — `1.0.4.2`. Patch включает read-only проверку уже собранных Ozon-заказов, сериализацию Ozon-операций и regression-исправление единичности независимо от quantity/reserved/stock.
+Manifest — `1.0.4.3`. Patch включает Warehouse city persistence на income pages, available-stock calculation (`quantity - reserved_quantity`), startup worker adoption и Ozon/Warehouse initialization hardening.
 
 ```text
-Expected automated baseline: 340 pass / 0 fail
+Expected automated baseline: 359 pass / 1 known fail (multi-product income selection)
 Public CWS release: 1.0.4.1 / no tag
 Patch source before release-prep: 1.0.4.1 / 6243b03
-Patch candidate: 1.0.4.2 / no tag
+Patch candidate: 1.0.4.3 / no tag
 ```
 
 ## 0. Подготовка
@@ -23,7 +23,7 @@ npm test зелёный
 Проверить в `chrome://extensions`:
 
 ```text
-Version: 1.0.4.2
+Version: 1.0.4.3
 Permissions: storage, notifications, alarms
 Нет permission tabs
 Нет ошибок service worker
@@ -383,6 +383,10 @@ Permissions: storage, notifications, alarms
 - [x] Runtime JS проходит `node --check`: `47 / 47`.
 - [ ] Нет remote code/eval/new Function.
 - [ ] `docs/private`, `.git`, tests и docs не входят в CWS runtime ZIP.
-- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4.2`.
+- [ ] Manifest, `version.js` и popup release notes согласованы на `1.0.4.3`.
+- [ ] Income-page city restores the saved branch on a newly opened Warehouse tab.
+- [ ] Stock rows use `quantity - reserved_quantity`; fully reserved/negative rows are hidden.
+- [ ] After browser restart, an existing marked main worker is adopted instead of duplicated.
+- [ ] Ozon barcode panel still initializes on assembly pages after the Warehouse init changes.
 - [ ] Permissions и host permissions отдельно зафиксированы в build report.
 - [x] Git tag для patch-релиза не создаётся.

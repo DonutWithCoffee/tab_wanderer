@@ -20,10 +20,10 @@
 1.0.3 published and tagged v1.0.3
 1.0.4 published and tagged v1.0.4
 1.0.4.1 published without a Git tag
-1.0.4.2 patch candidate prepared from source commit 6243b03
+1.0.4.3 patch candidate prepared from development base commit a697c1d
 Current scope: one-time read-only Ozon check + serialized Ozon operations + corrected Warehouse unit classification
-Manifest: 1.0.4.2
-Automated baseline: 340 pass / 0 fail
+Manifest: 1.0.4.3
+Automated baseline: 359 pass / 1 known fail
 ```
 
 ## Monitoring model
@@ -281,3 +281,14 @@ https://seller.ozon.ru/*
 - Exact paths in stage commands.
 - Conventional Commits.
 - Version/CWS package only after functionality and smoke are complete.
+
+## 1.0.4.3 current Warehouse/lifecycle slice
+
+- Income pages restore the persisted Warehouse stock city through the runtime config path before stock rendering.
+- The income-perform route is handled before the generic order-workflow exclusion, which previously prevented the config request from running.
+- Stock rows use `quantity - reserved_quantity` as available quantity. Rows with a non-positive result are omitted.
+- The production-loaded file is `core/warehouse-stock-view-model.js`; the duplicate root copy is kept synchronized.
+- Product cards display the product title before the product ID.
+- Browser startup gives restored tabs a grace period before creating a replacement main worker, then reconciles duplicates.
+- The diagnostic `cityDebug` helper is fail-safe and must never break Warehouse/Ozon initialization.
+- The known multi-product income-selection test remains intentionally deferred to a separate slice.

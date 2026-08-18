@@ -1,3 +1,8 @@
+function cityDebugPopup(event, data = {}) {
+    try {
+        console.info('[TW][CITY][POPUP]', new Date().toISOString(), event, data);
+    } catch {}
+}
 let currentMonitorStatus = {
     isRunning: false,
     monitorState: 'uninitialized',
@@ -14,6 +19,10 @@ let currentPopupConfig = {
         items: []
     }
 };
+
+let popupWarehouseStockBranchRevision = 0;
+let popupWarehouseStockBranchSaveSequence = 0;
+let popupWarehouseStockBranchLoaded = false;
 
 const POPUP_DEFAULT_NOTIFICATION_SUPPRESSORS = {
     ignoreLegalEntityPayment: false,
@@ -35,12 +44,13 @@ const POPUP_WATCHED_ORDER_ADD_MAX_POLLS = 60;
 
 const POPUP_RELEASE_NOTES_STORAGE_KEY = 'lastSeenReleaseNotesVersion';
 const POPUP_RELEASE_NOTES = {
-    version: '1.0.4.2',
-    title: 'Обновление 1.0.4.2',
+    version: '1.0.4.3',
+    title: 'Обновление 1.0.4.3',
     items: [
-        'При открытии собранного Ozon-заказа штрихкоды один раз проверяются автоматически без записи.',
-        'Проверка и запись Ozon теперь выполняются последовательно и не мешают друг другу.',
-        'Единичные штрихкоды больше не отклоняются из-за складского количества или остатка.'
+        'Выбор города склада теперь восстанавливается при открытии новой страницы оприходования.',
+        'Остаток в коробке, ячейке или на полке считается как quantity − reserved_quantity; полностью зарезервированные места скрываются.',
+        'После перезапуска браузера существующая worker-вкладка подхватывается вместо создания дубликата.',
+        'Исправлена инициализация Warehouse/Ozon после загрузки страницы.'
     ]
 };
 
@@ -212,6 +222,23 @@ function getBooleanConfigValue(value, fallback) {
     return value === undefined ? fallback : Boolean(value);
 }
 
+const POPUP_DEFAULT_WAREHOUSE_STOCK_BRANCH = 'default';
+const POPUP_ALLOWED_WAREHOUSE_STOCK_BRANCHES = ['default', 'spb', 'moscow'];
+
+function normalizePopupWarehouseStockBranch(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return POPUP_ALLOWED_WAREHOUSE_STOCK_BRANCHES.includes(normalized)
+        ? normalized
+        : POPUP_DEFAULT_WAREHOUSE_STOCK_BRANCH;
+}
+
+function setSelectValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.value = String(value);
+    }
+}
+
 function getPopupNotificationSuppressors(config = {}) {
     const suppressors = config?.notificationSuppressors || {};
 
@@ -273,14 +300,46 @@ function updateQuickSuppressorControls(config = {}) {
 }
 
 function loadPopupConfig() {
+    cityDebugPopup('GET_CONFIG:request', {
+        localBranch: currentPopupConfig?.warehouseStockBranch
+    });
+    const branchRevision = popupWarehouseStockBranchRevision;
+
     send({ type: 'GET_CONFIG' }, (res) => {
         if (!res?.ok) {
             setText('quickSuppressStatus', 'Не удалось загрузить фильтры.');
             return;
         }
 
-        currentPopupConfig = res.userConfig || currentPopupConfig;
+        const responseConfig = res.userConfig || {};
+        cityDebugPopup('GET_CONFIG:response', {
+            ok: res?.ok === true,
+            responseBranch: responseConfig.warehouseStockBranch,
+            localBranch: currentPopupConfig?.warehouseStockBranch,
+            branchRevision,
+            currentRevision: popupWarehouseStockBranchRevision
+        });
+        const branchChangedWhileLoading = branchRevision !== popupWarehouseStockBranchRevision;
+
+        currentPopupConfig = branchChangedWhileLoading
+            ? {
+                ...currentPopupConfig,
+                ...responseConfig,
+                warehouseStockBranch: currentPopupConfig.warehouseStockBranch
+            }
+            : responseConfig;
+
         updateQuickSuppressorControls(currentPopupConfig);
+
+        if (!branchChangedWhileLoading) {
+            setSelectValue(
+                'popupWarehouseStockBranch',
+                normalizePopupWarehouseStockBranch(currentPopupConfig.warehouseStockBranch)
+            );
+        }
+
+        popupWarehouseStockBranchLoaded = true;
+        setText('warehouseStockBranchStatus', 'Настройка загружена.');
         setText('quickSuppressStatus', 'Фильтры скрывают только уведомления. Заказы всё равно обновляются.');
     });
 }
@@ -298,6 +357,69 @@ function savePopupConfig(nextConfig, successMessage = 'Фильтры сохра
         currentPopupConfig = res.userConfig || nextConfig;
         updateQuickSuppressorControls(currentPopupConfig);
         setText('quickSuppressStatus', successMessage);
+    });
+}
+
+function saveWarehouseStockBranchFromPopup() {
+    if (!popupWarehouseStockBranchLoaded) {
+        return;
+    }
+
+    const select = document.getElementById('popupWarehouseStockBranch');
+    const branch = normalizePopupWarehouseStockBranch(select?.value);
+    const previousBranch = normalizePopupWarehouseStockBranch(currentPopupConfig.warehouseStockBranch);
+    const revision = ++popupWarehouseStockBranchRevision;
+    const saveSequence = ++popupWarehouseStockBranchSaveSequence;
+
+    cityDebugPopup('UPDATE:request', {
+        branch,
+        previousBranch,
+        revision,
+        saveSequence
+    });
+
+    currentPopupConfig = {
+        ...currentPopupConfig,
+        warehouseStockBranch: branch
+    };
+
+    setText('warehouseStockBranchStatus', 'Сохраняем настройку...');
+
+    send({ type: 'UPDATE_WAREHOUSE_STOCK_BRANCH', branch }, (res) => {
+        // Ignore a late response from an older change.
+        if (saveSequence !== popupWarehouseStockBranchSaveSequence) {
+            return;
+        }
+
+        if (!res?.ok) {
+            currentPopupConfig = {
+                ...currentPopupConfig,
+                warehouseStockBranch: previousBranch
+            };
+            setSelectValue('popupWarehouseStockBranch', previousBranch);
+            setText('warehouseStockBranchStatus', 'Не удалось сохранить настройку.');
+            return;
+        }
+
+        const responseConfig = res.userConfig || {};
+        cityDebugPopup('UPDATE:response', {
+            ok: res?.ok === true,
+            responseBranch: responseConfig.warehouseStockBranch,
+            requestedBranch: branch
+        });
+        currentPopupConfig = {
+            ...currentPopupConfig,
+            ...responseConfig,
+            warehouseStockBranch: branch
+        };
+
+        // Keep the local revision consumed by this successful save. A later
+        // GET_CONFIG callback must not revert the freshly selected branch.
+        if (revision === popupWarehouseStockBranchRevision) {
+            setSelectValue('popupWarehouseStockBranch', branch);
+        }
+
+        setText('warehouseStockBranchStatus', 'Настройка сохранена.');
     });
 }
 
@@ -850,6 +972,7 @@ function bindNavigationActions() {
     const popupIgnoreLegalEntityPayment = document.getElementById('popupIgnoreLegalEntityPayment');
     const popupNotifyLegalEntityPaymentOnly = document.getElementById('popupNotifyLegalEntityPaymentOnly');
     const popupIgnoreOzon = document.getElementById('popupIgnoreOzon');
+    const popupWarehouseStockBranch = document.getElementById('popupWarehouseStockBranch');
     const popupAddWatchedOrder = document.getElementById('popupAddWatchedOrder');
     const popupWatchedOrderInput = document.getElementById('popupWatchedOrderInput');
     const popupWatchedOrderNote = document.getElementById('popupWatchedOrderNote');
@@ -898,6 +1021,10 @@ function bindNavigationActions() {
         popupIgnoreOzon.addEventListener('change', () => {
             toggleQuickSuppressor('ignoreOzon');
         });
+    }
+
+    if (popupWarehouseStockBranch) {
+        popupWarehouseStockBranch.addEventListener('change', saveWarehouseStockBranchFromPopup);
     }
 
     if (popupAddWatchedOrder) {

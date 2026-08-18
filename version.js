@@ -1,8 +1,8 @@
 const VERSION = {
-    version: '1.0.4.2',
-    build: '1.0.4.2',
-    stage: 'Ozon barcode automation stability patch',
-    date: '2026-07-29'
+    version: '1.0.4.3',
+    build: '1.0.4.3',
+    stage: 'Warehouse stock and lifecycle stability patch',
+    date: '2026-08-18'
 };
 
 const CHANGELOG = {

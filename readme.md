@@ -7,13 +7,15 @@
 ```text
 Публичная стабильная версия: 1.0.4.1 (Chrome Web Store / Unlisted)
 Последний крупный tagged release: 1.0.4 / cd7d8e2 / v1.0.4
-Текущий patch candidate: 1.0.4.2
-Source commit до release-prep: 6243b03
-Manifest: 1.0.4.2
-Tests: 340 pass / 0 fail
+Текущий patch candidate: 1.0.4.3
+Development base commit до release-prep: a697c1d
+Manifest: 1.0.4.3
+Tests: 359 pass / 1 known fail
 ```
 
-Версия 1.0.4.1 опубликована как hotfix без Git tag. Patch `1.0.4.2` включает уже проверенный срез `6243b03`: при открытии подтверждённого Ozon-заказа с укомплектованными единичными штрихкодами выполняется одна read-only проверка; resolve/apply используют одного сериализованного владельца worker с приоритетом записи; Warehouse payload проходит строгую scalar-only валидацию. Исправлена подтверждённая live-регрессия, при которой quantity/reserved/stock ошибочно превращали явный `product_item.type === 0` в «неединичную позицию». Baseline — `340 pass / 0 fail`; live smoke автоматической проверки и записи пройден.
+Версия 1.0.4.1 опубликована как hotfix без Git tag. Patch `1.0.4.2` добавил автоматическую read-only проверку уже укомплектованных штрихкодов и сериализацию Ozon-операций. Текущий patch `1.0.4.3` закрывает production-проблемы Warehouse: выбор города восстанавливается при открытии новой страницы оприходования, инициализация income-page больше не блокируется общей workflow-проверкой, а существующая worker-вкладка получает приоритет после перезапуска браузера. Для остатков используется подтверждённая модель API `quantity - reserved_quantity`; места с результатом `<= 0` не показываются. Также исправлена production-подключённая копия stock view model и восстановлена безопасная Ozon/Warehouse инициализация. Новый patch не меняет permissions или host permissions.
+
+Текущий автоматический baseline: `359 pass / 1 known fail`. Единственный известный fail — существующий тест многотоварного оприходования (`warehouse bridge tracks all currently selected income products`); поведение нескольких товаров одновременно остаётся отдельной задачей и в этот patch не включено. Live smoke для города, остатков и worker recovery пройден на текущем коде.
 
 ## Назначение
 
@@ -163,6 +165,21 @@ unknown  карточка не открывалась, устарела, заг�
 Ozon network capture ограничен известными endpoints, методами, content type и размером ответа. Warehouse XHR capture использует одноразовые `loadend` listeners даже при повторном использовании XHR. Warehouse fallback scan имеет лимит времени и выполняется после более дешёвых источников данных.
 
 Неуспешный Warehouse API response не считается подтверждением завершённой сборки и не может запустить автоматический перенос.
+
+
+## Warehouse оприходование и остатки
+
+На странице `/web-apps/wh3/#/income/actions/.../perform` расширение получает `product-items-summary` через page-world bridge. Для каждой точки хранения API отдаёт `quantity` и `reserved_quantity`.
+
+Production-модель:
+
+```text
+availableQuantity = quantity - reserved_quantity
+```
+
+Если `availableQuantity <= 0`, место хранения не отображается. Таким образом, `quantity` — физическое количество в точке хранения, а резерв вычитается из доступного остатка. Выбранный город фильтрует уже рассчитанные строки; сохранённая настройка города запрашивается при инициализации новой income-page.
+
+В отображении товара сначала показывается название товара, затем его ID. При смене выбранного товара старые строки не должны сохраняться в новой выборке.
 
 ## Lifecycle и хранение
 

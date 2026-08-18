@@ -45,32 +45,24 @@ Baseline: 326 pass / 0 fail
 Tag: intentionally omitted
 ```
 
-## Current 1.0.4.2 patch candidate
+## Current 1.0.4.3 patch candidate
 
-Automatic read-only verification for already assembled Ozon orders:
+Warehouse income/stock stability and browser-startup recovery:
 
-- [x] wait for a confirmed `ozon` order kind;
-- [x] wait for a non-empty eligible warehouse barcode snapshot;
-- [x] debounce the first accepted snapshot before starting the check;
-- [x] run the existing Ozon resolve/preview flow exactly once per document/order;
-- [x] keep the check independent from `ozonAutoBarcodeApplyEnabled`;
-- [x] skip multi-barcodes and unconfirmed types through the shared fail-closed extractor;
-- [x] suppress the read check when a pending automatic write intent must take precedence;
-- [x] ignore delayed resolve results from another warehouse document instance;
-- [x] keep manual recheck available;
-- [x] operation owner/token prevents resolve/apply from sharing or closing another session worker;
-- [x] automatic read checks queue behind writes with deduplication, TTL and bounded retry;
-- [x] writes preempt automatic reads safely and resume them after completion;
-- [x] pending write claim closes the async persistence race before worker acquisition;
-- [x] coercive `itemType` values (`false`, arrays, objects, hex) fail closed; quantity/reserved/stock values are preserved only as diagnostics and do not define barcode unit type;
-- [x] warehouse payload product/row/string limits are checked before worker creation;
-- [x] reused XHR capture uses one-shot `loadend` listeners;
-- [x] confirmed unit `itemType === 0` remains eligible when Warehouse quantity/reserved/stock metadata is `0`, greater than `1` or reflects stock rather than barcode multiplicity;
-- [x] automated baseline: 340 pass / 0 fail;
-- [x] live smoke on an already assembled Ozon order;
-- [x] live smoke on a newly scanned `1/1` unit barcode with warehouse stock metadata greater than one;
-- [x] one consolidated feature/fix/docs commit and push: `6243b03`;
-- [x] release metadata prepared as version `1.0.4.2`;
+- [x] persisted Warehouse stock city is requested during income-page initialization;
+- [x] income-perform route is handled before the generic order-workflow guard, so stock config loading cannot be skipped;
+- [x] duplicate income-page bridge initialization is harmless and does not create duplicate config state;
+- [x] product title is shown before product ID in the stock panel;
+- [x] storage API quantity is interpreted as physical quantity and `reserved_quantity` is subtracted;
+- [x] storage rows with `quantity - reserved_quantity <= 0` are hidden;
+- [x] production-loaded `core/warehouse-stock-view-model.js` uses the available-quantity formula;
+- [x] existing main worker tab is given a restore grace period after browser startup before a replacement is created;
+- [x] startup reconciliation still adopts one valid worker and removes orphan workers;
+- [x] city diagnostics cannot abort Warehouse/Ozon initialization;
+- [x] Ozon/Warehouse initialization is not blocked by the income-page route classification;
+- [x] automated baseline: `359 pass / 1 known fail`;
+- [x] live smoke confirms city restoration, available stock calculation and worker reuse;
+- [ ] finish multi-product income selection/replacement behavior;
 - [ ] commit and push release-prep;
 - [ ] build final CWS package from exact HEAD;
 - [ ] submit without Git tag.

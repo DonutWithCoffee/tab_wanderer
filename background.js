@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js');
+importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js', 'core/warehouse-stock-view-model.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -447,6 +447,35 @@ async function notifyWarehouseOrderKindUpdated(record = {}) {
             await chrome.tabs.sendMessage(tab.id, {
                 type: 'ORDER_KIND_UPDATED',
                 orderKind: record
+            });
+            sent += 1;
+        } catch {}
+    }
+
+    return sent;
+}
+
+async function notifyWarehouseStockBranchUpdated(branch) {
+    if (typeof chrome?.tabs?.query !== 'function') {
+        return 0;
+    }
+
+    let sent = 0;
+    const tabs = await chrome.tabs.query({});
+    cityDebug('notify:tabs', {
+        branch,
+        warehouseTabs: (tabs || []).filter(tab => String(tab?.url || '').startsWith('https://amperkot.ru/web-apps/wh3/')).map(tab => tab.id)
+    });
+
+    for (const tab of tabs || []) {
+        if (!tab?.id || !String(tab.url || '').startsWith('https://amperkot.ru/web-apps/wh3/')) {
+            continue;
+        }
+
+        try {
+            await chrome.tabs.sendMessage(tab.id, {
+                type: 'WAREHOUSE_STOCK_BRANCH_CONFIG_UPDATED',
+                branch: normalizeWarehouseStockBranch(branch)
             });
             sent += 1;
         } catch {}
@@ -1301,6 +1330,12 @@ function log(level, scope, ...args) {
     persistDiagnosticLog(level, scope, args);
 }
 
+function cityDebug(event, data = {}) {
+    try {
+        console.log('[TW][CITY][BG]', new Date().toISOString(), event, data);
+    } catch {}
+}
+
 log('INFO', 'VERSION', VERSION);
 
 // ---------- STATE ----------
@@ -1699,6 +1734,7 @@ function getEffectiveUserConfig(storedConfig) {
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safe.watchedOrderFollowUpIntervalMinutes),
         ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safe.ozonAutoBarcodeApplyEnabled),
+        warehouseStockBranch: normalizeWarehouseStockBranch(safe.warehouseStockBranch),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safe.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safe.monitorScope),
@@ -2223,7 +2259,19 @@ async function loadState() {
     isRunning = d.isRunning || false;
     monitorState = d.monitorState || 'uninitialized';
     lastDeepSyncAt = Number(d.lastDeepSyncAt) || 0;
-    userConfig = getEffectiveUserConfig(d.userConfig);
+
+    // The branch is part of userConfig and must have one authoritative
+    // persisted source. Ignore the legacy standalone key so an old/default
+    // value can never override the user's current selection.
+    const persistedWarehouseStockBranch = normalizeWarehouseStockBranch(
+        d.userConfig?.warehouseStockBranch
+    );
+
+    userConfig = getEffectiveUserConfig({
+        ...(d.userConfig || {}),
+        warehouseStockBranch: persistedWarehouseStockBranch
+    });
+
     if (userConfig.ozonAutoBarcodeApplyEnabled !== true) {
         warehouseAutoApplyIntents = {};
     }
@@ -4658,6 +4706,39 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
             }
 
             if (msg.type === 'GET_CONFIG') {
+                cityDebug('GET_CONFIG:received', {
+                    senderTabId,
+                    memoryBranch: userConfig?.warehouseStockBranch
+                });
+                // A newly started MV3 service worker can be asked for config
+                // while its in-memory state is being reconstructed. Keep the
+                // persisted Warehouse branch authoritative for this handshake
+                // so a fresh Warehouse document can never receive the initial
+                // default branch just because the worker state is stale.
+                let persistedBranch = normalizeWarehouseStockBranch(userConfig?.warehouseStockBranch);
+                try {
+                    const persisted = await chrome.storage.local.get(['userConfig']);
+                    persistedBranch = normalizeWarehouseStockBranch(
+                        persisted?.userConfig?.warehouseStockBranch
+                    );
+
+                    if (persisted?.userConfig
+                        && persistedBranch !== normalizeWarehouseStockBranch(userConfig?.warehouseStockBranch)) {
+                        userConfig = getEffectiveUserConfig({
+                            ...userConfig,
+                            ...persisted.userConfig,
+                            warehouseStockBranch: persistedBranch
+                        });
+                    }
+                } catch (err) {
+                    log('WARN', 'CONFIG', 'failed to refresh persisted Warehouse stock branch for GET_CONFIG', err?.message || err);
+                }
+
+                cityDebug('GET_CONFIG:response', {
+                    senderTabId,
+                    memoryBranch: userConfig?.warehouseStockBranch,
+                    persistedBranch: persistedBranch
+                });
                 send(createRuntimeConfigResponse(userConfig, monitorDictionaries));
                 return;
             }
@@ -4750,10 +4831,60 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+if (msg.type === 'UPDATE_WAREHOUSE_STOCK_BRANCH') {
+    cityDebug('UPDATE:received', {
+        senderTabId,
+        requestedBranch: msg.branch,
+        memoryBranch: userConfig?.warehouseStockBranch
+    });
+    const prevBranch = normalizeWarehouseStockBranch(userConfig?.warehouseStockBranch);
+    const nextBranch = normalizeWarehouseStockBranch(msg.branch);
+
+    // Only the popup may explicitly persist the default branch. A content
+    // script must not turn its startup fallback into a persisted setting.
+    if (nextBranch === 'default' && sender?.tab?.id) {
+        cityDebug('UPDATE:ignored-startup-default', { senderTabId });
+        send(createRuntimeUpdateConfigResponse(userConfig));
+        return;
+    }
+
+    if (prevBranch !== nextBranch) {
+        userConfig = {
+            ...userConfig,
+            warehouseStockBranch: nextBranch
+        };
+
+        log('INFO', 'CONFIG', 'Warehouse stock branch changed', {
+            from: prevBranch,
+            to: nextBranch
+        });
+
+        // Persist the branch before notifying page contexts so the stored
+        // userConfig is already authoritative when a new Warehouse document
+        // asks for the current configuration.
+        await save();
+        cityDebug('UPDATE:persisted', {
+            branch: nextBranch
+        });
+        await notifyWarehouseStockBranchUpdated(nextBranch);
+    }
+
+    cityDebug('UPDATE:response', {
+        branch: userConfig?.warehouseStockBranch
+    });
+    send(createRuntimeUpdateConfigResponse(userConfig));
+    return;
+}
+
 if (msg.type === 'UPDATE_CONFIG') {
     const prevConfig = userConfig;
 
-    userConfig = getEffectiveUserConfig(msg.userConfig || {});
+    const incomingConfig = { ...(msg.userConfig || {}) };
+    delete incomingConfig.warehouseStockBranch;
+    userConfig = getEffectiveUserConfig({
+        ...incomingConfig,
+        warehouseStockBranch: userConfig?.warehouseStockBranch
+    });
     const addedWatchedOrderIds = getAddedWatchedOrderIds(prevConfig?.watchedOrders, userConfig?.watchedOrders);
 
     const prevScope = JSON.stringify(prevConfig?.monitorScope || {});
@@ -4770,7 +4901,6 @@ if (msg.type === 'UPDATE_CONFIG') {
     const prevOzonAutoBarcodeApplyEnabled = prevConfig?.ozonAutoBarcodeApplyEnabled !== false;
     const nextOzonAutoBarcodeApplyEnabled = userConfig?.ozonAutoBarcodeApplyEnabled === true;
     const ozonAutoBarcodeApplyChanged = prevOzonAutoBarcodeApplyEnabled !== nextOzonAutoBarcodeApplyEnabled;
-
     const syncReason = getConfigChangeSyncReason({ scopeChanged, modeChanged });
 
     if (deepSyncMaxPagesChanged) {
@@ -5046,9 +5176,45 @@ if (pendingRebaseline) {
 });
 
 // ---------- INIT ----------
+const STARTUP_TAB_RESTORE_GRACE_MS = 15000;
+const STARTUP_TAB_RESTORE_POLL_MS = 500;
+
+async function waitForBrowserStartupTabRestore() {
+    if (!isRunning || STARTUP_TAB_RESTORE_GRACE_MS <= 0) {
+        return;
+    }
+
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < STARTUP_TAB_RESTORE_GRACE_MS) {
+        try {
+            if ((await getMarkedWorkerTabs()).length) {
+                return;
+            }
+        } catch (err) {
+            log('DEBUG', 'RECOVERY', 'worker restore probe failed', err?.message || err);
+        }
+
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= STARTUP_TAB_RESTORE_GRACE_MS) {
+            break;
+        }
+
+        await new Promise(resolve => setTimeout(
+            resolve,
+            Math.min(STARTUP_TAB_RESTORE_POLL_MS, STARTUP_TAB_RESTORE_GRACE_MS - elapsed)
+        ));
+    }
+}
+
 async function initializeBackground() {
     await restrictStorageAccess();
     await loadState();
+    // Chrome may restore the previous session's tabs after the MV3 service
+    // worker starts. Give restored tabs a short grace period before deciding
+    // that the main worker is missing; otherwise a new worker can be created
+    // and the restored worker can appear afterwards as a duplicate.
+    await waitForBrowserStartupTabRestore();
     await reconcileWorkerTabsOnStartup();
     await ensureLifecycleAlarms();
     await syncWatchedOrderReminderAlarms(userConfig?.watchedOrders);
