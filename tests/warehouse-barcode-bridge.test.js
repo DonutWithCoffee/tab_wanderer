@@ -3,15 +3,17 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { URL } = require('url');
 
 class ElementStub {
-    constructor({ tagName = 'DIV', text = '', children = [] } = {}) {
+    constructor({ tagName = 'DIV', text = '', children = [], style = {} } = {}) {
         this.tagName = tagName.toUpperCase();
         this.innerText = text;
         this.textContent = text;
         this.children = children;
         this.parentElement = null;
         this.disabled = false;
+        this.style = { ...style };
 
         for (const child of children) {
             child.parentElement = this;
@@ -127,6 +129,7 @@ function loadBridgeContext(documentStub, options = {}) {
                 }
             }
         },
+        URL,
         CustomEvent: class {
             constructor(type, options = {}) {
                 this.type = type;
@@ -138,6 +141,16 @@ function loadBridgeContext(documentStub, options = {}) {
     if (XMLHttpRequest) {
         context.XMLHttpRequest = XMLHttpRequest;
         context.window.XMLHttpRequest = XMLHttpRequest;
+    }
+
+    if (typeof options.angularHttpGet === 'function') {
+        context.window.angular = {
+            element: () => ({
+                injector: () => ({
+                    get: name => name === '$http' ? Object.assign((...args) => options.angularHttpGet(...args), { get: options.angularHttpGet }) : null
+                })
+            })
+        };
     }
 
     context.window.window = context.window;
@@ -648,4 +661,189 @@ test('warehouse bridge preserves zero quantities and marks coercive types invali
     assert.equal(entry.product_item.quantity_invalid, undefined);
     assert.equal(entry.product_item.reserved_quantity, 0);
     assert.equal(entry.product_item.reserved_quantity_invalid, undefined);
+});
+
+test('warehouse bridge captures product item summary responses independently of assembly capture', () => {
+    const productUrl = 'https://amperkot.ru/_api/v1/warehouse/wh1/products/39163106/product-items-summary';
+    const context = loadBridgeContext(createDocumentStub(), {
+        locationHref: 'https://amperkot.ru/web-apps/wh3/#/income/actions/3238/perform?s=true',
+        responsePayloadByUrl: {
+            [productUrl]: {
+                '1': [
+                    {
+                        id: 6788,
+                        title: 'В наличии СПб (Коробка #373)',
+                        quantity: 68,
+                        reserved_quantity: 0
+                    }
+                ]
+            }
+        }
+    });
+
+    const events = [];
+    context.window.addEventListener('tab_wanderer:warehouse-product-items-summary-response', event => {
+        events.push(event.detail);
+    });
+
+    const xhr = new context.XMLHttpRequest();
+    xhr.open('GET', productUrl);
+    xhr.send();
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0].ok, true);
+    assert.equal(events[0].productId, '39163106');
+    assert.equal(events[0].payload['1'][0].quantity, 68);
+});
+
+
+test('warehouse bridge requests product item summary through Angular $http', async () => {
+    const requested = [];
+    const context = loadBridgeContext(createDocumentStub(), {
+        locationHref: 'https://amperkot.ru/web-apps/wh3/#/income/actions/3238/perform?s=true',
+        angularHttpGet: url => {
+            requested.push(url);
+            return Promise.resolve({
+                data: {
+                    '1': [
+                        {
+                            id: 6788,
+                            title: 'В наличии СПб (Коробка #373)',
+                            quantity: 68,
+                            reserved_quantity: 0
+                        }
+                    ]
+                },
+                config: { url }
+            });
+        }
+    });
+
+    const events = [];
+    context.window.addEventListener('tab_wanderer:warehouse-product-items-summary-response', event => {
+        events.push(event.detail);
+    });
+
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-product-items-summary-request', {
+        detail: { productId: '39163106' }
+    }));
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(requested, [
+        '/_api/v1/warehouse/wh1/products/39163106/product-items-summary'
+    ]);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].ok, true);
+    assert.equal(events[0].productId, '39163106');
+    assert.equal(events[0].payload['1'][0].quantity, 68);
+});
+
+
+test('warehouse bridge requests only active income product when previous card is still visible', async () => {
+    const firstProductCard = new ElementStub({
+        tagName: 'DIV',
+        style: { opacity: '1' },
+        children: [new ElementStub({ tagName: 'P', text: 'ID: 39163106' })]
+    });
+    const secondProductCard = new ElementStub({
+        tagName: 'DIV',
+        style: { opacity: '1' },
+        children: [new ElementStub({ tagName: 'P', text: 'ID: 23810781' })]
+    });
+    const requested = [];
+    const context = loadBridgeContext(createDocumentStub([firstProductCard, secondProductCard]), {
+        locationHref: 'https://amperkot.ru/web-apps/wh3/#/income/actions/3238/perform?s=true',
+        angularHttpGet: url => {
+            requested.push(url);
+            return Promise.resolve({ data: { '1': [] }, config: { url } });
+        }
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(requested, [
+        '/_api/v1/warehouse/wh1/products/23810781/product-items-summary'
+    ]);
+});
+
+test('warehouse bridge requests a newly added selected income product without repeating existing products', async () => {
+    const firstProductCard = new ElementStub({
+        tagName: 'DIV',
+        style: { opacity: '1' },
+        children: [new ElementStub({ tagName: 'P', text: 'ID: 39163106' })]
+    });
+    const secondProductCard = new ElementStub({
+        tagName: 'DIV',
+        style: { opacity: '1' },
+        children: [new ElementStub({ tagName: 'P', text: 'ID: 23810781' })]
+    });
+    const requested = [];
+    const elements = [firstProductCard];
+    const context = loadBridgeContext(createDocumentStub(elements), {
+        locationHref: 'https://amperkot.ru/web-apps/wh3/#/income/actions/3238/perform?s=true',
+        angularHttpGet: url => {
+            requested.push(url);
+            return Promise.resolve({ data: { '1': [] }, config: { url } });
+        }
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    elements.push(secondProductCard);
+    context.window.dispatchEvent({ type: 'hashchange' });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(requested, [
+        '/_api/v1/warehouse/wh1/products/39163106/product-items-summary',
+        '/_api/v1/warehouse/wh1/products/23810781/product-items-summary'
+    ]);
+});
+
+test('warehouse bridge auto-requests selected income product without a content-script request event', async () => {
+    const productCard = new ElementStub({
+        tagName: 'DIV',
+        style: { opacity: '1' },
+        children: [
+            new ElementStub({ tagName: 'P', text: 'ID: 39163106' })
+        ]
+    });
+    let resolveHttp;
+    const requested = [];
+    const context = loadBridgeContext(createDocumentStub([productCard]), {
+        locationHref: 'https://amperkot.ru/web-apps/wh3/#/income/actions/3238/perform?s=true',
+        angularHttpGet: url => {
+            requested.push(url);
+            return new Promise(resolve => {
+                resolveHttp = () => resolve({
+                    data: {
+                        '1': [
+                            {
+                                id: 6788,
+                                title: 'В наличии СПб (Коробка #373)',
+                                quantity: 68,
+                                reserved_quantity: 0
+                            }
+                        ]
+                    },
+                    config: { url }
+                });
+            });
+        }
+    });
+
+    const events = [];
+    context.window.addEventListener('tab_wanderer:warehouse-product-items-summary-response', event => {
+        events.push(event.detail);
+    });
+
+    assert.deepEqual(requested, [
+        '/_api/v1/warehouse/wh1/products/39163106/product-items-summary'
+    ]);
+
+    resolveHttp();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0].productId, '39163106');
+    assert.equal(events[0].payload['1'][0].quantity, 68);
 });

@@ -16,6 +16,14 @@ function log(level, scope, ...args) {
     console.log(`[CONTENT][${level}][${scope}]`, ...args);
 }
 
+// Diagnostic-only logger. It must never be allowed to interrupt the Warehouse
+// or Ozon initialization paths when diagnostics are removed/disabled.
+function cityDebug(event, data = {}) {
+    try {
+        console.info('[TW][CITY]', new Date().toISOString(), event, data);
+    } catch {}
+}
+
 let reloadTimer = null;
 let lastSentPage = null;
 let runtimeMessagingDisabled = false;
@@ -1009,6 +1017,10 @@ const WAREHOUSE_BARCODE_LIST_TOGGLE_ACTION = 'toggle-barcode-list';
 const WAREHOUSE_BARCODE_LIST_BUTTON_ID = 'tab-wanderer-warehouse-barcode-list-toggle';
 const WAREHOUSE_OZON_RESOLVE_BUTTON_ID = 'tab-wanderer-warehouse-ozon-resolve';
 const WAREHOUSE_OZON_APPLY_BUTTON_ID = 'tab-wanderer-warehouse-ozon-apply';
+const WAREHOUSE_STOCK_PANEL_ID = 'tab-wanderer-warehouse-stock';
+const WAREHOUSE_STOCK_SUMMARY_REQUEST_EVENT = 'tab_wanderer:warehouse-product-items-summary-request';
+const WAREHOUSE_STOCK_SUMMARY_RESPONSE_EVENT = 'tab_wanderer:warehouse-product-items-summary-response';
+const WAREHOUSE_INCOME_SELECTION_EVENT = 'tab_wanderer:warehouse-income-product-selection';
 const OZON_PRODUCT_BRIDGE_SCRIPT_ID = 'tab-wanderer-ozon-product-bridge';
 const OZON_PRODUCT_REQUEST_EVENT = 'tab_wanderer:ozon-product-request';
 const OZON_PRODUCT_RESPONSE_EVENT = 'tab_wanderer:ozon-product-response';
@@ -1045,6 +1057,25 @@ let warehouseAutoResolveCheckTimer = null;
 let warehouseAutoResolveCheckState = null;
 let warehouseBarcodeListExpanded = false;
 let warehouseBarcodePreviewPanelElement = null;
+let warehouseStockPanelElement = null;
+let warehouseStockBranch = 'default';
+let lastWarehouseStockViewModel = null;
+let lastWarehouseStockPayload = null;
+let warehouseStockPayloads = new Map();
+let warehouseStockRequestInFlight = new Set();
+let warehouseStockProductObserver = null;
+let warehouseStockProductSyncTimer = null;
+let warehouseStockProductPollTimer = null;
+let warehouseStockObservedProductIdsSignature = '';
+let warehouseStockProductMeta = new Map();
+let warehouseStockSelectedCardElement = null;
+let warehouseStockCurrentProductId = '';
+let warehouseStockCurrentProductTitle = '';
+let warehouseStockBranchConfigRevision = 0;
+let warehouseStockBranchConfigRequestAttempt = 0;
+let warehouseRouteWatcherInitialized = false;
+let warehouseStockBranchConfigRetryTimer = null;
+let warehouseStockListenerInitialized = false;
 let lastWarehouseRouteHref = '';
 let warehouseShopOrderReadAttempt = 0;
 let warehouseShopOrderReadReason = 'initial';
@@ -1129,6 +1160,10 @@ function getWarehouseOrderRouteKind(href = window.location.href) {
             return 'assembly';
         }
 
+        if (/^\/income\/actions\/[^/]+\/perform$/.test(hashPath)) {
+            return 'income-perform';
+        }
+
         return '';
     } catch {
         return '';
@@ -1141,6 +1176,10 @@ function isWarehouseOrderActionsPageUrl(href = window.location.href) {
 
 function isWarehouseAssemblyPageUrl(href = window.location.href) {
     return getWarehouseOrderRouteKind(href) === 'assembly';
+}
+
+function isWarehouseIncomePerformPageUrl(href = window.location.href) {
+    return getWarehouseOrderRouteKind(href) === 'income-perform';
 }
 
 function isWarehouseOrderWorkflowPageUrl(href = window.location.href) {
@@ -2439,6 +2478,654 @@ function renderWarehouseBarcodePreviewHeader(panel, viewModel = {}) {
     return header;
 }
 
+function ensureWarehouseStockPanel() {
+    if (typeof document.getElementById !== 'function' || typeof document.createElement !== 'function') {
+        return null;
+    }
+
+    if (warehouseStockPanelElement?.parentNode || warehouseStockPanelElement?.isConnected === true) {
+        return warehouseStockPanelElement;
+    }
+
+    const existing = document.getElementById(WAREHOUSE_STOCK_PANEL_ID);
+    if (existing?.parentNode?.removeChild) {
+        existing.parentNode.removeChild(existing);
+    }
+
+    const panel = createWarehousePreviewElement('div', {
+        id: WAREHOUSE_STOCK_PANEL_ID,
+        styles: {
+            position: 'fixed',
+            right: '16px',
+            bottom: '16px',
+            width: '360px',
+            maxHeight: '60vh',
+            overflow: 'auto',
+            zIndex: '2147483647',
+            pointerEvents: 'auto',
+            isolation: 'isolate',
+            contain: 'layout style paint',
+            transform: 'translateZ(0)',
+            padding: '14px',
+            border: '1px solid #d4d9e2',
+            borderRadius: '12px',
+            background: '#ffffff',
+            color: '#172133',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.16)',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '13px',
+            lineHeight: '18px'
+        }
+    });
+
+    const target = document.body || document.documentElement;
+    if (!panel || !target?.appendChild) return null;
+
+    target.appendChild(panel);
+    warehouseStockPanelElement = panel;
+    return panel;
+}
+
+function renderWarehouseStockPanel(viewModel = lastWarehouseStockViewModel) {
+    if (!isWarehouseIncomePerformPageUrl()) {
+        removeWarehouseStockPanel();
+        return false;
+    }
+
+    const panel = ensureWarehouseStockPanel();
+    if (!panel) return false;
+
+    clearWarehousePreviewPanel(panel);
+
+    appendWarehousePreviewText(panel, 'div', 'Остатки товара', {
+        fontWeight: '700',
+        fontSize: '14px'
+    });
+
+    const viewModels = Array.isArray(viewModel) ? viewModel : (viewModel ? [viewModel] : []);
+    if (!viewModels.length) {
+        const hasSelectedProducts = warehouseStockObservedProductIdsSignature !== '';
+        appendWarehousePreviewText(panel, 'div', hasSelectedProducts
+            ? 'Получаем остатки и места хранения...'
+            : 'Выберите товар для оприходования.', {
+            color: '#667685',
+            marginTop: '6px'
+        });
+        return true;
+    }
+
+    viewModels.forEach((model, modelIndex) => {
+        if (modelIndex > 0) {
+            appendWarehousePreviewText(panel, 'div', '', { marginTop: '10px', borderTop: '1px solid #e2e6ed' });
+        }
+
+        if (model.productTitle) {
+            appendWarehousePreviewText(panel, 'div', model.productTitle, {
+                marginTop: modelIndex ? '10px' : '6px',
+                fontWeight: '700'
+            });
+            appendWarehousePreviewText(panel, 'div', `ID ${model.productId}`, {
+                marginTop: '1px',
+                color: '#667685',
+                fontWeight: '600'
+            });
+        } else {
+            appendWarehousePreviewText(panel, 'div', `Товар ID ${model.productId}`, {
+                marginTop: modelIndex ? '10px' : '6px',
+                fontWeight: '700'
+            });
+        }
+
+        appendWarehousePreviewText(panel, 'div', model.message || '', {
+            color: model.rows?.length ? '#177245' : '#667685',
+            marginTop: '4px',
+            marginBottom: '8px',
+            fontWeight: '600'
+        });
+
+        if (!Array.isArray(model.rows) || !model.rows.length) return;
+
+        const table = createWarehousePreviewElement('div', {
+            styles: {
+                display: 'grid',
+                gridTemplateColumns: model.branch === 'default' ? '1fr 1.7fr auto' : '1fr auto',
+                gap: '0',
+                border: '1px solid #e2e6ed',
+                borderRadius: '8px',
+                overflow: 'hidden'
+            }
+        });
+
+        const addCell = (text, styles = {}) => {
+            const cell = createWarehousePreviewElement('div', {
+                text,
+                styles: {
+                    padding: '7px 8px',
+                    borderBottom: '1px solid #e8ebf0',
+                    ...styles
+                }
+            });
+            table.appendChild(cell);
+            return cell;
+        };
+
+        if (model.branch === 'default') addCell('Город', { fontWeight: '700', background: '#f8fafc', color: '#667685' });
+        addCell('Место', { fontWeight: '700', background: '#f8fafc', color: '#667685' });
+        addCell('Кол-во', { fontWeight: '700', background: '#f8fafc', color: '#667685', textAlign: 'right' });
+
+        model.rows.forEach((row, index) => {
+            const bottom = index === model.rows.length - 1 ? 'none' : '1px solid #e8ebf0';
+            if (model.branch === 'default') addCell(row.cityLabel, { borderBottom: bottom });
+            addCell(row.location, { borderBottom: bottom });
+            addCell(String(row.totalQuantity), { borderBottom: bottom, textAlign: 'right', fontWeight: '700' });
+        });
+
+        panel.appendChild(table);
+        appendWarehousePreviewText(panel, 'div', `Всего: ${model.totalQuantity}`, {
+            marginTop: '6px',
+            fontWeight: '700',
+            textAlign: 'right'
+        });
+    });
+
+    return true;
+}
+
+function normalizeWarehouseIncomeProductTitleForContent(value = '') {
+    const helper = globalThis.normalizeWarehouseIncomeProductTitle;
+    if (typeof helper === 'function' && helper !== normalizeWarehouseIncomeProductTitleForContent) {
+        return helper(value);
+    }
+
+    return String(value || '')
+        .replace(/\s+/g, ' ')
+        .replace(/^\s*Товар\s*:\s*/i, '')
+        .trim();
+}
+
+function extractWarehouseIncomeProductTitleFromCard(card) {
+    if (!card) return '';
+
+    try {
+        const productLinks = Array.from(card.querySelectorAll?.('a[href*="/products/"]') || [])
+            .map(link => normalizeWarehouseIncomeProductTitleForContent(link?.textContent || link?.innerText || ''))
+            .filter(Boolean);
+
+        if (productLinks.length) {
+            return productLinks[0];
+        }
+    } catch {}
+
+    try {
+        const nodes = Array.from(card.querySelectorAll?.('p.ng-binding, p, div, span') || []);
+        for (const node of nodes) {
+            const text = String(node?.textContent || node?.innerText || '').replace(/\s+/g, ' ').trim();
+            const idMatch = text.match(/\bID\s*:\s*(\d{5,})\b/i);
+            if (!idMatch) continue;
+
+            const helper = globalThis.extractWarehouseIncomeProductTitleFromCardText;
+            const title = typeof helper === 'function'
+                ? helper(text)
+                : normalizeWarehouseIncomeProductTitleForContent(
+                    (text.split(/\bID\s*:\s*\d{5,}\b/i)[0] || '')
+                        .split(/(?:Поставщик|Артикул)\s*:/i)[0]
+                );
+
+            if (title) return title;
+        }
+    } catch {}
+
+    // Some WH3 builds expose the product name and ID as sibling nodes but
+    // provide no useful querySelectorAll result to the isolated world.
+    // Build the card text from direct children as a final DOM fallback.
+    try {
+        const childTexts = Array.from(card.children || [])
+            .map(node => String(node?.textContent || node?.innerText || '').trim())
+            .filter(Boolean);
+
+        if (childTexts.length) {
+            const helper = globalThis.extractWarehouseIncomeProductTitleFromCardText;
+            const combinedText = childTexts.join(' ');
+            const title = typeof helper === 'function'
+                ? helper(combinedText)
+                : normalizeWarehouseIncomeProductTitleForContent(
+                    (combinedText.split(/\bID\s*:\s*\d{5,}\b/i)[0] || '')
+                        .split(/(?:Поставщик|Артикул)\s*:/i)[0]
+                );
+
+            if (title) return title;
+        }
+    } catch {}
+
+    return '';
+}
+
+function getWarehouseIncomeProductSelections() {
+    if (!isWarehouseIncomePerformPageUrl()) return [];
+
+    const selectedCards = [];
+    const collectSelectionFromCard = card => {
+        if (!card) return null;
+
+        const title = extractWarehouseIncomeProductTitleFromCard(card);
+        const paragraphs = card.querySelectorAll?.('p.ng-binding, p') || [];
+        let productId = '';
+
+        for (const paragraph of paragraphs) {
+            const text = String(paragraph?.textContent || paragraph?.innerText || '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const match = text.match(/\bID\s*:\s*(\d{5,})\b/i);
+            if (match) {
+                productId = normalizeWarehouseBridgeId(match[1]);
+                break;
+            }
+        }
+
+        if (!productId) {
+            const cardText = String(card?.textContent || card?.innerText || '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const match = cardText.match(/\bID\s*:\s*(\d{5,})\b/i);
+            if (match) productId = normalizeWarehouseBridgeId(match[1]);
+        }
+
+        if (!productId) return null;
+
+        return { card, productId, title };
+    };
+
+    try {
+        const cards = Array.from(document.querySelectorAll?.('.panel-body') || []);
+
+        for (const card of cards) {
+            const inlineOpacity = String(card?.style?.opacity || '').trim();
+            let selected = inlineOpacity === '1';
+
+            if (!selected && typeof getComputedStyle === 'function') {
+                try {
+                    selected = String(getComputedStyle(card).opacity || '').trim() === '1';
+                } catch {}
+            }
+
+            if (!selected) continue;
+
+            const selection = collectSelectionFromCard(card);
+            if (selection) selectedCards.push(selection);
+        }
+    } catch {}
+
+    // WH3 can briefly leave both the old and the new card with opacity 1
+    // while replacing a product. There is only one product being edited on
+    // this income form, so the last selected card in DOM order is the active
+    // one. Never return both cards: that would resurrect stale stock.
+    const activeSelection = selectedCards.at(-1) || null;
+
+    if (!activeSelection) {
+        warehouseStockSelectedCardElement = null;
+        return [];
+    }
+
+    warehouseStockSelectedCardElement = activeSelection.card;
+    return [{
+        productId: activeSelection.productId,
+        title: normalizeWarehouseIncomeProductTitleForContent(activeSelection.title)
+    }];
+}
+
+function getWarehouseIncomeProductIds() {
+    return getWarehouseIncomeProductSelections().map(selection => selection.productId);
+}
+
+function dispatchWarehouseStockSummaryRequest(productId) {
+    const normalizedProductId = normalizeWarehouseBridgeId(productId);
+    if (!normalizedProductId) return false;
+
+    window.dispatchEvent(new CustomEvent(WAREHOUSE_STOCK_SUMMARY_REQUEST_EVENT, {
+        detail: { productId: normalizedProductId }
+    }));
+    return true;
+}
+
+function renderWarehouseStockPayloads() {
+    const viewModels = Array.from(warehouseStockPayloads.values())
+        .map(entry => createWarehouseStockViewModel(
+            entry.payload,
+            warehouseStockBranch,
+            entry.productId,
+            warehouseStockProductMeta.get(entry.productId)?.title || ''
+        ));
+
+    lastWarehouseStockViewModel = viewModels;
+    renderWarehouseStockPanel(viewModels);
+    return viewModels;
+}
+
+function clearWarehouseStockProductState() {
+    warehouseStockPayloads.clear();
+    warehouseStockRequestInFlight.clear();
+    warehouseStockProductMeta.clear();
+    lastWarehouseStockPayload = null;
+    lastWarehouseStockViewModel = null;
+}
+
+function applyWarehouseIncomeProductSelection(productId, title = '') {
+    const normalizedProductId = normalizeWarehouseBridgeId(productId);
+    const normalizedTitle = normalizeWarehouseIncomeProductTitleForContent(title);
+
+    if (normalizedProductId === warehouseStockCurrentProductId) {
+        if (normalizedTitle) {
+            warehouseStockCurrentProductTitle = normalizedTitle;
+            warehouseStockProductMeta.set(normalizedProductId, { title: normalizedTitle });
+        }
+        return false;
+    }
+
+    warehouseStockCurrentProductId = normalizedProductId;
+    warehouseStockCurrentProductTitle = normalizedTitle;
+    warehouseStockObservedProductIdsSignature = normalizedProductId;
+    clearWarehouseStockProductState();
+
+    if (!normalizedProductId) {
+        warehouseStockSelectedCardElement = null;
+        renderWarehouseStockPayloads();
+        return true;
+    }
+
+    warehouseStockProductMeta.set(normalizedProductId, { title: normalizedTitle });
+    renderWarehouseStockPayloads();
+
+    if (!warehouseStockRequestInFlight.has(normalizedProductId)) {
+        warehouseStockRequestInFlight.add(normalizedProductId);
+        dispatchWarehouseStockSummaryRequest(normalizedProductId);
+    }
+
+    return true;
+}
+
+function syncWarehouseIncomeProducts() {
+    if (!isWarehouseIncomePerformPageUrl()) return false;
+
+    const selections = getWarehouseIncomeProductSelections();
+    const activeSelection = selections[0] || null;
+    const productId = normalizeWarehouseBridgeId(activeSelection?.productId || '');
+    const title = normalizeWarehouseIncomeProductTitleForContent(activeSelection?.title || '');
+    const previousSelectedCard = warehouseStockSelectedCardElement;
+    warehouseStockSelectedCardElement = activeSelection?.card || null;
+
+    if (!productId) {
+        const hadState = warehouseStockCurrentProductId !== ''
+            || warehouseStockPayloads.size > 0
+            || warehouseStockRequestInFlight.size > 0
+            || warehouseStockProductMeta.size > 0;
+        applyWarehouseIncomeProductSelection('', '');
+        return hadState;
+    }
+
+    const selectedCardChanged = previousSelectedCard !== warehouseStockSelectedCardElement;
+    const productChanged = productId !== warehouseStockCurrentProductId;
+
+    if (productChanged || selectedCardChanged) {
+        applyWarehouseIncomeProductSelection(productId, title);
+        return true;
+    }
+
+    if (title) {
+        warehouseStockCurrentProductTitle = title;
+        warehouseStockProductMeta.set(productId, { title });
+    }
+
+    // The income form represents one product. Never retain payloads for any
+    // other product, even if WH3 briefly keeps stale DOM cards alive.
+    for (const staleProductId of Array.from(warehouseStockPayloads.keys())) {
+        if (staleProductId !== warehouseStockCurrentProductId) {
+            warehouseStockPayloads.delete(staleProductId);
+        }
+    }
+    for (const staleProductId of Array.from(warehouseStockRequestInFlight)) {
+        if (staleProductId !== warehouseStockCurrentProductId) {
+            warehouseStockRequestInFlight.delete(staleProductId);
+        }
+    }
+    for (const staleProductId of Array.from(warehouseStockProductMeta.keys())) {
+        if (staleProductId !== warehouseStockCurrentProductId) {
+            warehouseStockProductMeta.delete(staleProductId);
+        }
+    }
+
+    renderWarehouseStockPayloads();
+    return false;
+}
+
+function scheduleWarehouseIncomeProductSync() {
+    if (!isWarehouseIncomePerformPageUrl() || typeof setTimeout !== 'function') return false;
+    if (warehouseStockProductSyncTimer) return true;
+
+    warehouseStockProductSyncTimer = setTimeout(() => {
+        warehouseStockProductSyncTimer = null;
+        syncWarehouseIncomeProducts();
+    }, 80);
+    return true;
+}
+
+function stopWarehouseIncomeProductObserver() {
+    if (warehouseStockProductSyncTimer && typeof clearTimeout === 'function') {
+        clearTimeout(warehouseStockProductSyncTimer);
+    }
+    warehouseStockProductSyncTimer = null;
+
+    if (warehouseStockProductPollTimer && typeof clearInterval === 'function') {
+        clearInterval(warehouseStockProductPollTimer);
+    }
+    warehouseStockProductPollTimer = null;
+
+    if (warehouseStockProductObserver?.disconnect) {
+        try { warehouseStockProductObserver.disconnect(); } catch {}
+    }
+    warehouseStockProductObserver = null;
+    warehouseStockObservedProductIdsSignature = '';
+    warehouseStockCurrentProductId = '';
+    warehouseStockCurrentProductTitle = '';
+}
+
+function ensureWarehouseIncomeProductObserver() {
+    if (!isWarehouseIncomePerformPageUrl()) return false;
+    if (warehouseStockProductObserver) {
+        scheduleWarehouseIncomeProductSync();
+        return true;
+    }
+
+    const observeTarget = document.body || document.documentElement;
+
+    if (typeof MutationObserver === 'function' && observeTarget) {
+        try {
+            warehouseStockProductObserver = new MutationObserver(() => scheduleWarehouseIncomeProductSync());
+            warehouseStockProductObserver.observe(observeTarget, { childList: true, subtree: true, characterData: true });
+        } catch {
+            warehouseStockProductObserver = null;
+        }
+    }
+
+    // Render immediately when possible. If Angular has not attached <body>
+    // yet, the route watcher/poll below will retry on the next pass.
+    renderWarehouseStockPayloads();
+    syncWarehouseIncomeProducts();
+
+    // Angular can update the selected-product card without producing a DOM
+    // mutation that is visible to the observer (especially during digest
+    // updates). A lightweight poll closes that race; unchanged product
+    // signatures are ignored, so it does not repeat API requests.
+    if (!warehouseStockProductPollTimer && typeof setInterval === 'function') {
+        warehouseStockProductPollTimer = setInterval(() => {
+            if (!isWarehouseIncomePerformPageUrl()) {
+                stopWarehouseIncomeProductObserver();
+                return;
+            }
+            renderWarehouseStockPayloads();
+            syncWarehouseIncomeProducts();
+        }, 500);
+    }
+
+    return true;
+}
+
+function removeWarehouseStockPanel() {
+    stopWarehouseIncomeProductObserver();
+
+    const panel = warehouseStockPanelElement
+        || (typeof document.getElementById === 'function' ? document.getElementById(WAREHOUSE_STOCK_PANEL_ID) : null);
+
+    if (panel?.parentNode?.removeChild) {
+        panel.parentNode.removeChild(panel);
+    }
+
+    warehouseStockPanelElement = null;
+    lastWarehouseStockViewModel = null;
+    lastWarehouseStockPayload = null;
+    warehouseStockPayloads = new Map();
+    warehouseStockRequestInFlight = new Set();
+    warehouseStockProductMeta = new Map();
+    warehouseStockSelectedCardElement = null;
+    warehouseStockObservedProductIdsSignature = '';
+    warehouseStockCurrentProductId = '';
+    warehouseStockCurrentProductTitle = '';
+}
+
+function applyWarehouseStockBranch(value, { render = true } = {}) {
+    const previousBranch = warehouseStockBranch;
+    const nextBranch = normalizeWarehouseStockBranch(value);
+    cityDebug('apply:branch', {
+        previousBranch,
+        nextBranch,
+        render,
+        configRevision: warehouseStockBranchConfigRevision
+    });
+    warehouseStockBranch = nextBranch;
+    if (render) renderWarehouseStockPayloads();
+    return warehouseStockBranch;
+}
+
+function handleWarehouseStockSummaryResponse(event) {
+    const detail = event?.detail || {};
+    const productId = normalizeWarehouseBridgeId(detail.productId);
+    if (!productId || !isWarehouseIncomePerformPageUrl()) return false;
+
+    warehouseStockRequestInFlight.delete(productId);
+
+    // Validate against the product that was current when the latest
+    // selection was observed, not by rescanning a transient WH3 DOM. The
+    // latter can briefly show the removed card again while Angular replaces
+    // the form and could resurrect stale API responses.
+    if (productId !== warehouseStockCurrentProductId) {
+        warehouseStockPayloads.delete(productId);
+        renderWarehouseStockPayloads();
+        return false;
+    }
+
+    if (!detail.ok || !detail.payload) {
+        warehouseStockPayloads.delete(productId);
+        renderWarehouseStockPayloads();
+        return false;
+    }
+
+    if (!warehouseStockProductMeta.has(productId)) {
+        warehouseStockProductMeta.set(productId, { title: '' });
+    }
+
+    warehouseStockPayloads.set(productId, { payload: detail.payload, productId });
+    lastWarehouseStockPayload = { payload: detail.payload, productId };
+    renderWarehouseStockPayloads();
+    return true;
+}
+
+function ensureWarehouseStockListener() {
+    if (warehouseStockListenerInitialized) return true;
+    window.addEventListener?.(WAREHOUSE_STOCK_SUMMARY_RESPONSE_EVENT, handleWarehouseStockSummaryResponse);
+    window.addEventListener?.(WAREHOUSE_INCOME_SELECTION_EVENT, event => {
+        if (!isWarehouseIncomePerformPageUrl()) return;
+        applyWarehouseIncomeProductSelection(event?.detail?.productId, event?.detail?.title);
+    });
+    window.addEventListener?.('message', event => {
+        const detail = event?.data?.type === WAREHOUSE_STOCK_SUMMARY_RESPONSE_EVENT
+            ? event?.data?.detail
+            : null;
+        if (!detail) return;
+        handleWarehouseStockSummaryResponse({ detail });
+    });
+    warehouseStockListenerInitialized = true;
+    return true;
+}
+
+const WAREHOUSE_STOCK_BRANCH_CONFIG_MAX_ATTEMPTS = 5;
+const WAREHOUSE_STOCK_BRANCH_CONFIG_RETRY_MS = 500;
+
+function clearWarehouseStockBranchConfigRetryTimer() {
+    if (warehouseStockBranchConfigRetryTimer) {
+        clearTimeout(warehouseStockBranchConfigRetryTimer);
+        warehouseStockBranchConfigRetryTimer = null;
+    }
+}
+
+function requestWarehouseStockConfig({ resetAttempts = true } = {}) {
+    if (resetAttempts) {
+        warehouseStockBranchConfigRequestAttempt = 0;
+        clearWarehouseStockBranchConfigRetryTimer();
+    }
+
+    const requestRevision = warehouseStockBranchConfigRevision;
+    warehouseStockBranchConfigRequestAttempt += 1;
+
+    cityDebug('config:request', {
+        attempt: warehouseStockBranchConfigRequestAttempt,
+        requestRevision,
+        localBranch: warehouseStockBranch
+    });
+
+    try {
+        chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (response) => {
+            const runtimeError = chrome.runtime.lastError;
+
+            cityDebug('config:response', {
+                attempt: warehouseStockBranchConfigRequestAttempt,
+                requestRevision,
+                currentRevision: warehouseStockBranchConfigRevision,
+                runtimeError: runtimeError?.message || null,
+                ok: response?.ok === true,
+                responseBranch: response?.userConfig?.warehouseStockBranch,
+                localBranch: warehouseStockBranch
+            });
+
+            if (runtimeError || !response?.ok || requestRevision !== warehouseStockBranchConfigRevision) {
+                if (requestRevision !== warehouseStockBranchConfigRevision) {
+                    return;
+                }
+
+                if (warehouseStockBranchConfigRequestAttempt < WAREHOUSE_STOCK_BRANCH_CONFIG_MAX_ATTEMPTS) {
+                    clearWarehouseStockBranchConfigRetryTimer();
+                    warehouseStockBranchConfigRetryTimer = setTimeout(() => {
+                        warehouseStockBranchConfigRetryTimer = null;
+                        requestWarehouseStockConfig({ resetAttempts: false });
+                    }, WAREHOUSE_STOCK_BRANCH_CONFIG_RETRY_MS);
+                }
+
+                return;
+            }
+
+            clearWarehouseStockBranchConfigRetryTimer();
+            warehouseStockBranchConfigRequestAttempt = 0;
+            applyWarehouseStockBranch(response.userConfig?.warehouseStockBranch, { render: true });
+        });
+    } catch {
+        if (warehouseStockBranchConfigRequestAttempt < WAREHOUSE_STOCK_BRANCH_CONFIG_MAX_ATTEMPTS) {
+            clearWarehouseStockBranchConfigRetryTimer();
+            warehouseStockBranchConfigRetryTimer = setTimeout(() => {
+                warehouseStockBranchConfigRetryTimer = null;
+                requestWarehouseStockConfig({ resetAttempts: false });
+            }, WAREHOUSE_STOCK_BRANCH_CONFIG_RETRY_MS);
+        }
+    }
+}
+
 function removeWarehouseBarcodePreviewPanel() {
     const panel = warehouseBarcodePreviewPanelElement
         || (typeof document.getElementById === 'function'
@@ -2650,6 +3337,14 @@ function renderWarehouseBarcodeListDropdown(panel, products = []) {
 }
 
 function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePreview) {
+    // The Ozon barcode helper has no role on income/receiving pages. Keep this
+    // guard at the renderer boundary because late async Ozon responses can
+    // otherwise recreate the panel after route cleanup.
+    if (isWarehouseIncomePerformPageUrl()) {
+        removeWarehouseBarcodePreviewPanel();
+        return false;
+    }
+
     const panel = ensureWarehouseBarcodePreviewPanel();
 
     if (!panel) {
@@ -3076,6 +3771,13 @@ function requestWarehouseOzonResolvePreview(options = {}) {
 }
 
 function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
+    if (msg?.type === 'WAREHOUSE_STOCK_BRANCH_CONFIG_UPDATED') {
+        warehouseStockBranchConfigRevision += 1;
+        applyWarehouseStockBranch(msg.branch);
+        if (typeof sendResponse === 'function') sendResponse({ ok: true });
+        return true;
+    }
+
     if (msg?.type === 'WAREHOUSE_AUTO_APPLY_CONFIG_UPDATED') {
         applyWarehouseAutoBarcodeApplyEnabled(msg.enabled === true);
 
@@ -3255,7 +3957,15 @@ function injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad = false } = 
 
     script.addEventListener?.('load', () => {
         script.dataset.installed = 'true';
-        if (warehouseBridgeSnapshotRequestedOnLoad || isWarehouseAssemblyPageUrl()) {
+        if (isWarehouseIncomePerformPageUrl()) {
+            // The income page may have been scanned before the injected bridge
+            // finished loading. Such a request was recorded as in-flight, but
+            // there was no listener to receive it yet. Re-arm those requests
+            // now that the bridge is definitely ready.
+            warehouseStockRequestInFlight.clear();
+            syncWarehouseIncomeProducts();
+            renderWarehouseStockPayloads();
+        } else if (warehouseBridgeSnapshotRequestedOnLoad || isWarehouseAssemblyPageUrl()) {
             warehouseBridgeSnapshotRequestedOnLoad = false;
             dispatchWarehouseShopOrderRequest();
         }
@@ -3455,6 +4165,41 @@ function requestWarehouseShopOrderSnapshot({ resetAttempts = true, reason = 'ini
 }
 
 function initWarehouseBarcodeBridge() {
+    cityDebug('init:warehouse-bridge', {
+        url: String(location?.href || ''),
+        isIncomePerform: isWarehouseIncomePerformPageUrl(),
+        branchAtInit: warehouseStockBranch,
+        configRevision: warehouseStockBranchConfigRevision
+    });
+
+    // The income route is also classified as a Warehouse order workflow
+    // route. Handle it first, otherwise the generic workflow guard returns
+    // before the persisted branch configuration is requested.
+    if (isWarehouseIncomePerformPageUrl()) {
+        clearWarehouseShopOrderRetryTimer();
+        clearWarehouseAssemblyActionRefreshTimers();
+        removeWarehouseBarcodePreviewPanel();
+        ensureWarehouseRuntimeMessageListener();
+        ensureWarehouseStockListener();
+        requestWarehouseStockConfig();
+        cityDebug('init:income-after-config-request', {
+            branch: warehouseStockBranch,
+            configRevision: warehouseStockBranchConfigRevision
+        });
+        const injected = injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad: false });
+        // The bridge script survives SPA navigation. If it was already
+        // installed on an earlier Warehouse route, no script load event
+        // fires here, so re-arm stock requests explicitly.
+        if (injected === 'ready') {
+            warehouseStockRequestInFlight.clear();
+        }
+        ensureWarehouseIncomeProductObserver();
+        if (injected === 'ready') {
+            syncWarehouseIncomeProducts();
+        }
+        if (!lastWarehouseStockViewModel) renderWarehouseStockPanel(null);
+        return true;
+    }
     if (!isWarehouseOrderWorkflowPageUrl()) {
         return false;
     }
@@ -3463,6 +4208,7 @@ function initWarehouseBarcodeBridge() {
         window.addEventListener?.(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
         ensureWarehouseRuntimeMessageListener();
         ensureWarehouseAssemblyActionListeners();
+        ensureWarehouseStockListener();
         warehouseBarcodeBridgeInitialized = true;
     }
 
@@ -3502,6 +4248,11 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     lastWarehouseRouteHref = href;
 
     if (nextRouteKind) {
+        if (nextRouteKind === 'income-perform') {
+            removeWarehouseBarcodePreviewPanel();
+        } else {
+            removeWarehouseStockPanel();
+        }
         if (orderChanged && previousOrderId) {
             resetWarehouseOrderContext();
         } else if (!warehouseOrderKindRecord) {
@@ -3526,6 +4277,7 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     lastWarehouseOzonUiApply = null;
     resetWarehouseOrderContext();
     removeWarehouseBarcodePreviewPanel();
+    removeWarehouseStockPanel();
     return false;
 }
 
@@ -3533,6 +4285,11 @@ function startWarehouseBarcodeRouteWatcher() {
     if (!isWarehouseAppPageUrl()) {
         return false;
     }
+
+    if (warehouseRouteWatcherInitialized) {
+        return true;
+    }
+    warehouseRouteWatcherInitialized = true;
 
     window.addEventListener?.('hashchange', () => handleWarehouseRouteStateChanged({ force: true }));
     window.addEventListener?.('popstate', () => handleWarehouseRouteStateChanged({ force: true }));

@@ -72,6 +72,86 @@ function createWindowedConfig(context, overrides = {}) {
     });
 }
 
+test('UPDATE_WAREHOUSE_STOCK_BRANCH persists the branch without allowing stale generic config to overwrite it', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            warehouseStockBranch: 'default',
+            monitorScope: createDefaultMonitorScope()
+        })
+    });
+
+    const branchResponse = await sendRuntimeMessage(context, {
+        type: 'UPDATE_WAREHOUSE_STOCK_BRANCH',
+        branch: 'spb'
+    });
+
+    assert.equal(branchResponse.ok, true);
+    assert.equal(branchResponse.userConfig.warehouseStockBranch, 'spb');
+
+    const genericResponse = await sendRuntimeMessage(context, {
+        type: 'UPDATE_CONFIG',
+        userConfig: {
+            monitorMode: 'active',
+            warehouseStockBranch: 'default',
+            monitorScope: createDefaultMonitorScope()
+        }
+    });
+
+    assert.equal(genericResponse.ok, true);
+    assert.equal(genericResponse.userConfig.warehouseStockBranch, 'spb');
+    assert.equal(getBackgroundState(context).userConfig.warehouseStockBranch, 'spb');
+});
+
+test('UPDATE_WAREHOUSE_STOCK_BRANCH ignores default from Warehouse content context', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            warehouseStockBranch: 'spb',
+            monitorScope: createDefaultMonitorScope()
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        { type: 'UPDATE_WAREHOUSE_STOCK_BRANCH', branch: 'default' },
+        { tab: { id: 12345, url: 'https://amperkot.ru/web-apps/wh3/' } }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(response.userConfig.warehouseStockBranch, 'spb');
+    assert.equal(getBackgroundState(context).userConfig.warehouseStockBranch, 'spb');
+});
+
+test('UPDATE_WAREHOUSE_STOCK_BRANCH still allows popup to explicitly choose default', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+
+    setBackgroundState(context, {
+        userConfig: getEffectiveConfigSnapshot(context, {
+            monitorMode: 'windowed',
+            warehouseStockBranch: 'spb',
+            monitorScope: createDefaultMonitorScope()
+        })
+    });
+
+    const response = await sendRuntimeMessage(
+        context,
+        { type: 'UPDATE_WAREHOUSE_STOCK_BRANCH', branch: 'default' },
+        { url: `chrome-extension://${context.__testExtensionId || 'test-extension'}/popup.html` }
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(response.userConfig.warehouseStockBranch, 'default');
+    assert.equal(getBackgroundState(context).userConfig.warehouseStockBranch, 'default');
+});
+
 test('UPDATE_CONFIG normalizes notification triggers without scheduling rebaseline', async () => {
     const context = loadBackgroundContext();
     await settleBackgroundContext();

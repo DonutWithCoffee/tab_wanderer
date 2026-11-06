@@ -115,6 +115,8 @@ function createPopupDom() {
         'popupIgnoreLegalEntityPayment',
         'popupNotifyLegalEntityPaymentOnly',
         'popupIgnoreOzon',
+        'popupWarehouseStockBranch',
+        'warehouseStockBranchStatus',
         'quickSuppressStatus',
         'popupWatchedOrderInput',
         'popupAddWatchedOrder',
@@ -175,7 +177,7 @@ function loadPopupContext(overrides = {}) {
         ]
     };
     const storageState = {
-        lastSeenReleaseNotesVersion: '1.0.4.2',
+        lastSeenReleaseNotesVersion: '1.0.4.3',
         ...(overrides.storageState || {})
     };
 
@@ -242,6 +244,11 @@ function loadPopupContext(overrides = {}) {
 
                     if (msg.type === 'UPDATE_CONFIG') {
                         Object.assign(popupConfig, JSON.parse(JSON.stringify(msg.userConfig || {})));
+                        response = { ok: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
+                    }
+
+                    if (msg.type === 'UPDATE_WAREHOUSE_STOCK_BRANCH') {
+                        popupConfig.warehouseStockBranch = String(msg.branch || 'default');
                         response = { ok: true, userConfig: JSON.parse(JSON.stringify(popupConfig)) };
                     }
 
@@ -336,6 +343,10 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.match(html, /id="popupIgnoreLegalEntityPayment"/);
     assert.match(html, /id="popupNotifyLegalEntityPaymentOnly"/);
     assert.match(html, /id="popupIgnoreOzon"/);
+    assert.match(html, /id="popupWarehouseStockBranch"/);
+    assert.match(html, /option value="default">По умолчанию<\/option>/);
+    assert.match(html, /option value="spb">СПб<\/option>/);
+    assert.match(html, /option value="moscow">Москва ТГ<\/option>/);
     assert.match(html, /id="popupWatchedOrderInput" name="popupWatchedOrderInput"/);
     assert.match(html, /id="popupWatchedOrderNote" name="popupWatchedOrderNote"/);
     assert.match(html, /id="popupIgnoreLegalEntityPayment" name="popupIgnoreLegalEntityPayment" autocomplete="off"/);
@@ -355,6 +366,42 @@ test('popup is quick-control only and contains no settings form controls', () =>
     assert.doesNotMatch(html, /id="monitorModeWindowed"/);
     assert.doesNotMatch(html, /id="triggerNewOrders"/);
     assert.doesNotMatch(html, /id="scopeStatusOptions"/);
+});
+
+test('popup loads and saves Warehouse stock branch', () => {
+    const context = loadPopupContext({
+        userConfig: {
+            warehouseStockBranch: 'moscow',
+            notificationSuppressors: {
+                ignoreLegalEntityPayment: false,
+                notifyLegalEntityPaymentOnly: false,
+                ignoreOzon: false
+            },
+            watchedOrders: { items: [] }
+        }
+    });
+
+    const select = context.__test.document.getElementById('popupWarehouseStockBranch');
+    assert.equal(select.value, 'moscow');
+
+    select.value = 'spb';
+    select.dispatchEvent({ type: 'change', target: select });
+
+    const updates = getSentMessagesByType(context, 'UPDATE_WAREHOUSE_STOCK_BRANCH');
+    assert.equal(updates.at(-1).branch, 'spb');
+
+    const secondContext = loadPopupContext({
+        userConfig: {
+            warehouseStockBranch: context.__test.document.getElementById('popupWarehouseStockBranch').value,
+            notificationSuppressors: {
+                ignoreLegalEntityPayment: false,
+                notifyLegalEntityPaymentOnly: false,
+                ignoreOzon: false
+            },
+            watchedOrders: { items: [] }
+        }
+    });
+    assert.equal(secondContext.__test.document.getElementById('popupWarehouseStockBranch').value, 'spb');
 });
 
 test('popup loads monitor status and toggles running state through one button', () => {
@@ -488,22 +535,22 @@ test('popup shows release notes until current version is acknowledged', () => {
     const document = context.__test.document;
 
     assert.equal(document.getElementById('popupReleaseNotes').hidden, false);
-    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Обновление 1.0.4.2');
-    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /штрихкоды один раз проверяются автоматически без записи/);
+    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Обновление 1.0.4.3');
+    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /Выбор города склада теперь восстанавливается/);
 
     document.getElementById('dismissReleaseNotes').dispatchEvent({
         type: 'click',
         target: document.getElementById('dismissReleaseNotes')
     });
 
-    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.4.2');
+    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.4.3');
     assert.equal(document.getElementById('popupReleaseNotes').hidden, true);
 });
 
 test('popup keeps release notes hidden after acknowledgement', () => {
     const context = loadPopupContext({
         storageState: {
-            lastSeenReleaseNotesVersion: '1.0.4.2'
+            lastSeenReleaseNotesVersion: '1.0.4.3'
         }
     });
     const document = context.__test.document;

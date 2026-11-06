@@ -71,6 +71,26 @@
             outline-offset: 2px;
         }
 
+
+        .select-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+
+        select {
+            min-width: 160px;
+            min-height: 34px;
+            padding: 6px 9px;
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            background: var(--surface);
+            color: var(--text);
+        }
+
         input[type="text"] {
             border: 1px solid var(--border-strong);
             border-radius: 9px;
@@ -466,6 +486,24 @@
         <div id="status">Статус: загрузка...</div>
         <div id="statusDetails">Получаем состояние мониторинга...</div>
         <button id="toggleMonitor" class="primary-action">Включить мониторинг</button>
+    </div>
+
+    <div class="section">
+        <div class="section-heading">
+            <div>
+                <p class="section-title">Филиал для остатков</p>
+                <p class="section-description">Показывать, где уже хранится выбранный товар при оприходовании.</p>
+            </div>
+        </div>
+        <label class="select-row" for="popupWarehouseStockBranch">
+            <span>Город</span>
+            <select id="popupWarehouseStockBranch" name="popupWarehouseStockBranch" autocomplete="off">
+                <option value="default">По умолчанию</option>
+                <option value="spb">СПб</option>
+                <option value="moscow">Москва ТГ</option>
+            </select>
+        </label>
+        <div id="warehouseStockBranchStatus" class="hint">Загрузка настройки...</div>
     </div>
 
     <div id="popupReleaseNotes" class="release-notes release-notes-fullscreen" hidden>

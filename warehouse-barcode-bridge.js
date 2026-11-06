@@ -7,6 +7,12 @@
     const SCAN_TIME_BUDGET_MS = 80;
     const MAX_DEBUG_SAMPLES = 12;
     const API_CAPTURE_ARM_EVENT = 'tab_wanderer:warehouse-api-capture-arm';
+    const PRODUCT_ITEMS_SUMMARY_REQUEST_EVENT = 'tab_wanderer:warehouse-product-items-summary-request';
+    const PRODUCT_ITEMS_SUMMARY_RESPONSE_EVENT = 'tab_wanderer:warehouse-product-items-summary-response';
+    const WAREHOUSE_INCOME_SELECTION_EVENT = 'tab_wanderer:warehouse-income-product-selection';
+    const PRODUCT_ITEMS_SUMMARY_API_PREFIX = '/_api/v1/warehouse/wh1/products/';
+    const PRODUCT_ITEMS_SUMMARY_POST_MESSAGE_TYPE = 'tab_wanderer:warehouse-product-items-summary-response';
+    const PRODUCT_ITEMS_SUMMARY_AUTO_SYNC_INTERVAL_MS = 350;
     const API_CAPTURE_WINDOW_MS = 12000;
     const API_RESPONSE_MAX_TEXT_LENGTH = 2000000;
     const API_SHOP_ORDER_SNAPSHOT_TTL_MS = 15000;
@@ -1058,6 +1064,158 @@
         }
     }
 
+    function parseProductItemsSummaryUrl(url = '') {
+        try {
+            const parsed = new URL(String(url || ''), window.location.href);
+            const match = parsed.pathname.match(/\/_api\/v1\/warehouse\/[^/]+\/products\/([0-9]+)\/product-items-summary$/i);
+            if (!match) return null;
+            return { productId: normalizeId(match[1]), url: parsed.href };
+        } catch {
+            return null;
+        }
+    }
+
+    function dispatchProductItemsSummaryPayload(payload, url = '') {
+        const parsed = parseProductItemsSummaryUrl(url);
+        if (!parsed || !isObject(payload)) return false;
+
+        const detail = {
+            ok: true,
+            productId: parsed.productId,
+            payload,
+            source: 'warehouse-product-items-summary',
+            url: parsed.url
+        };
+
+        window.dispatchEvent(new CustomEvent(PRODUCT_ITEMS_SUMMARY_RESPONSE_EVENT, { detail }));
+        try {
+            window.postMessage({ type: PRODUCT_ITEMS_SUMMARY_POST_MESSAGE_TYPE, detail }, window.location.origin);
+        } catch {}
+        return true;
+    }
+
+    function getWarehouseAngularInjector() {
+        try {
+            if (!window.angular || typeof window.angular.element !== 'function') {
+                return null;
+            }
+
+            const candidates = [];
+            const addCandidate = node => {
+                if (node && !candidates.includes(node)) candidates.push(node);
+            };
+
+            // AngularJS attaches the injector to the actual ng-app root.
+            // WH3 does not guarantee that this root is <body>, so checking
+            // only body/documentElement can fail even though $http is fully
+            // available on the page.
+            try {
+                const roots = document.querySelectorAll?.('[ng-app], [data-ng-app], [ng-controller], [ng-view], [ui-view]') || [];
+                for (const node of Array.from(roots).slice(0, 50)) addCandidate(node);
+            } catch {}
+
+            addCandidate(document.body);
+            addCandidate(document.documentElement);
+            try { addCandidate(document); } catch {}
+
+            for (const node of candidates) {
+                try {
+                    const injector = window.angular.element(node)?.injector?.();
+                    if (injector) return injector;
+                } catch {}
+            }
+        } catch {}
+
+        return null;
+    }
+
+    function requestProductItemsSummary(productId) {
+        const normalizedProductId = normalizeId(productId);
+        if (!normalizedProductId) return false;
+
+        const injector = getWarehouseAngularInjector();
+        const http = injector?.get?.('$http');
+        if (typeof http !== 'function') {
+            window.dispatchEvent(new CustomEvent(PRODUCT_ITEMS_SUMMARY_RESPONSE_EVENT, {
+                detail: {
+                    ok: false,
+                    productId: normalizedProductId,
+                    error: 'warehouse angular $http unavailable',
+                    source: 'warehouse-product-items-summary'
+                }
+            }));
+            return false;
+        }
+
+        const url = `${PRODUCT_ITEMS_SUMMARY_API_PREFIX}${encodeURIComponent(normalizedProductId)}/product-items-summary`;
+
+        try {
+            Promise.resolve(http.get(url))
+                .then(response => {
+                    const payload = response?.data;
+                    if (!isObject(payload)) {
+                        throw new Error('invalid product-items-summary response');
+                    }
+                    dispatchProductItemsSummaryPayload(payload, response?.config?.url || url);
+                })
+                .catch(error => {
+                    window.dispatchEvent(new CustomEvent(PRODUCT_ITEMS_SUMMARY_RESPONSE_EVENT, {
+                        detail: {
+                            ok: false,
+                            productId: normalizedProductId,
+                            error: String(error?.data?.message || error?.message || error || 'product-items-summary request failed'),
+                            source: 'warehouse-product-items-summary',
+                            url
+                        }
+                    }));
+                });
+            return true;
+        } catch (error) {
+            window.dispatchEvent(new CustomEvent(PRODUCT_ITEMS_SUMMARY_RESPONSE_EVENT, {
+                detail: {
+                    ok: false,
+                    productId: normalizedProductId,
+                    error: String(error?.message || error || 'product-items-summary request failed'),
+                    source: 'warehouse-product-items-summary',
+                    url
+                }
+            }));
+            return false;
+        }
+    }
+
+    async function inspectFetchResponseForProductItemsSummary(response, url = '') {
+        const responseUrl = String(url || response?.url || '');
+        if (!parseProductItemsSummaryUrl(responseUrl) || !response || !isSuccessfulWarehouseApiStatus(response.status)) {
+            return false;
+        }
+
+        try {
+            const clone = response.clone?.();
+            const text = await clone?.text?.();
+            const payload = parseJsonPayload(text);
+            return dispatchProductItemsSummaryPayload(payload, responseUrl);
+        } catch {
+            return false;
+        }
+    }
+
+    function inspectXhrResponseForProductItemsSummary(xhr, url = '') {
+        const responseUrl = String(url || xhr?.responseURL || '');
+        if (!parseProductItemsSummaryUrl(responseUrl) || !xhr || !isSuccessfulWarehouseApiStatus(xhr.status)) {
+            return false;
+        }
+
+        try {
+            const payload = typeof xhr.response === 'object' && xhr.response !== null
+                ? xhr.response
+                : parseJsonPayload(String(xhr.responseText || ''));
+            return dispatchProductItemsSummaryPayload(payload, responseUrl);
+        } catch {
+            return false;
+        }
+    }
+
     async function inspectFetchResponseForShopOrder(response, url = '', captureGeneration = 0) {
         const responseUrl = String(url || response?.url || '');
 
@@ -1173,9 +1331,13 @@
 
             return originalFetch.apply(this, arguments)
                 .then(response => {
+                    const responseUrl = url || response?.url || '';
+                    if (parseProductItemsSummaryUrl(responseUrl)) {
+                        inspectFetchResponseForProductItemsSummary(response, responseUrl);
+                    }
                     inspectFetchResponseForShopOrder(
                         response,
-                        url || response?.url || '',
+                        responseUrl,
                         captureGeneration
                     );
                     return response;
@@ -1217,9 +1379,13 @@
 
             try {
                 this.addEventListener?.('loadend', () => {
+                    const responseUrl = this.__tabWandererWarehouseUrl || this.responseURL || '';
+                    if (parseProductItemsSummaryUrl(responseUrl)) {
+                        inspectXhrResponseForProductItemsSummary(this, responseUrl);
+                    }
                     inspectXhrResponseForShopOrder(
                         this,
-                        this.__tabWandererWarehouseUrl || this.responseURL || '',
+                        responseUrl,
                         captureGeneration
                     );
                 }, { once: true });
@@ -1472,8 +1638,192 @@
         return scanObjectGraph(collectAngularRoots(deadline), expectedOrder, deadline);
     }
 
+    function isWarehouseIncomePerformPage() {
+        try {
+            const hash = String(window.location.hash || '');
+            return /^#\/income\/actions\/\d+\/perform(?:\?|$)/i.test(hash);
+        } catch {
+            return false;
+        }
+    }
+
+    function extractIncomeProductTitleFromAngularScope(card, productId = '') {
+        const expectedId = normalizeId(productId);
+        if (!expectedId || !window.angular?.element) return '';
+
+        try {
+            const wrapped = window.angular.element(card);
+            const roots = [wrapped?.scope?.(), wrapped?.isolateScope?.()].filter(Boolean);
+            const seen = new Set();
+            const queue = roots.map(root => ({ value: root, depth: 0 }));
+
+            while (queue.length) {
+                const { value, depth } = queue.shift();
+                if (!value || (typeof value !== 'object' && typeof value !== 'function') || seen.has(value) || depth > 5) continue;
+                seen.add(value);
+
+                if (normalizeId(value.id || value.product_id || value.productId) === expectedId) {
+                    const directTitle = normalizeText(value.title || value.name || value.product?.title || value.product?.name);
+                    if (directTitle) return directTitle;
+                }
+
+                const keys = Object.keys(value);
+                for (const key of keys) {
+                    if (key === '$parent' || key === '$root' || key.startsWith('$')) continue;
+                    let child;
+                    try { child = value[key]; } catch { continue; }
+                    if (!child || (typeof child !== 'object' && typeof child !== 'function')) continue;
+                    queue.push({ value: child, depth: depth + 1 });
+                }
+            }
+        } catch {}
+
+        return '';
+    }
+
+    function extractIncomeProductTitleFromCard(card, productId = '') {
+        if (!card) return '';
+
+        const angularTitle = extractIncomeProductTitleFromAngularScope(card, productId);
+        if (angularTitle) return angularTitle;
+
+        try {
+            const links = Array.from(card.querySelectorAll?.('a[href*="/products/"]') || [])
+                .map(link => normalizeText(link?.textContent || link?.innerText || ''))
+                .filter(Boolean);
+            if (links.length) return links[0];
+        } catch {}
+
+        try {
+            const nodes = Array.from(card.querySelectorAll?.('p.ng-binding, p, a, div, span') || []);
+            for (const node of nodes) {
+                const text = normalizeText(node?.textContent || node?.innerText || '');
+                if (!/\bID\s*:\s*\d{5,}\b/i.test(text)) continue;
+                const title = extractWarehouseDomProductTitle(text, productId);
+                if (title) return title;
+            }
+        } catch {}
+
+        return '';
+    }
+
+    function findSelectedIncomeProductSelection() {
+        if (!isWarehouseIncomePerformPage()) return null;
+
+        try {
+            const selectedCards = [];
+            const cards = Array.from(document.querySelectorAll?.('.panel-body') || []);
+
+            for (const card of cards) {
+                const inlineOpacity = String(card?.style?.opacity || '').trim();
+                let selected = inlineOpacity === '1';
+                if (!selected && typeof window.getComputedStyle === 'function') {
+                    try {
+                        selected = String(window.getComputedStyle(card).opacity || '').trim() === '1';
+                    } catch {}
+                }
+                if (!selected) continue;
+
+                let productId = '';
+                const nodes = Array.from(card.querySelectorAll?.('p.ng-binding, p') || []);
+                for (const node of nodes) {
+                    const text = normalizeText(node?.textContent || node?.innerText || '');
+                    const match = text.match(/\bID\s*:\s*(\d{5,})\b/i);
+                    if (match) {
+                        productId = normalizeId(match[1]);
+                        break;
+                    }
+                }
+
+                if (!productId) {
+                    const text = normalizeText(card?.textContent || card?.innerText || '');
+                    const match = text.match(/\bID\s*:\s*(\d{5,})\b/i);
+                    if (match) productId = normalizeId(match[1]);
+                }
+
+                if (productId) {
+                    selectedCards.push({
+                        card,
+                        productId,
+                        title: extractIncomeProductTitleFromCard(card, productId)
+                    });
+                }
+            }
+
+            return selectedCards.at(-1) || null;
+        } catch {}
+
+        return null;
+    }
+
+    function findSelectedIncomeProductId() {
+        return findSelectedIncomeProductSelection()?.productId || '';
+    }
+
+    let lastAutoProductItemsSummaryProductId = '';
+    let lastIncomeSelectionSignature = '';
+    let autoProductItemsSummaryTimer = null;
+
+    function syncIncomeProductItemsSummary() {
+        if (!isWarehouseIncomePerformPage()) {
+            lastAutoProductItemsSummaryProductId = '';
+            return false;
+        }
+
+        const selection = findSelectedIncomeProductSelection();
+        const productId = selection?.productId || '';
+        const title = selection?.title || '';
+        const signature = productId ? `${productId}|${title}` : '';
+
+        if (signature !== lastIncomeSelectionSignature) {
+            lastIncomeSelectionSignature = signature;
+            window.dispatchEvent(new CustomEvent(WAREHOUSE_INCOME_SELECTION_EVENT, {
+                detail: { productId, title }
+            }));
+        }
+
+        if (!productId) {
+            lastAutoProductItemsSummaryProductId = '';
+            return false;
+        }
+
+        if (productId === lastAutoProductItemsSummaryProductId) return false;
+
+        lastAutoProductItemsSummaryProductId = productId;
+        getDebug().lastApiCandidateUrl = `${PRODUCT_ITEMS_SUMMARY_API_PREFIX}${productId}/product-items-summary`;
+        pushApiDebugEvent({ type: 'income-selected-product', productId, title });
+        requestProductItemsSummary(productId);
+        return true;
+    }
+
+    function startIncomeProductItemsSummarySync() {
+        if (autoProductItemsSummaryTimer) return;
+        syncIncomeProductItemsSummary();
+        if (typeof setInterval !== 'function') return;
+        autoProductItemsSummaryTimer = setInterval(() => {
+            syncIncomeProductItemsSummary();
+        }, PRODUCT_ITEMS_SUMMARY_AUTO_SYNC_INTERVAL_MS);
+    }
+
+    function handleIncomeRouteMutation() {
+        if (isWarehouseIncomePerformPage()) {
+            startIncomeProductItemsSummarySync();
+        } else {
+            lastAutoProductItemsSummaryProductId = '';
+            lastIncomeSelectionSignature = '';
+        }
+    }
+
+    window.addEventListener('hashchange', handleIncomeRouteMutation);
+    window.addEventListener('popstate', handleIncomeRouteMutation);
+    startIncomeProductItemsSummarySync();
+
     window.addEventListener(API_CAPTURE_ARM_EVENT, event => {
         armWarehouseApiCapture(event?.detail?.durationMs || API_CAPTURE_WINDOW_MS);
+    });
+
+    window.addEventListener(PRODUCT_ITEMS_SUMMARY_REQUEST_EVENT, event => {
+        requestProductItemsSummary(event?.detail?.productId);
     });
 
     patchWarehouseFetchCapture();

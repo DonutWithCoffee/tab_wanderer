@@ -12,6 +12,8 @@ const testFiles = [
     'tests/options-ui.test.js',
     'tests/watched-orders-ui.test.js',
     'tests/warehouse-barcode-extractor.test.js',
+    'tests/warehouse-stock-view-model.test.js',
+    'tests/warehouse-stock-dom.test.js',
     'tests/warehouse-barcode-bridge.test.js',
     'tests/ozon-product-search.test.js',
     'tests/ozon-barcode-binding.test.js',
