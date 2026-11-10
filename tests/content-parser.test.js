@@ -87,6 +87,7 @@ function createWarehousePreviewPanelDocumentStub() {
             parentNode: null,
             textContent: '',
             addEventListener() {},
+            replaceChildren(...children) { this.children = []; for (const child of children) this.appendChild(child); },
             setAttribute(name, value) {
                 this.attributes[name] = String(value);
                 if (name === 'id') {
@@ -2549,7 +2550,20 @@ test('warehouse panel opens for Ozon and keeps exact unknown guidance visible', 
     context.renderWarehouseBarcodePreviewPanel(context.createWarehouseBarcodePreviewLoading());
     const panel = documentStub.getElementById('tab-wanderer-warehouse-barcode-preview');
     assert.equal(context.isWarehouseBarcodePreviewPanelCollapsed(), true);
-    assert.match(collectElementText(panel), /Тип не определён — обновите карточку заказа/);
+    assert.match(collectElementText(panel), /Проверяем тип заказа · действия Ozon пока недоступны/);
+});
+
+test('assembly preview cannot overwrite disassembly panel on the disassembly route', () => {
+    const documentStub = createWarehousePreviewPanelDocumentStub();
+    const context = loadContentContext(documentStub, {
+        windowLocation: {
+            origin: 'https://amperkot.ru',
+            href: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/disassembly/4337?order=2218-101126'
+        },
+        window: { dispatchEvent: () => {}, addEventListener: () => {} }
+    });
+    assert.equal(context.renderWarehouseBarcodePreviewPanel(context.createWarehouseBarcodePreviewLoading()), false);
+    assert.equal(documentStub.getElementById('tab-wanderer-warehouse-barcode-preview'), null);
 });
 
 test('warehouse automatically checks existing Ozon barcodes once even when automatic writes are disabled', () => {
@@ -2883,15 +2897,16 @@ test('trusted Ozon click on actions route survives SPA transition and applies fr
     assert.equal(context.getWarehouseAutoApplyIntent()?.status, 'started');
 });
 
-test('trusted Ozon assembly click starts automatic apply only from a fresh post-action snapshot', () => {
+test('trusted Ozon assembly click applies only explicitly POST-confirmed scanned barcodes', () => {
     const sentMessages = [];
+    const eventListeners = {};
     const documentStub = createWarehousePreviewPanelDocumentStub();
     const context = loadContentContext(documentStub, {
         windowLocation: {
             origin: 'https://amperkot.ru',
             href: 'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=7001-010126'
         },
-        window: { dispatchEvent: () => {}, addEventListener: () => {} },
+        window: { dispatchEvent: () => {}, addEventListener: (type, callback) => { eventListeners[type] = callback; } },
         runtime: {
             lastError: null,
             getURL: path => `chrome-extension://test/${path}`,
@@ -2928,8 +2943,17 @@ test('trusted Ozon assembly click starts automatic apply only from a fresh post-
         }
     });
 
+    // A nonempty snapshot alone is not proof that these barcodes were assembled.
+    assert.equal(sentMessages.some(message => message.type === 'OZON_UI_APPLY_REQUEST'), false);
+    context.ensureWarehouseAssemblyConfirmationListener();
+    assert.equal(typeof eventListeners['tab_wanderer:warehouse-assembly-confirmed'], 'function');
+    eventListeners['tab_wanderer:warehouse-assembly-confirmed']({ detail: {
+        orderId: '7001-010126', actionId: '4336', confirmed: true, source: 'OZON',
+        rows: [{ productId: '41128428', productItemId: '3998496', barcode: '2494390', type: 0, title: 'Test' }]
+    } });
     const applyMessage = sentMessages.find(message => message.type === 'OZON_UI_APPLY_REQUEST');
     assert.ok(applyMessage);
+    assert.equal(applyMessage.warehouseExtraction.productsById['41128428'].eligibleBarcodes[0].barcode, '2494390');
     assert.equal(applyMessage.trigger, 'automatic');
     assert.equal(applyMessage.orderId, '7001-010126');
     assert.match(applyMessage.actionId, /^7001-010126:/);

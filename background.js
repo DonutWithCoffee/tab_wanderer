@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js', 'core/warehouse-stock-view-model.js');
+importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js', 'core/ozon-disassembly.js', 'core/warehouse-stock-view-model.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -14,6 +14,8 @@ let ozonResolveSession = null;
 let ozonResolveTimeoutTimer = null;
 let ozonUiApplySession = null;
 let ozonUiApplyTimeoutTimer = null;
+let ozonUiRemoveSession = null;
+let ozonUiRemoveTimeoutTimer = null;
 let ozonActiveOperation = null;
 let ozonPendingApplyRequest = null;
 let ozonQueuedResolveRequests = [];
@@ -553,6 +555,10 @@ function getExtensionUpdateBlockers() {
 
     if (ozonUiApplySession) {
         blockers.push('ozon-ui-apply');
+    }
+
+    if (ozonUiRemoveSession) {
+        blockers.push('ozon-ui-remove');
     }
 
     if (ozonResolveSession) {
@@ -1734,6 +1740,7 @@ function getEffectiveUserConfig(storedConfig) {
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safe.deepSyncMaxPages),
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safe.watchedOrderFollowUpIntervalMinutes),
         ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safe.ozonAutoBarcodeApplyEnabled),
+        ozonAutoBarcodeRemoveEnabled: normalizeOzonAutoBarcodeRemoveEnabled(safe.ozonAutoBarcodeRemoveEnabled),
         warehouseStockBranch: normalizeWarehouseStockBranch(safe.warehouseStockBranch),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safe.notificationSuppressors),
@@ -2311,6 +2318,7 @@ async function loadState() {
     ozonWorkerTabId = null;
     ozonResolveSession = null;
     ozonUiApplySession = null;
+    ozonUiRemoveSession = null;
     ozonActiveOperation = null;
     ozonPendingApplyRequest = null;
     ozonQueuedResolveRequests = [];
@@ -2428,6 +2436,7 @@ async function reconcileWorkerTabsOnStartup() {
     ozonWorkerTabId = null;
     ozonResolveSession = null;
     ozonUiApplySession = null;
+    ozonUiRemoveSession = null;
     ozonActiveOperation = null;
     ozonPendingApplyRequest = null;
     ozonQueuedResolveRequests = [];
@@ -2593,6 +2602,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
                 await failOzonUiApply('Ozon worker tab closed', {
                     operationId: activeOperation.id
                 });
+            } else if (activeOperation?.type === 'remove') {
+                await failOzonUiRemove('Ozon worker tab closed', { operationId: activeOperation.id });
             } else if (activeOperation?.type === 'resolve') {
                 await failOzonResolvePreview('Ozon worker tab closed', {
                     operationId: activeOperation.id
@@ -3765,6 +3776,9 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, op
 }
 
 async function handleOzonProductResolveResult(senderTabId, msg = {}) {
+    if (isCurrentOzonOperation('remove')) {
+        return handleOzonRemoveProductResolveResult(senderTabId, msg);
+    }
     const session = ozonResolveSession;
     const operationId = session?.operationId || '';
     if (!session
@@ -4085,6 +4099,9 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options =
 }
 
 async function handleOzonProductWorkerReady(senderTabId, msg = {}) {
+    if (isCurrentOzonOperation('remove')) {
+        return handleOzonRemoveWorkerReady(senderTabId, msg);
+    }
     const session = ozonUiApplySession;
     const operationId = session?.operationId || '';
     if (!session
@@ -4151,6 +4168,225 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
     return createRuntimeOkResponse({ accepted: true, operationId });
 }
 
+
+
+// ---------- OZON CONFIRMED DISASSEMBLY REMOVAL ----------
+const OZON_UI_REMOVE_TIMEOUT_MS = 45000;
+
+function getTrustedWarehouseDisassemblySender(value) {
+    const url = parseTrustedUrl(value);
+    if (!url || url.protocol !== 'https:' || url.hostname !== 'amperkot.ru'
+        || url.pathname !== '/web-apps/wh3/') return null;
+    const match = url.hash.match(/^#\/wh\/shop-orders\/disassembly\/(\d+)\?(.+)$/);
+    if (!match) return null;
+    const orderId = normalizeOzonSessionOrderId(new URLSearchParams(match[2]).get('order'));
+    return orderId ? { orderId, actionId: match[1] } : null;
+}
+
+function getCurrentOzonRemoveProduct(session = ozonUiRemoveSession) {
+    return session?.productRequests?.[session.index] || null;
+}
+
+function clearOzonUiRemoveTimeout() {
+    if (ozonUiRemoveTimeoutTimer !== null && typeof clearTimeout === 'function') clearTimeout(ozonUiRemoveTimeoutTimer);
+    ozonUiRemoveTimeoutTimer = null;
+}
+
+function scheduleOzonUiRemoveTimeout(operationId) {
+    clearOzonUiRemoveTimeout();
+    ozonUiRemoveTimeoutTimer = setTimeout(() => {
+        ozonUiRemoveTimeoutTimer = null;
+        failOzonUiRemove('Ozon barcode removal timed out', { operationId }).catch(() => {});
+    }, OZON_UI_REMOVE_TIMEOUT_MS);
+}
+
+async function cleanupOzonUiRemove(operationId) {
+    if (!isCurrentOzonOperation('remove', operationId)) return false;
+    clearOzonUiRemoveTimeout();
+    const tabId = ozonActiveOperation?.workerTabId || ozonWorkerTabId;
+    ozonWorkerTabId = null;
+    ozonUiRemoveSession = null;
+    releaseOzonOperation(operationId);
+    if (tabId) {
+        try { await chrome.tabs.remove(tabId); } catch {}
+    }
+    await drainQueuedOzonResolveRequests();
+    return true;
+}
+
+async function finishOzonUiRemove(error = '', operationId = ozonUiRemoveSession?.operationId || '') {
+    const session = ozonUiRemoveSession;
+    if (!session || !isCurrentOzonOperation('remove', operationId)) return false;
+    const removedCount = session.results.reduce((sum, item) => sum + (Number(item.removedCount) || 0), 0);
+    const alreadyMissingCount = session.results.reduce((sum, item) => sum + (Number(item.alreadyMissingCount) || 0), 0);
+    const payload = {
+        orderId: session.orderId,
+        actionId: session.actionId,
+        ok: !error && session.index === session.productRequests.length,
+        removedCount, alreadyMissingCount,
+        processedProducts: session.index,
+        totalProducts: session.productRequests.length,
+        error: error || null
+    };
+    log(payload.ok ? 'INFO' : 'WARN', 'OZON_DISASSEMBLY', 'remove finished', {
+        orderId: session.orderId, actionId: session.actionId, operationId,
+        removedCount, alreadyMissingCount, processedProducts: session.index,
+        totalProducts: session.productRequests.length, ok: payload.ok, error: payload.error
+    });
+    await sendOzonWarehouseMessage({ session, type: 'OZON_DISASSEMBLY_REMOVE_RESULT', payload,
+        logCategory: 'OZON_DISASSEMBLY', logMessage: 'could not send removal result' });
+    await cleanupOzonUiRemove(operationId);
+    return true;
+}
+
+async function failOzonUiRemove(error = 'Ozon barcode removal failed', options = {}) {
+    return finishOzonUiRemove(error, options.operationId || ozonUiRemoveSession?.operationId || '');
+}
+
+async function openCurrentOzonRemoveProduct() {
+    const session = ozonUiRemoveSession;
+    const operationId = session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('remove', operationId)) return false;
+    if (userConfig?.ozonAutoBarcodeRemoveEnabled !== true && session.manual !== true) {
+        return failOzonUiRemove('Automatic barcode removal was disabled during operation', { operationId });
+    }
+    const request = getCurrentOzonRemoveProduct(session);
+    if (!request) return finishOzonUiRemove('', operationId);
+    try {
+        scheduleOzonUiRemoveTimeout(operationId);
+        session.status = 'opening';
+        const url = buildOzonUiApplyWorkerUrl(request.productId);
+        if (ozonWorkerTabId) {
+            await chrome.tabs.update(ozonWorkerTabId, { url, active: false });
+        } else {
+            const tab = await chrome.tabs.create({ url, active: false, pinned: true });
+            if (!isCurrentOzonOperation('remove', operationId)) {
+                try { await chrome.tabs.remove(tab.id); } catch {}
+                return false;
+            }
+            assignOzonWorkerToOperation(tab.id, operationId);
+        }
+        return true;
+    } catch (error) {
+        await failOzonUiRemove(error?.message || 'Could not open Ozon product worker', { operationId });
+        return false;
+    }
+}
+
+async function startOzonUiRemove(senderTab, msg = {}, options = {}) {
+    const route = getTrustedWarehouseDisassemblySender(senderTab?.url);
+    const validated = validateOzonDisassemblyEvent(msg);
+    if (!route || !validated.ok || route.orderId !== validated.orderId || route.actionId !== validated.actionId) {
+        return createRuntimeFailureResponse({ error: validated.error || 'Untrusted Warehouse 3 disassembly confirmation' });
+    }
+    if (userConfig?.ozonAutoBarcodeRemoveEnabled !== true && options.manual !== true) {
+        return createRuntimeOkResponse({ started: false, disabled: true, orderId: validated.orderId });
+    }
+    // A confirmed disassembly write takes priority over read-only Ozon preview.
+    // Preserve an automatic preview for later; do not preempt any actual Ozon write.
+    if (isCurrentOzonOperation('resolve')) {
+        const activePreview = ozonResolveSession;
+        if (activePreview?.trigger === 'automatic-on-open') {
+            enqueueOzonResolveRequest({
+                warehouseTabId: activePreview.warehouseTabId,
+                orderId: activePreview.orderId,
+                warehouseExtraction: activePreview.warehouseExtraction,
+                trigger: activePreview.trigger,
+                documentInstanceId: activePreview.documentInstanceId
+            });
+        }
+        await failOzonResolvePreview('Ozon preview postponed for confirmed disassembly', {
+            operationId: activePreview?.operationId, notify: false, drainQueue: false
+        });
+    }
+    if (ozonActiveOperation || ozonPendingApplyRequest) {
+        return createRuntimeFailureResponse({ error: 'Another Ozon operation is running; no barcodes were deleted', busy: true });
+    }
+    if (ozonWorkerTabId) await closeOrphanOzonWorker();
+    if (ozonActiveOperation || ozonPendingApplyRequest) {
+        return createRuntimeFailureResponse({ error: 'Ozon worker is busy; no barcodes were deleted', busy: true });
+    }
+    const session = {
+        warehouseTabId: senderTab.id,
+        orderId: validated.orderId,
+        actionId: validated.actionId,
+        productRequests: validated.productRequests,
+        index: 0,
+        results: [],
+        status: 'starting',
+        manual: options.manual === true
+    };
+    const operationId = beginOzonOperation('remove', session);
+    if (!operationId) return createRuntimeFailureResponse({ error: 'Unable to claim Ozon removal worker', busy: true });
+    ozonUiRemoveSession = session;
+    await openCurrentOzonRemoveProduct();
+    return createRuntimeOkResponse({ started: true, operationId, orderId: session.orderId, barcodeCount: validated.barcodeCount });
+}
+
+// Removal requires a resolved offer ID, Ozon SKU and seller account from the
+// same main-world product resolver used by assembly verification. An early
+// worker-ready fallback is not sufficient to authorize deletion.
+async function handleOzonRemoveWorkerReady(senderTabId, msg = {}) {
+    return createRuntimeIgnoredResponse();
+}
+
+async function handleOzonRemoveProductResolveResult(senderTabId, msg = {}) {
+    const session = ozonUiRemoveSession;
+    const request = getCurrentOzonRemoveProduct(session);
+    const operationId = session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('remove', operationId)
+        || senderTabId !== ozonWorkerTabId) return createRuntimeIgnoredResponse();
+    if (!request || normalizeOzonResolveId(msg.productId) !== request.productId) {
+        return createRuntimeFailureResponse({ error: 'Unexpected Ozon removal product resolution' });
+    }
+    if (session.status === 'command-sent') return createRuntimeIgnoredResponse();
+
+    const product = msg.result?.product;
+    const sellerId = normalizeOzonResolveId(msg.sellerId);
+    const ozonSku = normalizeOzonResolveId(product?.ozonSku);
+    const offerId = normalizeOzonResolveId(product?.offerId);
+    if (msg.result?.ok !== true || offerId !== request.productId
+        || !/^\d{6,}$/.test(ozonSku) || !/^\d{3,}$/.test(sellerId)) {
+        await failOzonUiRemove(`Ozon product/SKU/seller ID not verified for ${request.productId}; no deletion performed`, { operationId });
+        return createRuntimeOkResponse({ accepted: true, stopped: true, operationId });
+    }
+
+    session.status = 'command-sent';
+    try {
+        await chrome.tabs.sendMessage(ozonWorkerTabId, {
+            type: 'OZON_UI_REMOVE_IN_WORKER',
+            productId: request.productId,
+            barcodes: request.barcodes,
+            ozonSku,
+            sellerId
+        });
+    } catch (error) {
+        await failOzonUiRemove(error?.message || 'Ozon removal command failed', { operationId });
+    }
+    return createRuntimeOkResponse({ accepted: true, operationId });
+}
+
+async function handleOzonUiRemoveResult(senderTabId, msg = {}) {
+    const session = ozonUiRemoveSession;
+    const request = getCurrentOzonRemoveProduct(session);
+    const operationId = session?.operationId || '';
+    if (!session || !isCurrentOzonOperation('remove', operationId)
+        || senderTabId !== ozonWorkerTabId || session.status !== 'command-sent') return createRuntimeIgnoredResponse();
+    if (!request || normalizeOzonResolveId(msg.productId) !== request.productId) {
+        return createRuntimeFailureResponse({ error: 'Unexpected Ozon removal result product' });
+    }
+    clearOzonUiRemoveTimeout();
+    if (msg.ok !== true || !Number.isInteger(msg.verifiedCount) || msg.verifiedCount !== request.barcodes.length) {
+        await failOzonUiRemove(String(msg.error || 'Ozon removal verification failed'), { operationId });
+        return createRuntimeOkResponse({ accepted: true, stopped: true, operationId });
+    }
+    session.results.push({ removedCount: Math.max(0, Number(msg.removedCount) || 0),
+        alreadyMissingCount: Math.max(0, Number(msg.alreadyMissingCount) || 0) });
+    session.index += 1;
+    session.status = 'next';
+    await openCurrentOzonRemoveProduct();
+    return createRuntimeOkResponse({ accepted: true, operationId });
+}
 
 async function startWatchedOrderAddValidation(orderId, options = {}) {
     const normalizedId = normalizeWatchedOrderId(orderId);
@@ -4692,6 +4928,23 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     error: 'Ozon barcode write did not start',
                     orderId: requestedOrderId
                 }));
+                return;
+            }
+
+            if (msg.type === 'OZON_DISASSEMBLY_MANUAL_REMOVE') {
+                // A user-initiated retry uses the same strict Warehouse route,
+                // confirmed-event validation and verified Ozon deletion pipeline.
+                send(await startOzonUiRemove(senderTab, msg, { manual: true }));
+                return;
+            }
+
+            if (msg.type === 'OZON_DISASSEMBLY_CONFIRMED') {
+                send(await startOzonUiRemove(senderTab, msg));
+                return;
+            }
+
+            if (msg.type === 'OZON_UI_REMOVE_RESULT') {
+                send(await handleOzonUiRemoveResult(senderTabId, msg));
                 return;
             }
 

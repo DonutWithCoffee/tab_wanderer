@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = {
     deepSyncMaxPages: DEFAULT_DEEP_SYNC_MAX_PAGES,
     watchedOrderFollowUpIntervalMinutes: DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES,
     ozonAutoBarcodeApplyEnabled: true,
+    ozonAutoBarcodeRemoveEnabled: true,
     warehouseStockBranch: DEFAULT_WAREHOUSE_STOCK_BRANCH,
     notificationTriggers: {
         newOrders: true,
@@ -120,6 +121,12 @@ function normalizeOzonAutoBarcodeApplyEnabled(value) {
 
 self.normalizeOzonAutoBarcodeApplyEnabled = normalizeOzonAutoBarcodeApplyEnabled;
 
+function normalizeOzonAutoBarcodeRemoveEnabled(value) {
+    return value === undefined ? true : Boolean(value);
+}
+
+self.normalizeOzonAutoBarcodeRemoveEnabled = normalizeOzonAutoBarcodeRemoveEnabled;
+
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
     return {
@@ -202,6 +209,7 @@ function getEffectiveConfig(config = {}) {
         deepSyncMaxPages: normalizeDeepSyncMaxPages(safeConfig.deepSyncMaxPages),
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safeConfig.watchedOrderFollowUpIntervalMinutes),
         ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safeConfig.ozonAutoBarcodeApplyEnabled),
+        ozonAutoBarcodeRemoveEnabled: normalizeOzonAutoBarcodeRemoveEnabled(safeConfig.ozonAutoBarcodeRemoveEnabled),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safeConfig.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safeConfig.monitorScope),

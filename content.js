@@ -1030,7 +1030,7 @@ const WAREHOUSE_ROUTE_WATCH_INTERVAL_MS = 1000;
 const OZON_WORKER_READY_FALLBACK_MS = 3000;
 const WAREHOUSE_SHOP_ORDER_MAX_READ_ATTEMPTS = 8;
 const WAREHOUSE_SHOP_ORDER_RETRY_DELAY_MS = 500;
-const WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS = [350, 1200, 2500];
+const WAREHOUSE_ASSEMBLY_ACTION_REFRESH_DELAYS_MS = [350, 1200, 2500, 5000, 8000];
 const WAREHOUSE_API_CAPTURE_WINDOW_MS = 12000;
 const WAREHOUSE_ASSEMBLY_ACTION_DEBUG_STORAGE_KEY = 'tab_wanderer_warehouse_action_debug_v1';
 const WAREHOUSE_AUTO_APPLY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -1156,6 +1156,10 @@ function getWarehouseOrderRouteKind(href = window.location.href) {
             return 'actions';
         }
 
+        if (/^\/wh\/shop-orders\/disassembly\/\d+$/.test(hashPath)) {
+            return 'disassembly';
+        }
+
         if (hashPath.includes('/wh/shop-orders/assembly/')) {
             return 'assembly';
         }
@@ -1176,6 +1180,10 @@ function isWarehouseOrderActionsPageUrl(href = window.location.href) {
 
 function isWarehouseAssemblyPageUrl(href = window.location.href) {
     return getWarehouseOrderRouteKind(href) === 'assembly';
+}
+
+function isWarehouseDisassemblyPageUrl(href = window.location.href) {
+    return getWarehouseOrderRouteKind(href) === 'disassembly';
 }
 
 function isWarehouseIncomePerformPageUrl(href = window.location.href) {
@@ -1260,7 +1268,7 @@ function getWarehouseOrderKindDisplay(record = warehouseOrderKindRecord) {
 
     return {
         kind: 'unknown',
-        text: 'Тип не определён — обновите карточку заказа',
+        text: 'Проверяем тип заказа · действия Ozon пока недоступны',
         color: '#b26a00'
     };
 }
@@ -1324,6 +1332,7 @@ function applyWarehouseOrderKindRecord(value = {}, { render = true } = {}) {
 
     if (render) {
         renderWarehouseBarcodePreviewPanel(lastWarehouseBarcodePreview);
+        renderWarehouseDisassemblyPanel();
     }
 
     return record;
@@ -2087,7 +2096,21 @@ function isWarehouseAutoApplySnapshotFresh(preview = {}, responseSource = '', no
         return true;
     }
 
-    if (responseSource === 'warehouse-api-response') {
+    // Same-page automatic writes require exact scanned IDs and successful POST.
+    // A changed Angular snapshot alone is not proof of successful assembly.
+    if (intent.sourceRoute === 'assembly' && intent.resumedAfterReload !== true) {
+        return false;
+    }
+
+    // The API may return the already assembled units before newly scanned
+    // barcodes become visible. Never auto-write that unchanged snapshot.
+    if (intent.baselineKnown === true) {
+        const nextFingerprint = getWarehouseBarcodePreviewFingerprint(preview);
+        return Boolean(nextFingerprint && nextFingerprint !== intent.baselineFingerprint);
+    }
+
+    if (responseSource === 'warehouse-api-response'
+        && !(intent.sourceRoute === 'assembly' && intent.resumedAfterReload !== true)) {
         return true;
     }
 
@@ -2097,12 +2120,7 @@ function isWarehouseAutoApplySnapshotFresh(preview = {}, responseSource = '', no
         return true;
     }
 
-    if (intent.baselineKnown !== true) {
-        return false;
-    }
-
-    const nextFingerprint = getWarehouseBarcodePreviewFingerprint(preview);
-    return Boolean(nextFingerprint && nextFingerprint !== intent.baselineFingerprint);
+    return false;
 }
 
 function maybeStartWarehouseAutoApply(preview = {}, responseSource = '', now = Date.now()) {
@@ -2146,6 +2164,16 @@ function maybeStartWarehouseAutoApply(preview = {}, responseSource = '', now = D
 function scheduleWarehouseSnapshotAfterAssemblyAction(control = null) {
     if (!isWarehouseOrderWorkflowPageUrl()) {
         return false;
+    }
+
+    if (isWarehouseDisassemblyPageUrl()) {
+        ensureWarehouseRuntimeMessageListener();
+        ensureWarehouseDisassemblyListener();
+        ensureWarehouseDisassemblySelectionListener();
+        requestWarehouseOrderKind();
+        removeWarehouseBarcodePreviewPanel();
+        injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad: false });
+        return true;
     }
 
     const actionText = getWarehouseAssemblyActionControlText(control);
@@ -3249,10 +3277,10 @@ function ensureWarehousePreviewActionListeners() {
 }
 
 
-function renderWarehouseBarcodeListDropdown(panel, products = []) {
+function renderWarehouseGroupedBarcodeList(panel, products = [], title = 'Список штрихкодов') {
     const listProducts = products.filter(product => product.barcodes.length > 0 || product.skippedBarcodes.length > 0);
 
-    if (!warehouseBarcodeListExpanded || !listProducts.length) {
+    if (!listProducts.length) {
         return null;
     }
 
@@ -3269,7 +3297,7 @@ function renderWarehouseBarcodeListDropdown(panel, products = []) {
         }
     });
 
-    appendWarehousePreviewText(wrapper, 'div', 'Список штрихкодов', {
+    appendWarehousePreviewText(wrapper, 'div', title, {
         fontWeight: '700',
         marginBottom: '6px',
         userSelect: 'text'
@@ -3336,7 +3364,18 @@ function renderWarehouseBarcodeListDropdown(panel, products = []) {
     return wrapper;
 }
 
+function renderWarehouseBarcodeListDropdown(panel, products = []) {
+    if (!warehouseBarcodeListExpanded) return null;
+    return renderWarehouseGroupedBarcodeList(panel, products);
+}
+
 function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePreview) {
+    // Assembly helper must never appear on the disassembly route, including
+    // late callbacks from order-kind and Ozon verification requests.
+    if (isWarehouseDisassemblyPageUrl()) {
+        removeWarehouseBarcodePreviewPanel();
+        return false;
+    }
     // The Ozon barcode helper has no role on income/receiving pages. Keep this
     // guard at the renderer boundary because late async Ozon responses can
     // otherwise recreate the panel after route cleanup.
@@ -3566,7 +3605,10 @@ function getWarehouseOzonResolveRequestPayload() {
 
 
 function requestWarehouseOzonUiApply(options = {}) {
-    const payload = getWarehouseOzonResolveRequestPayload();
+    const confirmedExtraction = options?.warehouseExtraction;
+    const payload = confirmedExtraction
+        ? { orderId: confirmedExtraction.orderId, warehouseExtraction: confirmedExtraction }
+        : getWarehouseOzonResolveRequestPayload();
     const trigger = options.trigger === 'automatic' ? 'automatic' : 'manual';
     const actionId = trigger === 'automatic'
         ? String(options.actionId || '').slice(0, 160)
@@ -3770,7 +3812,417 @@ function requestWarehouseOzonResolvePreview(options = {}) {
     return true;
 }
 
+const WAREHOUSE_DISASSEMBLY_SELECTION_REQUEST_EVENT = 'tab_wanderer:warehouse-disassembly-selection-request';
+const WAREHOUSE_DISASSEMBLY_SELECTION_RESPONSE_EVENT = 'tab_wanderer:warehouse-disassembly-selection-response';
+const WAREHOUSE_DISASSEMBLY_PANEL_ID = 'tw-ozon-disassembly-panel';
+const warehouseDisassemblyPanelState = {
+    orderId: '', selected: [], assembled: [], skipped: 0, confirmed: [], actionId: '',
+    expanded: true, listExpanded: false, assembledListExpanded: false, busy: false, status: '',
+    isError: false, verification: null, pendingVerification: false, ozonFromAngular: false,
+    removalCompleted: false
+};
+let warehouseDisassemblySelectionTimer = null;
+let warehouseDisassemblySelectionListenerInstalled = false;
+
+function resetWarehouseDisassemblyPanel(orderId = '') {
+    const state = warehouseDisassemblyPanelState;
+    state.orderId = orderId;
+    state.selected = [];
+    state.assembled = [];
+    state.confirmed = [];
+    state.skipped = 0;
+    state.actionId = '';
+    state.busy = false;
+    state.status = '';
+    state.isError = false;
+    state.verification = null;
+    state.pendingVerification = false;
+    state.ozonFromAngular = false;
+    state.removalCompleted = false;
+}
+
+function getWarehouseDisassemblyPanelButton(label, action, disabled = false, variant = 'primary') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.twDisassemblyAction = action;
+    button.disabled = disabled;
+    button.textContent = label;
+    button.style.cssText = 'display:block;width:100%;padding:9px 10px;margin-top:8px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;';
+    button.style.border = variant === 'secondary' ? '1px solid #005bff' : '0';
+    button.style.background = variant === 'secondary' ? '#fff' : variant === 'danger' ? '#db2919' : '#005bff';
+    button.style.color = variant === 'secondary' ? '#005bff' : '#fff';
+    if (disabled) { button.style.opacity = '0.5'; button.style.cursor = 'default'; }
+    return button;
+}
+
+function appendWarehouseDisassemblyText(parent, text, css = '') {
+    const element = document.createElement('div');
+    element.textContent = text;
+    element.style.cssText = css;
+    parent.appendChild(element);
+    return element;
+}
+
+function getWarehouseDisassemblyPanelRows() {
+    const state = warehouseDisassemblyPanelState;
+    return state.confirmed.length ? state.confirmed : state.selected;
+}
+
+function getWarehouseDisassemblyAssembledRows() {
+    return warehouseDisassemblyPanelState.assembled;
+}
+
+// Adapt warehouse disassembly rows to the exact same grouped view used on
+// the assembly page. The two lists remain independent: this is display only.
+function groupWarehouseDisassemblyBarcodes(rows = []) {
+    const groups = new Map();
+    for (const row of rows) {
+        const productId = String(row.productId || '').trim();
+        const barcode = String(row.barcode || '').trim();
+        if (!productId || !barcode) continue;
+        let product = groups.get(productId);
+        if (!product) {
+            product = { productId, productTitle: String(row.title || ''), barcodes: [],
+                skippedBarcodes: [], skippedBarcodeGroups: [] };
+            groups.set(productId, product);
+        }
+        if (!product.productTitle && row.title) product.productTitle = String(row.title);
+        if (Number(row.type) === 1) {
+            let multi = product.skippedBarcodeGroups.find(group => group.label === 'Мультиштрихкоды');
+            if (!multi) {
+                multi = { label: 'Мультиштрихкоды', count: 0, barcodes: [] };
+                product.skippedBarcodeGroups.push(multi);
+            }
+            if (!multi.barcodes.includes(barcode)) {
+                multi.barcodes.push(barcode);
+                multi.count += 1;
+                product.skippedBarcodes.push(barcode);
+            }
+        } else if (!product.barcodes.includes(barcode)) {
+            product.barcodes.push(barcode);
+        }
+    }
+    return Array.from(groups.values());
+}
+
+function appendWarehouseDisassemblyBarcodeList(panel, rows, title) {
+    return renderWarehouseGroupedBarcodeList(panel, groupWarehouseDisassemblyBarcodes(rows), title);
+}
+
+function renderWarehouseDisassemblyPanel() {
+    const existing = document.getElementById?.(WAREHOUSE_DISASSEMBLY_PANEL_ID);
+    if (!isWarehouseDisassemblyPageUrl() || (warehouseOrderKindRecord?.kind === 'regular'
+        && !warehouseDisassemblyPanelState.ozonFromAngular)) {
+        existing?.remove?.();
+        return;
+    }
+    // On pages where the order source isn't known yet, don't claim Ozon status.
+    // Show the disassembly helper immediately, even while classification is
+    // pending. Unknown source stays read-only until Warehouse confirms Ozon.
+    let panel = existing;
+    if (!panel) {
+        panel = document.createElement('section');
+        panel.id = WAREHOUSE_DISASSEMBLY_PANEL_ID;
+        panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;width:340px;max-width:calc(100vw - 32px);padding:14px;border:1px solid #d4d9e2;border-radius:12px;background:#fff;color:#172133;box-shadow:0 8px 24px #0003;font:13px/18px Arial,Helvetica,sans-serif;box-sizing:border-box;';
+        panel.addEventListener('click', handleWarehouseDisassemblyPanelAction);
+        (document.body || document.documentElement).appendChild(panel);
+    }
+    panel.style.maxHeight = warehouseDisassemblyPanelState.expanded ? '72vh' : 'none';
+    panel.style.overflowY = warehouseDisassemblyPanelState.expanded ? 'auto' : 'hidden';
+    panel.replaceChildren();
+    const state = warehouseDisassemblyPanelState;
+    const knownOzon = warehouseOrderKindRecord?.kind === 'ozon' || state.ozonFromAngular;
+    const header = getWarehouseDisassemblyPanelButton(
+        `tab_wanderer · ${knownOzon ? 'Ozon: ' : ''}разборка  ${state.expanded ? '▴' : '▾'}`, 'toggle', false, 'secondary');
+    header.style.marginTop = '0';
+    header.style.textAlign = 'left';
+    panel.appendChild(header);
+    if (!state.expanded) {
+        appendWarehouseDisassemblyText(panel, state.status || 'Проверка штрихкодов разборки', 'margin-top:6px;color:#667685;font-size:12px;');
+        return;
+    }
+    const rows = getWarehouseDisassemblyPanelRows();
+    const hasConfirmed = state.confirmed.length > 0;
+    const ozonConfirmed = warehouseOrderKindRecord?.kind === 'ozon' || state.ozonFromAngular;
+    if (!ozonConfirmed) appendWarehouseDisassemblyText(panel,
+        'Проверяем источник заказа. Действия с Ozon недоступны до подтверждения.',
+        'margin:8px 0;color:#b26a00;font-size:12px;');
+    appendWarehouseDisassemblyText(panel, hasConfirmed
+        ? `Подтверждено складом: ${state.confirmed.length} шт.`
+        : `Выбрано для разборки: ${state.selected.length} шт.`, 'font-weight:700;margin:12px 0 4px;');
+    appendWarehouseDisassemblyText(panel, hasConfirmed
+        ? 'Ручное удаление доступно только для подтверждённых штрихкодов.'
+        : 'До подтверждения складом доступны только чтение и проверка.',
+        'font-size:12px;color:#667685;margin-bottom:8px;');
+    if (state.skipped) appendWarehouseDisassemblyText(panel,
+        `Не подходят для поштучного удаления: ${state.skipped}`, 'color:#b26a00;font-size:12px;margin-bottom:6px;');
+    if (state.status) appendWarehouseDisassemblyText(panel, state.status,
+        `margin:8px 0;padding:8px;border-radius:7px;white-space:pre-wrap;background:${state.isError ? '#fff2f2' : '#edf4ff'};color:${state.isError ? '#a62d38' : '#2458d3'};`);
+    if (state.verification && Array.isArray(state.verification.productPlans)) {
+        const present = state.verification.productPlans.reduce((n, row) => n + (row.alreadyExists?.length || 0), 0);
+        const absent = state.verification.productPlans.reduce((n, row) => n + (row.toAdd?.length || 0), 0);
+        const errors = state.verification.productPlans.filter(row => row.status === 'error').length;
+        appendWarehouseDisassemblyText(panel, `Проверка Ozon: присутствует ${present}, отсутствует ${absent}${errors ? `, ошибок товаров ${errors}` : ''}`,
+            'font-size:12px;font-weight:700;padding:7px;background:#f5f7fa;border-radius:7px;');
+    }
+    panel.appendChild(getWarehouseDisassemblyPanelButton(state.pendingVerification ? 'Проверяем в Ozon…' : 'Проверить в Ozon', 'verify',
+        !ozonConfirmed || !rows.length || state.busy || state.pendingVerification, 'secondary'));
+    panel.appendChild(getWarehouseDisassemblyPanelButton('Обновить список штрихкодов', 'refresh', state.busy, 'secondary'));
+    panel.appendChild(getWarehouseDisassemblyPanelButton('Удалить подтверждённые в Ozon вручную', 'remove',
+        !ozonConfirmed || !hasConfirmed || state.removalCompleted || state.busy || state.pendingVerification, 'danger'));
+    const assembled = getWarehouseDisassemblyAssembledRows();
+    appendWarehouseDisassemblyText(panel, 'Уже укомплектованные штрихкоды', 'font-weight:700;margin:12px 0 4px;');
+    panel.appendChild(getWarehouseDisassemblyPanelButton(
+        state.assembledListExpanded ? 'Скрыть укомплектованные ШК' : `Укомплектованные ШК (${assembled.length})`,
+        'assembled-list', assembled.length === 0, 'secondary'));
+    if (state.assembledListExpanded) appendWarehouseDisassemblyBarcodeList(panel, assembled, 'Список штрихкодов');
+    appendWarehouseDisassemblyText(panel, 'Штрихкоды на удаление из Ozon', 'font-weight:700;margin:12px 0 4px;');
+    panel.appendChild(getWarehouseDisassemblyPanelButton(
+        state.listExpanded ? 'Скрыть ШК на удаление' : `ШК на удаление (${rows.length})`,
+        'list', rows.length === 0, 'secondary'));
+    if (state.listExpanded) appendWarehouseDisassemblyBarcodeList(panel, rows, 'Штрихкоды на удаление');
+}
+
+function requestWarehouseDisassemblySelection() {
+    if (!isWarehouseDisassemblyPageUrl()) return;
+    window.dispatchEvent(new CustomEvent(WAREHOUSE_DISASSEMBLY_SELECTION_REQUEST_EVENT));
+}
+
+function makeWarehouseDisassemblyVerificationExtraction(rows) {
+    const productsById = {};
+    for (const row of rows) {
+        if (!/^\d{5,}$/.test(String(row.productId)) || !/^[a-zA-Z0-9_-]{5,80}$/.test(String(row.barcode))) return null;
+        const id = String(row.productId);
+        if (!productsById[id]) productsById[id] = { productId: id, productTitle: row.title || '', eligibleBarcodes: [], skippedBarcodes: [] };
+        productsById[id].eligibleBarcodes.push({ productId: id, barcode: row.barcode,
+            itemType: 0, assemblyQuantity: 1, reservedQuantity: 1 });
+    }
+    return { orderId: getWarehouseOrderIdFromUrl(), productsById };
+}
+
+function handleWarehouseDisassemblyPanelAction(event) {
+    const action = event?.target?.closest?.('[data-tw-disassembly-action]');
+    if (!action || action.disabled || event.isTrusted !== true) return;
+    const state = warehouseDisassemblyPanelState;
+    const type = action.dataset.twDisassemblyAction;
+    if (type === 'toggle') { state.expanded = !state.expanded; renderWarehouseDisassemblyPanel(); return; }
+    if (type === 'list') { state.listExpanded = !state.listExpanded; renderWarehouseDisassemblyPanel(); return; }
+    if (type === 'assembled-list') { state.assembledListExpanded = !state.assembledListExpanded; renderWarehouseDisassemblyPanel(); return; }
+    if (type === 'refresh') { requestWarehouseDisassemblySelection(); return; }
+    if (type === 'verify') {
+        if (warehouseOrderKindRecord?.kind !== 'ozon' && !state.ozonFromAngular) return;
+        const extraction = makeWarehouseDisassemblyVerificationExtraction(getWarehouseDisassemblyPanelRows());
+        if (!extraction || Object.keys(extraction.productsById).length === 0) return;
+        state.pendingVerification = true;
+        state.verification = null;
+        state.status = 'Проверяем выбранные штрихкоды в Ozon (без изменений карточки)…';
+        state.isError = false;
+        renderWarehouseDisassemblyPanel();
+        sendRuntimeMessage({ type: 'OZON_RESOLVE_PREVIEW_REQUEST', trigger: 'manual',
+            orderId: state.orderId, warehouseExtraction: extraction,
+            documentInstanceId: WAREHOUSE_DOCUMENT_INSTANCE_ID }, response => {
+            if (response?.ok) return;
+            state.pendingVerification = false;
+            state.isError = true;
+            state.status = `Проверка не запущена: ${response?.error || 'нет ответа'}`;
+            renderWarehouseDisassemblyPanel();
+        }, 'OZON_DISASSEMBLY');
+        return;
+    }
+    if (type === 'remove') {
+        if (warehouseOrderKindRecord?.kind !== 'ozon' && !state.ozonFromAngular) return;
+        if (!state.confirmed.length || !state.actionId || state.removalCompleted || state.busy || state.pendingVerification) return;
+        if (!window.confirm?.(`Удалить в Ozon ${state.confirmed.length} штрихкод(ов), уже разобранных складом?`)) return;
+        state.busy = true;
+        state.status = 'Ручное удаление: ожидаем подтверждения Ozon…';
+        state.isError = false;
+        renderWarehouseDisassemblyPanel();
+        sendRuntimeMessage({ type: 'OZON_DISASSEMBLY_MANUAL_REMOVE',
+            confirmed: true, source: 'OZON', orderId: state.orderId,
+            actionId: state.actionId, rows: state.confirmed.map(({ productId, productItemId, barcode, type }) =>
+                ({ productId, productItemId, barcode, type })),
+            documentInstanceId: WAREHOUSE_DOCUMENT_INSTANCE_ID }, response => {
+            if (response?.ok && response?.started) return;
+            state.busy = false;
+            state.isError = true;
+            state.status = `Ручное удаление не запущено: ${response?.error || 'нет ответа'}`;
+            renderWarehouseDisassemblyPanel();
+        }, 'OZON_DISASSEMBLY');
+    }
+}
+
+function ensureWarehouseDisassemblySelectionListener() {
+    if (warehouseDisassemblySelectionListenerInstalled) return;
+    warehouseDisassemblySelectionListenerInstalled = true;
+    window.addEventListener(WAREHOUSE_DISASSEMBLY_SELECTION_RESPONSE_EVENT, event => {
+        if (!isWarehouseDisassemblyPageUrl()) return;
+        const detail = event?.detail || {};
+        if (normalizeAmperkotOrderId(detail.orderId) !== getWarehouseOrderIdFromUrl()) return;
+        if (detail.source && detail.source !== 'OZON') return;
+        if (!Array.isArray(detail.rows) || detail.rows.length > 1000) return;
+        const rows = detail.rows.filter(row => /^\d{5,}$/.test(String(row.productId))
+            && /^\d+$/.test(String(row.productItemId)) && /^[a-zA-Z0-9_-]{5,80}$/.test(String(row.barcode))
+            && row.type === 0);
+        const state = warehouseDisassemblyPanelState;
+        if (state.orderId !== detail.orderId) resetWarehouseDisassemblyPanel(detail.orderId);
+        if (detail.source === 'OZON') state.ozonFromAngular = true;
+        const assembled = Array.isArray(detail.assembled) ? detail.assembled.filter(row =>
+            /^\d{5,}$/.test(String(row.productId))
+            && /^[a-zA-Z0-9_-]{5,80}$/.test(String(row.barcode))
+            && (row.type === 0 || row.type === 1)).slice(0, 2000) : [];
+        const signature = JSON.stringify(rows);
+        if (JSON.stringify(state.selected) === signature && state.skipped === detail.skipped
+            && JSON.stringify(state.assembled) === JSON.stringify(assembled)) return;
+        state.assembled = assembled;
+        state.selected = rows;
+        state.skipped = Math.max(0, Number(detail.skipped) || 0);
+        if (!state.confirmed.length) state.verification = null;
+        renderWarehouseDisassemblyPanel();
+    });
+    if (warehouseDisassemblySelectionTimer === null) {
+        warehouseDisassemblySelectionTimer = setInterval(() => {
+            if (isWarehouseDisassemblyPageUrl()) requestWarehouseDisassemblySelection();
+        }, 1500);
+    }
+}
+
+// The Warehouse POST confirms precise item IDs, but its response does not
+// include barcodes. Use the Angular selection captured synchronously at send().
+const WAREHOUSE_ASSEMBLY_CONFIRMED_EVENT = 'tab_wanderer:warehouse-assembly-confirmed';
+let warehouseAssemblyConfirmationListenerInstalled = false;
+let lastWarehouseAssemblyConfirmedSignature = '';
+
+function ensureWarehouseAssemblyConfirmationListener() {
+    if (warehouseAssemblyConfirmationListenerInstalled) return;
+    warehouseAssemblyConfirmationListenerInstalled = true;
+    window.addEventListener?.(WAREHOUSE_ASSEMBLY_CONFIRMED_EVENT, event => {
+        if (!isWarehouseAssemblyPageUrl() || warehouseAutoBarcodeApplyEnabled !== true) return;
+        const detail = event?.detail || {};
+        const intent = warehouseAutoApplyIntent;
+        if (detail.confirmed !== true || detail.source !== 'OZON'
+            || !intent || intent.status !== 'waiting'
+            || normalizeAmperkotOrderId(detail.orderId) !== getWarehouseOrderIdFromUrl()
+            || intent.orderId !== detail.orderId || !Array.isArray(detail.rows) || !detail.rows.length) return;
+        const signature = `${detail.orderId}:${detail.actionId}:${detail.rows.map(row => row.productItemId).sort().join(',')}`;
+        if (signature === lastWarehouseAssemblyConfirmedSignature) return;
+        const productsById = {};
+        for (const row of detail.rows) {
+            const productId = normalizeWarehouseBridgeId(row.productId);
+            const barcode = normalizeWarehouseBridgeId(row.barcode);
+            if (!/^\d{5,}$/.test(productId) || !/^[a-zA-Z0-9_-]{5,80}$/.test(barcode)
+                || Number(row.type) !== 0) return;
+            if (!productsById[productId]) productsById[productId] = {
+                productId, productTitle: row.title || '', eligibleBarcodes: [], skippedBarcodes: []
+            };
+            productsById[productId].eligibleBarcodes.push({
+                productId, barcode, itemType: 0, assemblyQuantity: 1, reservedQuantity: 1
+            });
+        }
+        if (!Object.keys(productsById).length) return;
+        lastWarehouseAssemblyConfirmedSignature = signature;
+        clearWarehouseAssemblyActionRefreshTimers('confirmed Warehouse POST');
+        const extraction = { orderId: detail.orderId, productsById };
+        log('INFO', 'WAREHOUSE_AUTO_APPLY', 'assembly POST confirmed exact barcodes', {
+            orderId: detail.orderId, actionId: detail.actionId, barcodeCount: detail.rows.length
+        });
+        requestWarehouseOzonUiApply({ trigger: 'automatic', actionId: intent.actionId,
+            warehouseExtraction: extraction });
+    });
+}
+
+const WAREHOUSE_DISASSEMBLY_CONFIRMED_EVENT = 'tab_wanderer:warehouse-disassembly-confirmed';
+let warehouseDisassemblyListenerInstalled = false;
+let lastWarehouseDisassemblySignature = '';
+
+function showWarehouseDisassemblyStatus(message, isError = false) {
+    log(isError ? 'WARN' : 'INFO', 'OZON_DISASSEMBLY', message);
+    if (isWarehouseDisassemblyPageUrl()) {
+        warehouseDisassemblyPanelState.status = message;
+        warehouseDisassemblyPanelState.isError = isError;
+        renderWarehouseDisassemblyPanel();
+        return;
+    }
+    const root = document.querySelector?.('#content') || document.body;
+    if (!root?.appendChild || !document.createElement) return;
+    let status = document.getElementById?.('tw-ozon-disassembly-status');
+    if (!status) {
+        status = document.createElement('div');
+        status.id = 'tw-ozon-disassembly-status';
+        status.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:99999;max-width:440px;padding:14px 18px;color:#fff;border-radius:8px;font-weight:600;box-shadow:0 3px 14px #0003;background:#2458d3;';
+        root.appendChild(status);
+    }
+    status.style.background = isError ? '#a62d38' : '#2458d3';
+    status.textContent = message;
+}
+
+function ensureWarehouseDisassemblyListener() {
+    if (warehouseDisassemblyListenerInstalled) return;
+    warehouseDisassemblyListenerInstalled = true;
+    window.addEventListener?.(WAREHOUSE_DISASSEMBLY_CONFIRMED_EVENT, event => {
+        if (!isWarehouseDisassemblyPageUrl()) return;
+        const detail = event?.detail || {};
+        if (detail.confirmed !== true || detail.source !== 'OZON'
+            || normalizeAmperkotOrderId(detail.orderId) !== getWarehouseOrderIdFromUrl()
+            || !Array.isArray(detail.rows) || !detail.rows.length) return;
+        const signature = `${detail.orderId}:${detail.actionId}:${detail.rows.map(row => row.productItemId).sort().join(',')}`;
+        if (lastWarehouseDisassemblySignature === signature) return;
+        lastWarehouseDisassemblySignature = signature;
+        const state = warehouseDisassemblyPanelState;
+        state.orderId = detail.orderId;
+        state.ozonFromAngular = true;
+        state.actionId = String(detail.actionId);
+        state.confirmed = detail.rows.map(row => ({ ...row }));
+        state.removalCompleted = false;
+        state.verification = null;
+        state.busy = true;
+        showWarehouseDisassemblyStatus(`Разборка подтверждена. Ozon: проверяем ${detail.rows.length} штрихкод(ов)…`);
+        sendRuntimeMessage({
+            type: 'OZON_DISASSEMBLY_CONFIRMED',
+            ...detail,
+            documentInstanceId: WAREHOUSE_DOCUMENT_INSTANCE_ID
+        }, response => {
+            if (response?.ok && response?.started) return;
+            if (response?.ok && response?.disabled) {
+                warehouseDisassemblyPanelState.busy = false;
+                showWarehouseDisassemblyStatus('Разборка подтверждена. Автоудаление штрихкодов Ozon отключено в настройках.');
+                return;
+            }
+            warehouseDisassemblyPanelState.busy = false;
+            showWarehouseDisassemblyStatus(`Удаление в Ozon не запущено: ${response?.error || 'нет подтверждения расширения'}. Проверьте статус и повторите вручную при необходимости.`, true);
+        }, 'OZON_DISASSEMBLY');
+    });
+}
+
+function isWarehouseDisassemblyRemovalSatisfied(result, confirmedCount) {
+    const total = Number(confirmedCount);
+    const removed = Number(result?.removedCount);
+    const alreadyMissing = Number(result?.alreadyMissingCount);
+    return result?.ok === true
+        && Number.isSafeInteger(total) && total > 0
+        && Number.isSafeInteger(removed) && removed >= 0
+        && Number.isSafeInteger(alreadyMissing) && alreadyMissing >= 0
+        && removed + alreadyMissing === total;
+}
+
 function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
+    if (msg?.type === 'OZON_DISASSEMBLY_REMOVE_RESULT') {
+        if (normalizeAmperkotOrderId(msg.orderId) === getWarehouseOrderIdFromUrl()
+            && String(msg.actionId || '') === warehouseDisassemblyPanelState.actionId) {
+            const state = warehouseDisassemblyPanelState;
+            const count = Number(msg.removedCount) || 0;
+            const alreadyMissing = Number(msg.alreadyMissingCount) || 0;
+            state.busy = false;
+            // A successful result means each confirmed barcode was verified absent.
+            // `alreadyMissingCount` covers safe, idempotent retries.
+            state.removalCompleted = isWarehouseDisassemblyRemovalSatisfied(msg, state.confirmed.length);
+            showWarehouseDisassemblyStatus(state.removalCompleted
+                ? `Ozon: удалено ${count}, уже отсутствовало ${alreadyMissing} штрихкод(ов). Проверено, остальные сохранены.`
+                : `Ozon: ${msg.error || 'удаление не завершено'}; подтверждено удалений: ${count}. Проверьте ЛК Ozon.`, !state.removalCompleted);
+        }
+        if (typeof sendResponse === 'function') sendResponse({ ok: true });
+        return true;
+    }
+
     if (msg?.type === 'WAREHOUSE_STOCK_BRANCH_CONFIG_UPDATED') {
         warehouseStockBranchConfigRevision += 1;
         applyWarehouseStockBranch(msg.branch);
@@ -3798,6 +4250,22 @@ function handleWarehouseRuntimeMessage(msg, _sender, sendResponse) {
             sendResponse({ ok: true });
         }
 
+        return true;
+    }
+
+    if (msg?.type === 'OZON_RESOLVE_PREVIEW_RESULT' && isWarehouseDisassemblyPageUrl()) {
+        if (normalizeAmperkotOrderId(msg.orderId) === getWarehouseOrderIdFromUrl()
+            && (!msg.documentInstanceId || String(msg.documentInstanceId) === WAREHOUSE_DOCUMENT_INSTANCE_ID)
+            && warehouseDisassemblyPanelState.pendingVerification) {
+            const state = warehouseDisassemblyPanelState;
+            state.pendingVerification = false;
+            state.verification = msg.ok && msg.plan ? msg.plan : null;
+            state.isError = !msg.ok;
+            state.status = msg.ok ? 'Проверка Ozon завершена. Сверьте наличие штрихкодов в списке.'
+                : `Ошибка проверки Ozon: ${msg.error || 'нет данных'}`;
+            renderWarehouseDisassemblyPanel();
+        }
+        if (typeof sendResponse === 'function') sendResponse({ ok: true });
         return true;
     }
 
@@ -4083,7 +4551,10 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     clearWarehouseShopOrderRetryTimer();
     warehouseShopOrderReadAttempt = 0;
 
-    if (shouldIgnoreLowerPriorityWarehouseSnapshot(responseSource, summary)) {
+    const changedDuringAssembly = warehouseAutoApplyIntent?.status === 'waiting'
+        && warehouseAutoApplyIntent.baselineKnown === true
+        && getWarehouseBarcodePreviewFingerprint(nextWarehouseBarcodePreview) !== warehouseAutoApplyIntent.baselineFingerprint;
+    if (!changedDuringAssembly && shouldIgnoreLowerPriorityWarehouseSnapshot(responseSource, summary)) {
         log('INFO', 'WAREHOUSE_OZON', 'ignored lower priority barcode snapshot', {
             responseSource,
             previousSource: warehouseAssemblyActionDebug?.lastResponseSource || '',
@@ -4110,8 +4581,11 @@ function handleWarehouseShopOrderBridgeResponse(event) {
         lastBridgeApiMatchedUrl: detail.debug?.lastApiMatchedUrl || ''
     });
 
+    const waitingForNewAssembly = warehouseAutoApplyIntent?.status === 'waiting'
+        && warehouseAutoApplyIntent.baselineKnown === true
+        && getWarehouseBarcodePreviewFingerprint(nextWarehouseBarcodePreview) === warehouseAutoApplyIntent.baselineFingerprint;
     if (!warehouseAssemblyActionRefreshTimers.length
-        || hasFreshBarcodeSnapshot) {
+        || (hasFreshBarcodeSnapshot && !waitingForNewAssembly)) {
         clearWarehouseAssemblyActionRefreshTimers(hasFreshBarcodeSnapshot ? `${responseSource} barcode snapshot` : 'normal snapshot');
     } else {
         updateWarehouseAssemblyActionDebug({
@@ -4204,6 +4678,19 @@ function initWarehouseBarcodeBridge() {
         return false;
     }
 
+    ensureWarehouseAssemblyConfirmationListener();
+    if (isWarehouseDisassemblyPageUrl()) {
+        ensureWarehouseRuntimeMessageListener();
+        ensureWarehouseDisassemblyListener();
+        ensureWarehouseDisassemblySelectionListener();
+        requestWarehouseOrderKind();
+        removeWarehouseBarcodePreviewPanel();
+        injectWarehouseBarcodeBridgeScript({ requestSnapshotOnLoad: false });
+        requestWarehouseDisassemblySelection();
+        renderWarehouseDisassemblyPanel();
+        return true;
+    }
+
     if (!warehouseBarcodeBridgeInitialized) {
         window.addEventListener?.(WAREHOUSE_SHOP_ORDER_RESPONSE_EVENT, handleWarehouseShopOrderBridgeResponse);
         ensureWarehouseRuntimeMessageListener();
@@ -4247,6 +4734,10 @@ function handleWarehouseRouteStateChanged({ force = false } = {}) {
     const orderChanged = previousOrderId !== nextOrderId;
     lastWarehouseRouteHref = href;
 
+    if (nextRouteKind !== 'disassembly' || orderChanged) {
+        document.getElementById?.(WAREHOUSE_DISASSEMBLY_PANEL_ID)?.remove?.();
+        resetWarehouseDisassemblyPanel(nextOrderId);
+    }
     if (nextRouteKind) {
         if (nextRouteKind === 'income-perform') {
             removeWarehouseBarcodePreviewPanel();
@@ -4356,6 +4847,7 @@ function sendOzonProductResolveResult(productId, result = {}) {
     sendRuntimeMessage({
         type: 'OZON_PRODUCT_RESOLVE_RESULT',
         productId,
+        sellerId: ozonResolvedSellerId,
         result: {
             ok: result.ok === true,
             error: result.error || null,
@@ -4480,23 +4972,79 @@ function sendOzonUiApplyResult(productId, result = {}) {
     }, 'OZON_PRODUCT');
 }
 
+
+function dispatchOzonUiRemoveRequest(productId, barcodes = [], ozonSku = '', sellerId = '') {
+    const normalizedProductId = normalizeWarehouseBridgeId(productId);
+    const normalizedBarcodes = Array.isArray(barcodes)
+        ? barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [];
+    const isolatedApi = window?.[OZON_ISOLATED_API_KEY];
+    if (!isolatedApi || typeof isolatedApi.removeConfirmedOzonBarcodes !== 'function') {
+        sendOzonUiRemoveResult(normalizedProductId, { ok: false, error: 'isolated Ozon remove bridge unavailable' });
+        return false;
+    }
+    Promise.resolve(isolatedApi.removeConfirmedOzonBarcodes({
+        productId: normalizedProductId,
+        barcodes: normalizedBarcodes,
+        ozonSku: normalizeWarehouseBridgeId(ozonSku),
+        sellerId: normalizeWarehouseBridgeId(sellerId)
+    })).then(result => {
+        sendOzonUiRemoveResult(normalizedProductId, result || {});
+    }).catch(error => {
+        sendOzonUiRemoveResult(normalizedProductId, { ok: false, error: error?.message || 'Ozon removal failed' });
+    });
+    return true;
+}
+
+function sendOzonUiRemoveResult(productId, result = {}) {
+    sendRuntimeMessage({
+        type: 'OZON_UI_REMOVE_RESULT',
+        productId: normalizeWarehouseBridgeId(productId),
+        ok: result.ok === true,
+        error: result.error || null,
+        removedCount: Number(result.removedCount) || 0,
+        alreadyMissingCount: Number(result.alreadyMissingCount) || 0,
+        verifiedCount: Number(result.verifiedCount) || 0
+    }, () => {
+        const runtimeError = getRuntimeLastError();
+        if (runtimeError && !handleRuntimeMessagingError('OZON_PRODUCT', runtimeError)) {
+            log('WARN', 'OZON_PRODUCT', 'remove result failed', runtimeError.message);
+        }
+    }, 'OZON_PRODUCT');
+}
+
 function handleOzonRuntimeMessage(msg, _sender, sendResponse) {
-    if (msg?.type !== 'OZON_UI_APPLY_IN_WORKER') {
+    if (msg?.type !== 'OZON_UI_APPLY_IN_WORKER' && msg?.type !== 'OZON_UI_REMOVE_IN_WORKER') {
         return false;
     }
 
     const productId = normalizeWarehouseBridgeId(msg.productId || getOzonProductIdFromUrl());
     const barcodes = Array.isArray(msg.barcodes) ? msg.barcodes.map(normalizeWarehouseBridgeId).filter(Boolean) : [];
 
-    if (!productId || !barcodes.length) {
-        sendOzonUiApplyResult(productId, { ok: false, error: 'productId or barcodes missing' });
+    if (!productId || productId !== getOzonProductIdFromUrl() || !barcodes.length) {
+        if (msg.type === 'OZON_UI_REMOVE_IN_WORKER') {
+            sendOzonUiRemoveResult(productId, { ok: false, error: 'productId mismatch or barcodes missing' });
+        } else {
+            sendOzonUiApplyResult(productId, { ok: false, error: 'productId or barcodes missing' });
+        }
         if (typeof sendResponse === 'function') {
             sendResponse({ ok: false, error: 'productId or barcodes missing' });
         }
         return true;
     }
 
-    dispatchOzonUiApplyRequest(productId, barcodes);
+    if (msg.type === 'OZON_UI_REMOVE_IN_WORKER') {
+        const sellerId = normalizeWarehouseBridgeId(msg.sellerId);
+        const ozonSku = normalizeWarehouseBridgeId(msg.ozonSku);
+        if (!/^\d{3,}$/.test(sellerId) || !/^\d{6,}$/.test(ozonSku)
+            || (ozonResolvedSellerId && ozonResolvedSellerId !== sellerId)) {
+            sendOzonUiRemoveResult(productId, { ok: false, error: 'Ozon resolved SKU or seller ID missing/mismatched' });
+            if (typeof sendResponse === 'function') sendResponse({ ok: false, error: 'Ozon removal identity missing/mismatched' });
+            return true;
+        }
+        dispatchOzonUiRemoveRequest(productId, barcodes, ozonSku, sellerId);
+    } else {
+        dispatchOzonUiApplyRequest(productId, barcodes);
+    }
 
     if (typeof sendResponse === 'function') {
         sendResponse({ ok: true });

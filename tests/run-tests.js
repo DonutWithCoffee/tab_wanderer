@@ -17,7 +17,10 @@ const testFiles = [
     'tests/warehouse-barcode-bridge.test.js',
     'tests/ozon-product-search.test.js',
     'tests/ozon-barcode-binding.test.js',
-    'tests/ozon-product-bridge.test.js'
+    'tests/ozon-product-bridge.test.js',
+    'tests/ozon-disassembly.test.js',
+    'tests/warehouse-disassembly-panel.test.js',
+    'tests/procurement-reserve-model.test.js'
 ];
 
 function collectSummary(output) {

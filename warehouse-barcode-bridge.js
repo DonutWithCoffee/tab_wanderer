@@ -7,6 +7,10 @@
     const SCAN_TIME_BUDGET_MS = 80;
     const MAX_DEBUG_SAMPLES = 12;
     const API_CAPTURE_ARM_EVENT = 'tab_wanderer:warehouse-api-capture-arm';
+    const DISASSEMBLY_CONFIRMED_EVENT = 'tab_wanderer:warehouse-disassembly-confirmed';
+    const ASSEMBLY_CONFIRMED_EVENT = 'tab_wanderer:warehouse-assembly-confirmed';
+    const DISASSEMBLY_SELECTION_REQUEST_EVENT = 'tab_wanderer:warehouse-disassembly-selection-request';
+    const DISASSEMBLY_SELECTION_RESPONSE_EVENT = 'tab_wanderer:warehouse-disassembly-selection-response';
     const PRODUCT_ITEMS_SUMMARY_REQUEST_EVENT = 'tab_wanderer:warehouse-product-items-summary-request';
     const PRODUCT_ITEMS_SUMMARY_RESPONSE_EVENT = 'tab_wanderer:warehouse-product-items-summary-response';
     const WAREHOUSE_INCOME_SELECTION_EVENT = 'tab_wanderer:warehouse-income-product-selection';
@@ -57,6 +61,7 @@
         lastApiMatchedPath: '',
         lastApiResult: '',
         lastApiError: '',
+        lastAssemblyCaptureResult: '',
         fetchPatched: false,
         xhrPatched: false,
         lastApiEvents: [],
@@ -1316,6 +1321,247 @@
         }
     }
 
+    // Read-only snapshot of the actual Angular selection. A scan alone never
+    // authorizes removal: only inspectDisassemblyConfirmation() can do that.
+    function publishDisassemblySelection() {
+        const form = document.querySelector?.('form[name="disassemblyForm"]');
+        if (!form || !window.location.hash.includes('/wh/shop-orders/disassembly/')) return;
+        const scope = window.angular?.element?.(form)?.scope?.();
+        const order = scope?.$ctrl?.shopOrder;
+        if (!order || !Array.isArray(order.items) || !/^\d{4}-\d{6}$/.test(String(order.number || ''))
+            || order.number !== getExpectedOrderFromUrl()) return;
+        const rows = [];
+        let skipped = 0;
+        for (const item of order.items) {
+            for (const selected of (Array.isArray(item.product_items) ? item.product_items : [])) {
+                const barcode = normalizeId(selected?.barcode);
+                const productId = normalizeId(item?.item_id);
+                const productItemId = normalizeId(selected?.id);
+                if (Number(selected?.type) !== 0) { skipped += 1; continue; }
+                if (!/^\d{5,}$/.test(productId) || !/^\d+$/.test(productItemId)
+                    || !/^[a-zA-Z0-9_-]{5,80}$/.test(barcode)) { skipped += 1; continue; }
+                rows.push({ productId, productItemId, barcode, type: 0,
+                    title: String(item.title || '').slice(0, 160) });
+            }
+        }
+        // Read-only list of every currently assembled barcode, independent
+        // of which units the operator has selected for disassembly.
+        const assembled = [];
+        for (const item of order.items) {
+            const productId = normalizeId(item?.item_id);
+            if (!/^\d{5,}$/.test(productId)) continue;
+            for (const entry of (Array.isArray(item.assembly) ? item.assembly : [])) {
+                const unit = entry?.product_item || {};
+                const barcode = normalizeId(unit.barcode);
+                const type = Number(unit.type);
+                if (!/^[a-zA-Z0-9_-]{5,80}$/.test(barcode) || (type !== 0 && type !== 1)) continue;
+                assembled.push({ productId, barcode, type,
+                    quantity: Number(entry.quantity) || Number(unit.quantity) || 1,
+                    title: String(item.title || '').slice(0, 160) });
+            }
+        }
+        window.dispatchEvent(new CustomEvent(DISASSEMBLY_SELECTION_RESPONSE_EVENT, { detail: {
+            orderId: String(order.number), source: order.source?.value || '', rows: rows.slice(0, 1000),
+            assembled: assembled.slice(0, 2000), skipped
+        } }));
+    }
+
+    // Only an exact successful Warehouse 3 POST can authorize barcode removal.
+    // No UI clicks or scanner events are accepted as proof of disassembly.
+    function getDisassemblyRequestInfo(method, url, body) {
+        let path = '';
+        try {
+            const parsed = new URL(String(url || ''), window.location.origin);
+            if (parsed.origin !== window.location.origin) return null;
+            path = parsed.pathname;
+        } catch { return null; }
+        const match = path.match(/^\/_api\/private\/warehouse\/wh1\/shop-orders\/(\d{4}-\d{6})\/actions\/disassembly\/(\d+)$/);
+        if (String(method || '').toUpperCase() !== 'POST' || !match || typeof body !== 'string' || body.length > 250000) return null;
+        let request;
+        try { request = JSON.parse(body); } catch { return null; }
+        if (request?.number !== match[1] || !Array.isArray(request.items)) return null;
+        if (!window.location.hash.includes('/wh/shop-orders/disassembly/')) return null;
+        if (getExpectedOrderFromUrl() !== match[1]) return null;
+        return { orderId: match[1], actionId: match[2], request };
+    }
+
+    function captureDisassemblyCandidates(method, url, body) {
+        const info = getDisassemblyRequestInfo(method, url, body);
+        if (!info) return null;
+        const form = document.querySelector?.('form[name="disassemblyForm"]');
+        const scope = form && window.angular?.element?.(form)?.scope?.();
+        const shopOrder = scope?.$ctrl?.shopOrder;
+        if (!shopOrder || normalizeId(shopOrder.number || shopOrder.id) !== info.orderId
+            || !Array.isArray(shopOrder.items)) return { ...info, error: 'Angular disassembly selection unavailable' };
+        const rows = [];
+        const before = {};
+        for (const itemRequest of info.request.items) {
+            const itemId = normalizeId(itemRequest?.id);
+            const sourceItem = shopOrder.items.find(item => normalizeId(item?.id) === itemId);
+            if (!sourceItem || !Array.isArray(itemRequest?.product_items)) return { ...info, error: 'Order item mapping missing' };
+            const count = Number(sourceItem.assembled_quantity);
+            if (!Number.isInteger(count) || count < 0) return { ...info, error: 'Assembled baseline missing' };
+            before[itemId] = count;
+            for (const requested of itemRequest.product_items) {
+                const selected = (sourceItem.product_items || []).find(item => normalizeId(item?.id) === normalizeId(requested?.id));
+                if (!selected) return { ...info, error: 'Selected product item mapping missing' };
+                const type = Number(selected.type);
+                // Multi-unit barcodes are excluded; other entries must be exact unit barcode type 0.
+                if (type !== 0) continue;
+                const barcode = normalizeId(selected.barcode);
+                const productId = normalizeId(sourceItem.item_id);
+                const productItemId = normalizeId(selected.id);
+                if (!barcode || !productId || !productItemId || !/^[a-zA-Z0-9_-]{5,80}$/.test(barcode)) {
+                    return { ...info, error: 'Selected unit has no trusted barcode or product ID' };
+                }
+                rows.push({ orderItemId: itemId, productItemId, productId, barcode, type: 0 });
+            }
+        }
+        return { ...info, before, rows };
+    }
+
+    function inspectDisassemblyConfirmation(xhr, captured) {
+        if (!captured || captured.error || !isSuccessfulWarehouseApiStatus(xhr?.status)) return false;
+        let response;
+        try {
+            response = typeof xhr.response === 'object' && xhr.response !== null
+                ? xhr.response : parseJsonPayload(String(xhr.responseText || ''));
+        } catch { return false; }
+        const order = response?.order;
+        const shopOrder = response?.shop_order;
+        if (shopOrder?.source?.value !== 'OZON' || normalizeId(order?.number || order?.id) !== captured.orderId
+            || normalizeId(shopOrder?.number) !== captured.orderId || !Array.isArray(order?.items)) return false;
+        const confirmed = [];
+        const groupMap = new Map();
+        for (const row of captured.rows || []) {
+            if (!groupMap.has(row.orderItemId)) groupMap.set(row.orderItemId, []);
+            groupMap.get(row.orderItemId).push(row);
+        }
+        for (const [orderItemId, items] of groupMap.entries()) {
+            const afterItem = order.items.find(item => normalizeId(item?.id) === orderItemId);
+            const before = captured.before?.[orderItemId];
+            const after = Number(afterItem?.assembled_quantity);
+            if (!Number.isInteger(before) || !Number.isInteger(after) || before - after !== items.length) {
+                // Fail closed when grouped barcodes or concurrent changes make the result ambiguous.
+                continue;
+            }
+            confirmed.push(...items);
+        }
+        if (!confirmed.length) return false;
+        window.dispatchEvent(new CustomEvent(DISASSEMBLY_CONFIRMED_EVENT, { detail: {
+            orderId: captured.orderId, actionId: captured.actionId, confirmed: true, source: 'OZON',
+            rows: confirmed.map(({ productId, productItemId, barcode, type }) => ({ productId, productItemId, barcode, type }))
+        } }));
+        return true;
+    }
+
+    function findRawAssemblyShopOrder() {
+        const expectedOrder = getExpectedOrderFromUrl();
+        const selectors = ['form[name="assemblyForm"]', 'form[name="shopOrderAssemblyForm"]',
+            '[data-ui-view]', 'ui-view', '[ng-controller]', '[data-ng-controller]'];
+        for (const selector of selectors) {
+            const node = document.querySelector?.(selector);
+            if (!node) continue;
+            try {
+                let scope = window.angular?.element?.(node)?.scope?.();
+                for (let level = 0; scope && level < 8; level++, scope = scope.$parent) {
+                    const order = scope.$ctrl?.shopOrder || scope.ctrl?.shopOrder || scope.shopOrder;
+                    if (order && normalizeId(order.number || order.id) === expectedOrder
+                        && Array.isArray(order.items)) return order;
+                }
+            } catch {}
+        }
+        // The generic bridge snapshot is normalized and does not preserve
+        // raw selected product-item IDs. Never use it for write authorization.
+        const deadline = createScanDeadline();
+        for (const entry of collectAngularRoots(deadline)) {
+            const value = entry.value;
+            const order = value?.shopOrder || value?.$ctrl?.shopOrder || value?.ctrl?.shopOrder;
+            if (order && normalizeId(order.number || order.id) === expectedOrder
+                && Array.isArray(order.items)) return order;
+        }
+        return null;
+    }
+
+    // Capture the exact Warehouse 3 assembly selection before the POST. The
+    // successful assembly response includes quantities, not barcode values.
+    function captureAssemblyCandidates(method, url, body) {
+        let path;
+        try {
+            const parsed = new URL(String(url || ''), window.location.origin);
+            if (parsed.origin !== window.location.origin) return null;
+            path = parsed.pathname;
+        } catch { return null; }
+        const match = path.match(/^\/_api\/private\/warehouse\/wh1\/shop-orders\/(\d{4}-\d{6})\/actions\/assembly\/(\d+)$/);
+        if (String(method || '').toUpperCase() !== 'POST' || !match
+            || typeof body !== 'string' || body.length > 250000
+            || !window.location.hash.includes('/wh/shop-orders/assembly/')
+            || getExpectedOrderFromUrl() !== match[1]) return null;
+        let request;
+        try { request = JSON.parse(body); } catch { return null; }
+        if (request?.number !== match[1] || !Array.isArray(request.items)) return null;
+        const captured = { orderId: match[1], actionId: match[2], rows: [], before: {} };
+        const order = findRawAssemblyShopOrder();
+        if (!order || normalizeId(order.number || order.id) !== captured.orderId
+            || !Array.isArray(order.items)) return { ...captured, error: 'Angular assembly selection unavailable' };
+        for (const itemRequest of request.items) {
+            const orderItemId = normalizeId(itemRequest?.id);
+            const sourceItem = order.items.find(item => normalizeId(item?.id) === orderItemId);
+            if (!sourceItem || !Array.isArray(itemRequest?.product_items))
+                return { ...captured, error: 'Assembly order item mapping missing' };
+            const before = Number(sourceItem.assembled_quantity);
+            if (!Number.isInteger(before) || before < 0)
+                return { ...captured, error: 'Assembly baseline missing' };
+            captured.before[orderItemId] = before;
+            for (const requested of itemRequest.product_items) {
+                const item = (sourceItem.product_items || []).find(candidate =>
+                    normalizeId(candidate?.id) === normalizeId(requested?.id));
+                if (!item) return { ...captured, error: 'Scanned assembly item mapping missing' };
+                // Multibarcode units are never sent to Ozon by this path.
+                if (Number(item.type) !== 0) continue;
+                const barcode = normalizeId(item.barcode);
+                const productId = normalizeId(sourceItem.item_id);
+                if (!/^\d{5,}$/.test(productId) || !/^\d+$/.test(normalizeId(item.id))
+                    || !/^[a-zA-Z0-9_-]{5,80}$/.test(barcode))
+                    return { ...captured, error: 'Selected unit lacks trusted barcode or product' };
+                captured.rows.push({ orderItemId, productItemId: normalizeId(item.id),
+                    productId, barcode, type: 0, title: String(sourceItem.title || '').slice(0, 160) });
+            }
+        }
+        if (!captured.rows.length) captured.error = 'No unit barcodes selected';
+        return captured;
+    }
+
+    function inspectAssemblyConfirmation(xhr, captured) {
+        if (!captured || captured.error || !isSuccessfulWarehouseApiStatus(xhr?.status)) return false;
+        let response;
+        try {
+            response = typeof xhr.response === 'object' && xhr.response !== null
+                ? xhr.response : parseJsonPayload(String(xhr.responseText || ''));
+        } catch { return false; }
+        const order = response?.order;
+        const shopOrder = response?.shop_order;
+        if (response?.error || shopOrder?.source?.value !== 'OZON'
+            || normalizeId(order?.number || order?.id) !== captured.orderId
+            || normalizeId(shopOrder?.number) !== captured.orderId || !Array.isArray(order?.items)) return false;
+        const groups = new Map();
+        for (const row of captured.rows) {
+            if (!groups.has(row.orderItemId)) groups.set(row.orderItemId, []);
+            groups.get(row.orderItemId).push(row);
+        }
+        for (const [orderItemId, rows] of groups) {
+            const after = order.items.find(item => normalizeId(item?.id) === orderItemId);
+            const before = captured.before[orderItemId];
+            if (!Number.isInteger(before) || !Number.isInteger(Number(after?.assembled_quantity))
+                || Number(after.assembled_quantity) - before !== rows.length) return false;
+        }
+        window.dispatchEvent(new CustomEvent(ASSEMBLY_CONFIRMED_EVENT, { detail: {
+            orderId: captured.orderId, actionId: captured.actionId, confirmed: true,
+            source: 'OZON', rows: captured.rows
+        } }));
+        return true;
+    }
+
     function patchWarehouseFetchCapture() {
         if (typeof window.fetch !== 'function' || window.fetch.__tabWandererWarehousePatched) {
             return false;
@@ -1368,6 +1614,7 @@
 
         proto.open = function patchedOpen(method, url) {
             this.__tabWandererWarehouseUrl = String(url || '');
+            this.__tabWandererWarehouseMethod = String(method || '');
             return originalOpen.apply(this, arguments);
         };
 
@@ -1376,9 +1623,24 @@
             const captureGeneration = shouldInspectWarehouseApiResponse(requestUrl)
                 ? warehouseApiCaptureGeneration
                 : 0;
+            const disassembly = captureDisassemblyCandidates(this.__tabWandererWarehouseMethod, requestUrl, arguments[0]);
+            const assembly = captureAssemblyCandidates(this.__tabWandererWarehouseMethod, requestUrl, arguments[0]);
+            if (assembly) {
+                getDebug().lastAssemblyCaptureResult = assembly.error
+                    ? `failed: ${assembly.error}` : `captured ${assembly.rows.length} unit barcodes`;
+                persistDebug();
+            }
 
             try {
                 this.addEventListener?.('loadend', () => {
+                    inspectDisassemblyConfirmation(this, disassembly);
+                    const confirmedAssembly = inspectAssemblyConfirmation(this, assembly);
+                    if (assembly) {
+                        getDebug().lastAssemblyCaptureResult = confirmedAssembly
+                            ? `confirmed ${assembly.rows.length} unit barcodes`
+                            : `not confirmed: ${assembly.error || 'response or quantity mismatch'}`;
+                        persistDebug();
+                    }
                     const responseUrl = this.__tabWandererWarehouseUrl || this.responseURL || '';
                     if (parseProductItemsSummaryUrl(responseUrl)) {
                         inspectXhrResponseForProductItemsSummary(this, responseUrl);
@@ -1821,6 +2083,8 @@
     window.addEventListener(API_CAPTURE_ARM_EVENT, event => {
         armWarehouseApiCapture(event?.detail?.durationMs || API_CAPTURE_WINDOW_MS);
     });
+
+    window.addEventListener(DISASSEMBLY_SELECTION_REQUEST_EVENT, publishDisassemblySelection);
 
     window.addEventListener(PRODUCT_ITEMS_SUMMARY_REQUEST_EVENT, event => {
         requestProductItemsSummary(event?.detail?.productId);

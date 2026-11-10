@@ -177,7 +177,7 @@ function loadPopupContext(overrides = {}) {
         ]
     };
     const storageState = {
-        lastSeenReleaseNotesVersion: '1.0.4.3',
+        lastSeenReleaseNotesVersion: '1.0.5',
         ...(overrides.storageState || {})
     };
 
@@ -535,22 +535,22 @@ test('popup shows release notes until current version is acknowledged', () => {
     const document = context.__test.document;
 
     assert.equal(document.getElementById('popupReleaseNotes').hidden, false);
-    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Обновление 1.0.4.3');
-    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /Выбор города склада теперь восстанавливается/);
+    assert.equal(document.getElementById('popupReleaseNotesTitle').innerText, 'Обновление 1.0.5');
+    assert.match(document.getElementById('popupReleaseNotesBody').innerHTML, /Резерв под процен|Поставки: кнопка/);
 
     document.getElementById('dismissReleaseNotes').dispatchEvent({
         type: 'click',
         target: document.getElementById('dismissReleaseNotes')
     });
 
-    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.4.3');
+    assert.equal(context.__test.storageState.lastSeenReleaseNotesVersion, '1.0.5');
     assert.equal(document.getElementById('popupReleaseNotes').hidden, true);
 });
 
 test('popup keeps release notes hidden after acknowledgement', () => {
     const context = loadPopupContext({
         storageState: {
-            lastSeenReleaseNotesVersion: '1.0.4.3'
+            lastSeenReleaseNotesVersion: '1.0.5'
         }
     });
     const document = context.__test.document;

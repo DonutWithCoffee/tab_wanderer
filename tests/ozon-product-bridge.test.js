@@ -627,3 +627,101 @@ test('Ozon network capture ignores unrelated responses before cloning JSON', asy
     await flushAsyncWork();
     assert.equal(cloneCalls, 1);
 });
+
+test('isolated Ozon removal posts only selected unit barcode and preserves all others', async () => {
+    const requests = [];
+    let currentBarcodes = ['2494390', '2494391', '2494392'];
+    const productRow = new ElementStub({
+        tagName: 'TR',
+        text: '12мм антивандальная кнопка Артикул 41128428 SKU 3073595175 2494390'
+    });
+    const context = loadBridgeContext(createDocumentStub([productRow]), {
+        isolated: true,
+        window: {
+            __TAB_WANDERER_OZON_SELLER_ID__: '185464',
+            fetch: async (url, init = {}) => {
+                requests.push({ url, init });
+                if (url === '/api/sc/barcode-details-by-item-id') {
+                    return { ok: true, status: 200, json: async () => ({
+                        barcodes: currentBarcodes.map(barcode => ({item_id:'3073595175',barcode,is_deletable:true}))
+                    }) };
+                }
+                if (url === '/api/barcode-delete') {
+                    const payload = JSON.parse(init.body);
+                    assert.deepEqual(payload, {
+                        barcodes: [{barcode:'2494390',item_id:'3073595175'}],
+                        seller_id:'185464'
+                    });
+                    currentBarcodes = currentBarcodes.filter(barcode => !payload.barcodes.some(row => row.barcode === barcode));
+                    return { ok: true, status: 200, json: async () => ({errors:[]}) };
+                }
+                throw new Error('unexpected API request');
+            }
+        }
+    });
+    const result = await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.removeConfirmedOzonBarcodes({
+        productId:'41128428',barcodes:['2494390'],sellerId:'185464',ozonSku:'3073595175'
+    });
+    assert.equal(result.ok,true,result.error);
+    assert.equal(result.removedCount,1);
+    assert.equal(result.verifiedCount,1);
+    assert.deepEqual(currentBarcodes,['2494391','2494392']);
+    assert.equal(requests.filter(request=>request.url==='/api/barcode-delete').length,1);
+});
+
+test('Ozon removal fails closed if seller ID does not match before any POST', async () => {
+    const requests = [];
+    const productRow = new ElementStub({tagName:'TR',text:'Кнопка Артикул 41128428 SKU 3073595175'});
+    const context = loadBridgeContext(createDocumentStub([productRow]), {
+        isolated:true,window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',fetch: async (...args)=>{requests.push(args);throw Error('not expected');}}
+    });
+    const result = await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.removeConfirmedOzonBarcodes({
+        productId:'41128428',barcodes:['2494390'],sellerId:'999999',ozonSku:'3073595175'
+    });
+    assert.equal(result.ok,false);
+    assert.equal(requests.length,0);
+});
+
+test('isolated Ozon removal accepts verified SKU/seller from main-world resolver even with no isolated DOM/state', async () => {
+    let currentBarcodes=['2494390','2494391'];
+    const requests=[];
+    const context=loadBridgeContext(createDocumentStub([]),{
+        isolated:true,
+        window:{fetch:async(url,init={})=>{
+            requests.push({url,init});
+            if(url==='/api/sc/barcode-details-by-item-id') return {ok:true,status:200,json:async()=>({
+                barcodes:currentBarcodes.map(barcode=>({item_id:'3073595175',barcode}))})};
+            if(url==='/api/barcode-delete') {
+                const payload=JSON.parse(init.body);
+                assert.deepEqual(payload,{seller_id:'185464',barcodes:[{item_id:'3073595175',barcode:'2494390'}]});
+                currentBarcodes=currentBarcodes.filter(code=>code!=='2494390');
+                return {ok:true,status:200,json:async()=>({errors:[]})};
+            }
+            throw Error('unexpected URL '+url);
+        }}
+    });
+    const result=await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.removeConfirmedOzonBarcodes({
+        productId:'41128428',ozonSku:'3073595175',sellerId:'185464',barcodes:['2494390']
+    });
+    assert.equal(result.ok,true,result.error);
+    assert.equal(result.verifiedCount,1);
+    assert.equal(result.removedCount,1);
+    assert.deepEqual(currentBarcodes,['2494391']);
+    assert.equal(requests.filter(item=>item.url==='/api/barcode-delete').length,1);
+});
+
+test('isolated removal rejects DOM SKU mismatch, missing resolved account and ambiguous row without write', async () => {
+    const attempts=[];
+    for (const [rows, sellerId, sku] of [
+        [[new ElementStub({tagName:'TR',text:'Кнопка Артикул 41128428 SKU 7777777777'})],'185464','3073595175'],
+        [[new ElementStub({tagName:'TR',text:'Кнопка Артикул 41128428 SKU 3073595175'})],'','3073595175'],
+        [[new ElementStub({tagName:'TR',text:'Кнопка Артикул 41128428 SKU 3073595175'})],'185464','']
+    ]) {
+        const context=loadBridgeContext(createDocumentStub(rows),{isolated:true,window:{fetch:async(...args)=>{attempts.push(args);throw Error('not expected');}}});
+        const result=await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.removeConfirmedOzonBarcodes({
+            productId:'41128428',ozonSku:sku,sellerId,barcodes:['2494390']
+        });
+        assert.equal(result.ok,false);
+    }
+    assert.equal(attempts.length,0);
+});

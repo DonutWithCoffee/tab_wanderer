@@ -605,6 +605,7 @@ function renderSettings(config = {}) {
     setValue('optionsMonitorModeSelect', normalizeMonitorMode(config.monitorMode));
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
     setChecked('optionsOzonAutoBarcodeApplyEnabled', getOzonAutoBarcodeApplyEnabled(config));
+    setChecked('optionsOzonAutoBarcodeRemoveEnabled', config?.ozonAutoBarcodeRemoveEnabled !== false);
     renderScopeControls(config, currentDictionaries);
     renderWatchedOrders(config);
 
@@ -880,6 +881,12 @@ function saveOzonAutoBarcodeApplyFromUI() {
     );
 }
 
+function saveOzonAutoBarcodeRemoveFromUI() {
+    const enabled = getChecked('optionsOzonAutoBarcodeRemoveEnabled');
+    saveConfig({ ...currentConfig, ozonAutoBarcodeRemoveEnabled: enabled },
+        enabled ? 'Автоудаление штрихкодов Ozon включено.' : 'Автоудаление штрихкодов Ozon выключено.');
+}
+
 function collectNotificationTriggersFromUI(baseConfig = {}) {
     const currentTriggers = getNotificationTriggers(baseConfig);
     const changedFields = { ...currentTriggers.changedFields };
@@ -947,6 +954,11 @@ function bindSettingsAutosave() {
         ozonAutoApplyControl.addEventListener('change', () => {
             saveOzonAutoBarcodeApplyFromUI();
         });
+    }
+
+    const ozonAutoRemoveControl = document.getElementById('optionsOzonAutoBarcodeRemoveEnabled');
+    if (ozonAutoRemoveControl) {
+        ozonAutoRemoveControl.addEventListener('change', saveOzonAutoBarcodeRemoveFromUI);
     }
 
     const triggerControlIds = [

@@ -3437,6 +3437,90 @@
         return enrichedUiResult;
     }
 
+    // Deleting by SKU is intentionally confined to the isolated extension world.
+    // Both preflight and post-write reads must identify the exact Ozon item.
+    async function removeConfirmedOzonBarcodes({ productId, barcodes = [], sellerId = '', ozonSku = '' } = {}) {
+        const expectedId = normalizeId(productId);
+        const targets = mergeUniqueBarcodes(safeArray(barcodes).map(normalizeBarcode).filter(Boolean));
+        if (!expectedId || !targets.length || targets.length > 500 || targets.some(code => !/^[a-zA-Z0-9_-]{5,80}$/.test(code))) {
+            return { ok: false, error: 'Invalid removal product or barcode list' };
+        }
+        // The page-context resolver already matched offer ID to SKU and seller.
+        // The isolated world cannot see main-world state, so compare any DOM or
+        // local account evidence instead of requiring it to independently exist.
+        const sku = normalizeId(ozonSku);
+        const accountSellerId = normalizeId(sellerId);
+        if (!/^\d{6,}$/.test(sku) || !/^\d{3,}$/.test(accountSellerId)) {
+            return { ok: false, error: 'Ozon resolved SKU or seller ID missing' };
+        }
+        const domProduct = resolveProductFromDomRow(expectedId);
+        if (domProduct.ok && normalizeId(domProduct.product?.ozonSku || domProduct.product?.sku) !== sku) {
+            return { ok: false, error: 'Ozon SKU mismatch with visible product' };
+        }
+        if (domProduct.error === 'productRowAmbiguous') {
+            return { ok: false, error: 'Ozon product row ambiguous' };
+        }
+        const localSellerId = normalizeId(getOzonSellerId());
+        if (localSellerId && localSellerId !== accountSellerId) {
+            return { ok: false, error: 'Ozon seller account mismatch' };
+        }
+
+        const read = async () => {
+            const result = await readOzonBarcodeDetailsByItemId({ sellerId: accountSellerId, ozonSku: sku, allowEmptyResponse: true });
+            // The delete verifier must not mistake an unrecognized empty response for an empty barcode list.
+            if (!result.ok || !Array.isArray(result.response?.barcodes)) {
+                throw new Error(result.error || 'Ozon barcode details response has unknown shape');
+            }
+            const returnedItemIds = result.snapshot?.itemIds || [];
+            if (returnedItemIds.some(itemId => itemId !== sku)) {
+                throw new Error('Ozon barcode-details response contains another SKU');
+            }
+            return result.existingBarcodes;
+        };
+        try {
+            const before = await read();
+            const toDelete = targets.filter(barcode => before.includes(barcode));
+            const untouched = before.filter(barcode => !targets.includes(barcode));
+            if (!toDelete.length) {
+                return { ok: true, productId: expectedId, barcodes: targets, removedCount: 0,
+                    alreadyMissingCount: targets.length, verifiedCount: targets.length };
+            }
+            const payload = {
+                barcodes: toDelete.map(barcode => ({ barcode, item_id: sku })),
+                seller_id: accountSellerId
+            };
+            const response = await withTimeout(window.fetch('/api/barcode-delete', {
+                method: 'POST', credentials: 'include',
+                headers: { 'content-type': 'application/json', 'x-o3-company-id': accountSellerId,
+                    'x-o3-language': 'ru', 'x-o3-app-name': 'seller-ui', 'x-o3-page-type': 'products' },
+                body: JSON.stringify(payload)
+            }), 10000, 'Ozon barcode-delete timeout');
+            let data = null;
+            try { data = await withTimeout(response.json(), 6000, 'Ozon delete response timeout'); }
+            catch { return { ok: false, error: 'Ozon barcode-delete response JSON unavailable', removedCount: 0 }; }
+            if (!response.ok || !Array.isArray(data?.errors) || data.errors.length) {
+                return { ok: false, error: `Ozon barcode-delete failed: HTTP ${response.status || 0}`, removedCount: 0 };
+            }
+            for (let attempt = 0; attempt < 12; attempt++) {
+                const after = await read();
+                const missing = targets.every(barcode => !after.includes(barcode));
+                const preserved = untouched.every(barcode => after.includes(barcode));
+                if (!preserved) {
+                    return { ok: false, error: 'Another barcode disappeared during verification; check Ozon manually',
+                        productId: expectedId, removedCount: toDelete.length };
+                }
+                if (missing) {
+                    return { ok: true, productId: expectedId, barcodes: targets, removedCount: toDelete.length,
+                        alreadyMissingCount: targets.length - toDelete.length, verifiedCount: targets.length };
+                }
+                await delay(400);
+            }
+            return { ok: false, error: 'Ozon deletion was not verified', productId: expectedId, removedCount: 0 };
+        } catch (error) {
+            return { ok: false, error: error?.message || 'Ozon barcode removal failed', productId: expectedId, removedCount: 0 };
+        }
+    }
+
     function handleRequest(event) {
         const productId = normalizeId(event?.detail?.productId);
 
@@ -3452,7 +3536,8 @@
 
     if (isExtensionIsolatedWorld) {
         window[ISOLATED_API_KEY] = Object.freeze({
-            applyOzonBarcodesWithFallback
+            applyOzonBarcodesWithFallback,
+            removeConfirmedOzonBarcodes
         });
     } else {
         installFetchCapture();

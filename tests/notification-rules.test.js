@@ -487,3 +487,13 @@ test('getEffectiveConfig enables Ozon automatic barcode adding by default and no
     assert.equal(context.getEffectiveConfig({ ozonAutoBarcodeApplyEnabled: false }).ozonAutoBarcodeApplyEnabled, false);
     assert.equal(context.getEffectiveConfig({ ozonAutoBarcodeApplyEnabled: 1 }).ozonAutoBarcodeApplyEnabled, true);
 });
+
+
+test('automatic Ozon addition and removal default on independently and preserve explicit off', () => {
+    const ctx = loadRulesContext();
+    const defaults = ctx.getEffectiveConfig({});
+    assert.equal(defaults.ozonAutoBarcodeApplyEnabled, true);
+    assert.equal(defaults.ozonAutoBarcodeRemoveEnabled, true);
+    assert.equal(ctx.getEffectiveConfig({ozonAutoBarcodeRemoveEnabled:false}).ozonAutoBarcodeRemoveEnabled, false);
+    assert.equal(ctx.getEffectiveConfig({ozonAutoBarcodeApplyEnabled:false}).ozonAutoBarcodeRemoveEnabled, true);
+});

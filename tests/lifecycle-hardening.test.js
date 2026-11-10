@@ -287,7 +287,7 @@ test('byte-aware state retention preserves watched orders before storage quota i
         userConfig = getEffectiveUserConfig({
             watchedOrders: { items: [{ id: '1-020202' }] }
         });
-        applyStateByteRetention(6000);
+        applyStateByteRetention(6500);
     `);
     delete context.__orders;
     delete context.__hashes;
@@ -295,7 +295,7 @@ test('byte-aware state retention preserves watched orders before storage quota i
     const state = getBackgroundState(context);
     assert.equal(state.knownOrdersDB['1-020202'].id, '1-020202');
     assert.equal(Object.keys(state.knownOrdersDB).length < 20, true);
-    assert.equal(state.storageDiagnostics.lastEstimatedStateBytes <= 6000, true);
+    assert.equal(state.storageDiagnostics.lastEstimatedStateBytes <= 6500, true);
 });
 
 test('notification target retention removes expired and excess targets', async () => {
@@ -409,7 +409,7 @@ test('manifest keeps least-privilege runtime permissions after hardening', () =>
     const path = require('node:path');
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 
-    assert.equal(manifest.version, '1.0.4.3');
+    assert.equal(manifest.version, '1.0.5');
     assert.deepEqual(manifest.permissions, ['storage', 'notifications', 'alarms']);
     assert.equal(manifest.permissions.includes('tabs'), false);
     assert.deepEqual(manifest.host_permissions, [
