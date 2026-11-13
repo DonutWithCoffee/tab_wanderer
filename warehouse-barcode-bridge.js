@@ -1891,11 +1891,53 @@
         };
     }
 
+    // The assembly controller is attached to the form even when a new SPA
+    // route has not populated the broader Angular scope tree yet. Prefer that
+    // exact controller over the time-bounded generic object-graph scan.
+    function findShopOrderFromAssemblyController() {
+        const expectedOrder = getExpectedOrderFromUrl();
+        const selectors = [
+            'form[name="assemblyForm"]',
+            'form[name="shopOrderAssemblyForm"]',
+            '[data-ui-view]',
+            'ui-view',
+            '[ng-controller]',
+            '[data-ng-controller]'
+        ];
+        for (const selector of selectors) {
+            let node;
+            try { node = document.querySelector?.(selector); } catch { continue; }
+            if (!node) continue;
+            try {
+                const wrapped = getAngularWrapped(node);
+                let scope = wrapped?.scope?.() || wrapped?.isolateScope?.();
+                for (let depth = 0; scope && depth < 8; depth++, scope = scope.$parent) {
+                    const candidates = [scope.$ctrl, scope.ctrl, scope];
+                    for (const candidate of candidates) {
+                        const order = candidate?.shopOrder;
+                        if (!isShopOrderIdentity(order, expectedOrder)) continue;
+                        const snapshot = createBridgeShopOrderSnapshot(order, candidate);
+                        if (!hasBridgeShopOrderBarcodeSnapshot(snapshot)) continue;
+                        const debug = getDebug();
+                        debug.lastMatchedPath = `assembly-controller.${selector}`;
+                        debug.lastResult = 'shopOrder found in assembly controller';
+                        debug.lastCandidateCount = snapshot.assembly.length;
+                        persistDebug();
+                        return snapshot;
+                    }
+                }
+            } catch {}
+        }
+        return null;
+    }
+
     function findShopOrderFromAngular() {
         const expectedOrder = getExpectedOrderFromUrl();
         const debug = getDebug();
         debug.lastExpectedOrder = expectedOrder;
 
+        const directSnapshot = findShopOrderFromAssemblyController();
+        if (directSnapshot) return directSnapshot;
         const deadline = createScanDeadline();
         return scanObjectGraph(collectAngularRoots(deadline), expectedOrder, deadline);
     }

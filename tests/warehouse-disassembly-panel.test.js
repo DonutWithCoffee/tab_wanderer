@@ -170,3 +170,51 @@ test('disassembly manual removal button is guarded by completed state', () => {
     assert.match(contentSource, /state\.removalCompleted = isWarehouseDisassemblyRemovalSatisfied/);
     assert.match(contentSource, /String\(msg\.actionId \|\| ''\) === warehouseDisassemblyPanelState\.actionId/);
 });
+
+function confirmedPanelContext() {
+    const start = contentSource.indexOf('function createWarehouseConfirmedPanelPreview(');
+    const end = contentSource.indexOf('\n// The Warehouse POST confirms precise item IDs', start);
+    assert.ok(start >= 0 && end > start, 'confirmed-panel helpers must exist');
+    const context = {
+        normalizeAmperkotOrderId: id => /^\d{4}-\d{6}$/.test(String(id || '')) ? String(id) : '',
+        normalizeWarehouseBridgeId: value => String(value || '').trim(),
+        createWarehouseBarcodePreviewFromShopOrder: shopOrder => ({
+            shopOrder,
+            ok: true,
+            summary: { productCount: shopOrder.assembly.length ? 1 : 0, eligibleCount: shopOrder.assembly.length, skippedCount: 0 }
+        }),
+        isWarehouseAssemblyPageUrl: () => true,
+        getWarehouseOrderIdFromUrl: () => '2218-101126',
+        warehouseConfirmedPanelSnapshot: null
+    };
+    vm.createContext(context);
+    vm.runInContext(contentSource.slice(start, end), context);
+    return context;
+}
+
+test('confirmed Warehouse POST produces a read-only partial panel while Angular shell is empty', () => {
+    const ctx = confirmedPanelContext();
+    const preview = ctx.createWarehouseConfirmedPanelPreview({
+        orderId: '2218-101126', rows: [{productId:'41128428',productItemId:'3998496', barcode:'2494390', type:0, title:'Test'}]
+    });
+    assert.equal(preview.partialConfirmed, true);
+    assert.equal(preview.summary.eligibleCount, 1);
+    assert.equal(preview.shopOrder.assembly[0].product_item.barcode, '2494390');
+    ctx.warehouseConfirmedPanelSnapshot = { orderId: '2218-101126', preview };
+    assert.equal(ctx.shouldPreserveWarehouseConfirmedPanelPreview({ summary: {eligibleCount:0,skippedCount:0}},'2218-101126'), true);
+    assert.equal(ctx.shouldPreserveWarehouseConfirmedPanelPreview({ summary: {eligibleCount:1,skippedCount:0}},'2218-101126'), false);
+    assert.equal(ctx.shouldPreserveWarehouseConfirmedPanelPreview({ summary: {eligibleCount:0,skippedCount:0}},'9999-999999'), false);
+});
+
+test('partial panel accumulates distinct confirmed scans and refuses invalid unit types', () => {
+    const ctx = confirmedPanelContext();
+    const detail = {orderId:'2218-101126',rows:[{productId:'41128428',barcode:'2494390',type:0}]};
+    const first = ctx.createWarehouseConfirmedPanelPreview(detail);
+    const second = ctx.createWarehouseConfirmedPanelPreview({
+        orderId:'2218-101126',rows:[{productId:'41128428',barcode:'2494391',type:0}]
+    },first);
+    assert.equal(second.shopOrder.assembly.length,2);
+    assert.equal(ctx.createWarehouseConfirmedPanelPreview({
+        orderId:'2218-101126',rows:[{productId:'41128428',barcode:'2494392',type:1}]
+    }),null);
+});

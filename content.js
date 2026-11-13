@@ -1040,6 +1040,7 @@ const WAREHOUSE_AUTO_RESOLVE_QUEUE_MAX_RETRIES = 24;
 
 let lastWarehouseBarcodePreview = null;
 let lastWarehouseBarcodePreviewSource = '';
+let warehouseConfirmedPanelSnapshot = null; // read-only, never used as Ozon write authorization
 let lastWarehouseOzonResolvePreview = null;
 let lastWarehouseOzonUiApply = null;
 let warehouseBarcodeBridgeInitialized = false;
@@ -1379,6 +1380,7 @@ function resetWarehouseOrderContext() {
     warehouseOrderKindRecord = createUnknownWarehouseOrderKindRecord(getWarehouseOrderIdFromUrl());
     warehouseAutoApplyIntent = null;
     lastWarehouseBarcodePreviewSource = '';
+    warehouseConfirmedPanelSnapshot = null;
     lastWarehouseAssemblyActionSignature = '';
     lastWarehouseAssemblyActionAt = 0;
     resetWarehouseAutoResolveCheck('order-context-reset');
@@ -3391,10 +3393,20 @@ function renderWarehouseBarcodePreviewPanel(preview = lastWarehouseBarcodePrevie
     }
 
     const viewModel = createWarehouseBarcodePreviewViewModel(preview);
+    if (preview?.partialConfirmed) {
+        // Incomplete panel data is informational, never a manual Ozon write plan.
+        viewModel.actions = (viewModel.actions || []).filter(action =>
+            !['ozon-ui-apply', 'ozon-resolve'].includes(action.id));
+    }
 
     clearWarehousePreviewPanel(panel);
     applyWarehouseBarcodePreviewPanelLayout(panel);
     renderWarehouseBarcodePreviewHeader(panel, viewModel);
+    if (preview?.partialConfirmed) {
+        appendWarehousePreviewText(panel, 'div', preview.partialMessage, {
+            color: '#805b19', marginTop: '5px', fontSize: '12px', whiteSpace: 'normal'
+        });
+    }
 
     const orderKindDisplay = getWarehouseOrderKindDisplay();
     appendWarehousePreviewText(panel, 'div', orderKindDisplay.text, {
@@ -4086,6 +4098,62 @@ function ensureWarehouseDisassemblySelectionListener() {
     }
 }
 
+// A successful Warehouse POST supplies exact newly assembled barcodes, but
+// the resulting Angular shopOrder often has no assembly rows until a reload.
+// Preserve only those confirmed rows as a clearly marked PARTIAL panel view.
+// Do not pass this view to Ozon's automatic write/resolve pipelines.
+function createWarehouseConfirmedPanelPreview(detail, currentPreview = null) {
+    const orderId = normalizeAmperkotOrderId(detail?.orderId);
+    if (!orderId || !Array.isArray(detail?.rows) || !detail.rows.length
+        || detail.rows.length > 2000) return null;
+    const entries = new Map();
+    const currentOrderId = normalizeAmperkotOrderId(currentPreview?.shopOrder?.number
+        || currentPreview?.shopOrder?.id || currentPreview?.extraction?.orderId);
+    if (currentOrderId === orderId) {
+        for (const row of currentPreview?.shopOrder?.assembly || []) {
+            const id = normalizeWarehouseBridgeId(row?.product_item?.product_id);
+            const barcode = normalizeWarehouseBridgeId(row?.product_item?.barcode);
+            if (/^\d{5,}$/.test(id) && /^[a-zA-Z0-9_-]{5,80}$/.test(barcode)) {
+                entries.set(`${id}:${barcode}`, row);
+            }
+        }
+    }
+    for (const row of detail.rows) {
+        const productId = normalizeWarehouseBridgeId(row?.productId);
+        const barcode = normalizeWarehouseBridgeId(row?.barcode);
+        if (!/^\d{5,}$/.test(productId) || !/^[a-zA-Z0-9_-]{5,80}$/.test(barcode)
+            || Number(row?.type) !== 0) return null;
+        entries.set(`${productId}:${barcode}`, {
+            quantity: 1,
+            product_item: {
+                id: normalizeWarehouseBridgeId(row.productItemId),
+                product_id: productId,
+                barcode,
+                type: 0,
+                reserved_quantity: 1,
+                product: { id: productId, title: String(row.title || '').slice(0, 160) }
+            },
+            order_item: { item_id: productId, title: String(row.title || '').slice(0, 160) }
+        });
+    }
+    const preview = createWarehouseBarcodePreviewFromShopOrder({
+        id: orderId, number: orderId, assembly: Array.from(entries.values())
+    });
+    preview.partialConfirmed = true;
+    preview.partialMessage = 'Показаны подтверждённые ШК текущей сборки. Полный список склада пока недоступен.';
+    return preview;
+}
+
+function shouldPreserveWarehouseConfirmedPanelPreview(incomingPreview, orderId) {
+    if (!warehouseConfirmedPanelSnapshot || !isWarehouseAssemblyPageUrl()) return false;
+    if (normalizeAmperkotOrderId(orderId) !== warehouseConfirmedPanelSnapshot.orderId
+        || getWarehouseOrderIdFromUrl() !== warehouseConfirmedPanelSnapshot.orderId) return false;
+    const incoming = incomingPreview?.summary || {};
+    // A nonempty authoritative read can replace the partial view; an empty
+    // Angular shell or an unrelated API payload must not erase it.
+    return Number(incoming.eligibleCount || 0) + Number(incoming.skippedCount || 0) === 0;
+}
+
 // The Warehouse POST confirms precise item IDs, but its response does not
 // include barcodes. Use the Angular selection captured synchronously at send().
 const WAREHOUSE_ASSEMBLY_CONFIRMED_EVENT = 'tab_wanderer:warehouse-assembly-confirmed';
@@ -4096,13 +4164,27 @@ function ensureWarehouseAssemblyConfirmationListener() {
     if (warehouseAssemblyConfirmationListenerInstalled) return;
     warehouseAssemblyConfirmationListenerInstalled = true;
     window.addEventListener?.(WAREHOUSE_ASSEMBLY_CONFIRMED_EVENT, event => {
-        if (!isWarehouseAssemblyPageUrl() || warehouseAutoBarcodeApplyEnabled !== true) return;
+        if (!isWarehouseAssemblyPageUrl()) return;
         const detail = event?.detail || {};
-        const intent = warehouseAutoApplyIntent;
         if (detail.confirmed !== true || detail.source !== 'OZON'
-            || !intent || intent.status !== 'waiting'
             || normalizeAmperkotOrderId(detail.orderId) !== getWarehouseOrderIdFromUrl()
-            || intent.orderId !== detail.orderId || !Array.isArray(detail.rows) || !detail.rows.length) return;
+            || !Array.isArray(detail.rows) || !detail.rows.length) return;
+        const panelPreview = createWarehouseConfirmedPanelPreview(detail,
+            warehouseConfirmedPanelSnapshot?.preview || lastWarehouseBarcodePreview);
+        if (panelPreview) {
+            warehouseConfirmedPanelSnapshot = { orderId: detail.orderId, preview: panelPreview };
+            lastWarehouseBarcodePreview = panelPreview;
+            lastWarehouseBarcodePreviewSource = 'warehouse-confirmed-panel-only';
+            renderWarehouseBarcodePreviewPanel(panelPreview);
+            log('INFO', 'WAREHOUSE_OZON', 'panel updated from confirmed Warehouse POST', {
+                orderId: detail.orderId, summary: panelPreview.summary
+            });
+        }
+        // Panel updates must work even when Ozon automatic writes are disabled.
+        // Only the original intent-authorized branch below may write to Ozon.
+        const intent = warehouseAutoApplyIntent;
+        if (warehouseAutoBarcodeApplyEnabled !== true || !intent || intent.status !== 'waiting'
+            || intent.orderId !== detail.orderId) return;
         const signature = `${detail.orderId}:${detail.actionId}:${detail.rows.map(row => row.productItemId).sort().join(',')}`;
         if (signature === lastWarehouseAssemblyConfirmedSignature) return;
         const productsById = {};
@@ -4127,6 +4209,10 @@ function ensureWarehouseAssemblyConfirmationListener() {
         });
         requestWarehouseOzonUiApply({ trigger: 'automatic', actionId: intent.actionId,
             warehouseExtraction: extraction });
+        // Ozon writes are independent of the panel. The confirmed POST may
+        // arrive before Angular's SPA view is ready, so resume read-only panel
+        // refreshes after confirmation rather than leaving the loading state.
+        requestWarehouseShopOrderSnapshot({ resetAttempts: false, reason: 'post-confirmation-panel' });
     });
 }
 
@@ -4520,6 +4606,12 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     const detail = event?.detail || {};
 
     if (!detail.ok || !detail.shopOrder) {
+        if (warehouseConfirmedPanelSnapshot
+            && warehouseConfirmedPanelSnapshot.orderId === getWarehouseOrderIdFromUrl()
+            && isWarehouseAssemblyPageUrl()) {
+            clearWarehouseShopOrderRetryTimer();
+            return lastWarehouseBarcodePreview;
+        }
         const errorMessage = detail.error || 'warehouse shopOrder not found';
 
         if (scheduleWarehouseShopOrderRetry(errorMessage)) {
@@ -4541,6 +4633,20 @@ function handleWarehouseShopOrderBridgeResponse(event) {
     const summary = nextWarehouseBarcodePreview.summary || nextWarehouseBarcodePreview.extraction?.summary || {};
     const responseSource = detail.source || 'angular-snapshot';
     const hasFreshBarcodeSnapshot = Number(summary.eligibleCount) > 0 || Number(summary.skippedCount) > 0;
+
+    if (shouldPreserveWarehouseConfirmedPanelPreview(nextWarehouseBarcodePreview,
+        detail.shopOrder?.number || detail.shopOrder?.id)) {
+        updateWarehouseAssemblyActionDebug({
+            lastBridgeResult: 'empty Angular shell ignored; confirmed panel retained'
+        });
+        clearWarehouseShopOrderRetryTimer();
+        return lastWarehouseBarcodePreview;
+    }
+    if (hasFreshBarcodeSnapshot && warehouseConfirmedPanelSnapshot
+        && normalizeAmperkotOrderId(detail.shopOrder?.number || detail.shopOrder?.id)
+            === warehouseConfirmedPanelSnapshot.orderId) {
+        warehouseConfirmedPanelSnapshot = null;
+    }
 
     if (!hasFreshBarcodeSnapshot
         && warehouseShopOrderReadReason !== 'assembly-action'

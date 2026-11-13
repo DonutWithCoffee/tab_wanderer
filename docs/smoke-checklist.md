@@ -1,11 +1,11 @@
-# tab_wanderer — release smoke checklist 1.0.5
+# tab_wanderer — release smoke checklist 1.0.5.1
 
 Цель: не допустить публикацию без проверки двух обратных складских операций и импорта резерва.
 
 ## Обязательные проверки перед отправкой в Chrome Web Store
 
-- [ ] `npm test` — 412 pass, 0 fail (или больше без новых ошибок).
-- [ ] `manifest.json`, `version.js`, popup release notes — версия 1.0.5.
+- [ ] `npm test` — 415 pass, 0 fail (или больше без новых ошибок).
+- [ ] `manifest.json`, `version.js`, popup release notes — версия 1.0.5.1.
 - [ ] Новых permissions/host permissions нет.
 - [ ] **Поставка:** импорт нескольких позиций в пустой legacy-заказ, правильные количества, повторное открытие без дублей; не изменять авторезерв.
 - [ ] **Ozon сборка:** открыть частично собранный заказ, добавить 1–3 единичных ШК, нажать сборку; подтвердить запись и read-after-write проверку без F5.
@@ -414,3 +414,11 @@ Permissions: storage, notifications, alarms
 - [ ] Ozon barcode panel still initializes on assembly pages after the Warehouse init changes.
 - [ ] Permissions и host permissions отдельно зафиксированы в build report.
 - [x] Git tag для patch-релиза не создаётся.
+
+## Проверка хотфикса 1.0.5.1
+
+- [ ] Новая вкладка Warehouse 3 → первый вход в сборку Ozon без F5: панель доступна.
+- [ ] После подтверждённой сборки панель показывает один подтверждённый ШК без F5.
+- [ ] При отсутствии полного снимка панель явно помечает список как частичный, ручная запись недоступна.
+- [ ] Переход к другому заказу не оставляет ШК предыдущего.
+- [ ] Автоматическое добавление/удаление ШК не изменилось.

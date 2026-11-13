@@ -346,6 +346,32 @@ test('warehouse bridge prefers captured API shopOrder over visible DOM fallback'
 });
 
 
+test('warehouse first-open panel reads assembly form controller without generic Angular graph scan', () => {
+    const form = new ElementStub({ tagName: 'FORM' });
+    const documentStub = createDocumentStub([form]);
+    documentStub.querySelector = selector => selector === 'form[name="assemblyForm"]' ? form : null;
+    const context = loadBridgeContext(documentStub);
+    const order = {
+        number: '5147-290626',
+        items: [{ id: 12, item_id: 43150731, title: 'Модуль', assembled_quantity: 1,
+            product_items: [{ id: 100, barcode: '2486831', type: 0, quantity: 1 }] }]
+    };
+    context.window.angular = {
+        element(node) {
+            if (node === form) return { scope: () => ({ $ctrl: { shopOrder: order } }) };
+            return { scope: () => null, isolateScope: () => null, data: () => ({}), controller: () => null };
+        }
+    };
+    const results = [];
+    context.window.addEventListener('tab_wanderer:warehouse-shop-order-response', event => results.push(event.detail));
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:warehouse-shop-order-request'));
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, true);
+    assert.equal(results[0].source, 'angular-snapshot');
+    assert.equal(results[0].shopOrder.assembly[0].product_item.barcode, '2486831');
+    assert.match(results[0].debug.lastMatchedPath, /assembly-controller/);
+});
+
 test('warehouse bridge prefers Angular barcode snapshot over stored API shell without barcodes', () => {
     const apiUrl = '/_api/private/warehouse/wh1/shop-orders/5147-290626/actions/assembly/4336';
     const context = loadBridgeContext(createDocumentStub([]), {
