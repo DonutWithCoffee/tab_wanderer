@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проданные ШК — Ozon</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:#203047;background:#f5f7fb}
+*{box-sizing:border-box}body{margin:0;padding:24px}main{max-width:1120px;margin:0 auto}h1{font-size:25px;line-height:1.25;margin:0}h2{font-size:17px;margin:0 0 12px}p{margin:9px 0;color:#536176}section,.panel{background:#fff;border:1px solid #dce3ee;border-radius:12px;padding:20px;margin:16px 0}.subtitle{margin-top:7px}.toolbar{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.toolbar>label{display:flex;flex-direction:column;gap:5px;color:#526173;font-size:13px}input[type=month]{border:1px solid #bdc9da;border-radius:7px;padding:8px 10px;min-height:38px;background:#fff;color:inherit}button{border:0;border-radius:7px;background:#2556cf;color:#fff;font:inherit;padding:9px 14px;cursor:pointer;min-height:38px}button:hover:not(:disabled){filter:brightness(.94)}button:disabled{opacity:.5;cursor:default}.secondary{background:#e9eef7;color:#264067}.danger{background:#ad3030}.action-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}.status{color:#35455e;margin:8px 0}.muted,.note{font-size:13px;color:#67758a}#errors{color:#a52c2c;white-space:pre-wrap}#stats{font-variant-numeric:tabular-nums}#results{max-height:65vh;overflow:auto;margin:12px 0}table{border-collapse:collapse;width:100%}th,td{padding:8px;text-align:left;border-bottom:1px solid #e6eaf0}th{font-size:12px;color:#617087}.product-group{border:1px solid #e0e6ef;border-radius:9px;padding:9px 12px;margin:8px 0}.product-group summary{cursor:pointer;font-weight:600;display:flex;align-items:center;gap:9px}.product-group input[type=checkbox]{width:17px;height:17px;cursor:pointer;margin:0}.product-group td:nth-child(3){max-width:420px;overflow-wrap:anywhere}.bulk-select-controls,.barcode-select-controls{padding:9px 12px;background:#f3f6fb;border:1px solid #e1e6f0;border-radius:8px;margin:10px 0}.bulk-select-label{display:inline-flex;align-items:center;flex-direction:row;gap:9px;margin:0;cursor:pointer;font-weight:600}.bulk-select-label input{width:17px;height:17px;margin:0;cursor:pointer}.collapsible{border:1px solid #dce3ee;border-radius:10px;background:#fff;margin:12px 0;padding:13px 17px}.collapsible>summary{font-weight:600;cursor:pointer}.collapsible[open]>summary{margin-bottom:14px}#removed-results[hidden],#show-removed[hidden]{display:none}#log{width:100%;max-height:230px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#1b2535;color:#e2e9f3;padding:12px;border-radius:7px;font:12px/1.5 ui-monospace,Consolas,monospace}#cleanup-delete-status{font-size:13px}#ozon-check-exclusions{font-size:13px}#scan-issues{max-height:320px;overflow:auto}#review-stage{margin-bottom:0}#review-count{font-weight:600;color:#2b3e59}.advanced-actions{display:flex;gap:8px;flex-wrap:wrap} @media(max-width:600px){body{padding:12px}.toolbar>label{flex:1 1 125px}section{padding:14px}.product-group{padding:9px}#results{max-height:none}}
+</style>
+</head>
+<body><main>
+<header><h1>Проданные штрихкоды Ozon</h1><p class="subtitle">Найдите, проверьте и удалите использованные ШК.</p></header>
+<section aria-labelledby="scan-title">
+<h2 id="scan-title">1. Найти проданные ШК</h2>
+<div class="toolbar">
+<label for="from">С месяца<input type="month" id="from"></label>
+<label for="to">По месяц<input type="month" id="to"></label>
+<button id="start" type="button">Найти ШК</button>
+<button id="stop" type="button" class="secondary" disabled>Остановить</button>
+</div>
+<p id="state" class="status" role="status">Поиск ещё не запускался</p>
+<p id="stats" class="muted"></p><div id="errors" role="alert"></div>
+</section>
+<section aria-labelledby="list-title">
+<h2 id="list-title">2. Штрихкоды</h2>
+<p id="review-stage" class="muted"></p><p id="review-period" class="muted" hidden></p><p id="review-count"></p>
+<div class="action-row"><button id="clear-list" type="button" class="secondary" disabled>Очистить список</button></div>
+<div class="bulk-select-controls"><label class="bulk-select-label"><input type="checkbox" id="review-select-all" aria-label="Выбрать все" disabled><span id="review-select-all-label">Выбрать все</span></label></div>
+<div id="results"></div>
+<button id="show-removed" type="button" class="secondary" hidden>Показать исключённые</button><div id="removed-results" hidden></div>
+<div class="action-row"><button id="ozon-check" type="button">Сверить с Ozon</button><button id="ozon-check-stop" type="button" class="secondary" disabled>Остановить сверку</button></div>
+<p id="ozon-check-status" class="status" role="status">Сверка ещё не проводилась</p><div id="ozon-check-exclusions"></div>
+<div class="action-row"><button id="cleanup-delete" type="button" class="danger" disabled>Удалить выбранные из Ozon</button><span class="note">Удаление начнётся сразу</span></div>
+<p id="cleanup-delete-status" class="muted" role="status">Выберите ШК для удаления.</p>
+</section>
+<details class="collapsible" id="issues-panel"><summary>Проблемы и исключения</summary><p id="issue-count" class="muted">Проблем нет.</p><div id="scan-issues"></div></details>
+<details class="collapsible" id="diagnostics-panel"><summary>Диагностика и дополнительные действия</summary>
+<div class="advanced-actions"><button id="export-log" type="button">Скачать лог</button><button id="export-results" type="button" class="secondary">Скачать результаты</button><button id="reset-log" type="button" class="secondary">Очистить журнал</button><button id="clear" type="button" class="secondary">Сбросить кэш</button></div>
+<p class="note">Лог помогает разобраться в ошибках. Содержит служебные данные заказов и товаров.</p><div id="log" aria-label="Журнал диагностики"></div>
+</details>
+</main>
+<script src="core/sold-barcode-scan.js"></script><script src="core/sold-barcode-review.js"></script><script src="core/sold-barcode-selection.js"></script><script src="core/sold-ozon-exclusion.js"></script><script src="core/sold-ozon-cleanup-preview.js"></script><script src="core/sold-ozon-cleanup-execution.js"></script><script src="core/sold-order-recovery.js"></script><script src="sold-barcodes.js"></script>
+</body></html>

@@ -4959,6 +4959,8 @@ function sendOzonProductResolveResult(productId, result = {}) {
             error: result.error || null,
             productId,
             product: safeProduct,
+            confirmedAbsent: result.confirmedAbsent === true,
+            catalogueDiagnostic: result.catalogueDiagnostic || null,
             itemCount: Array.isArray(result.items) ? result.items.length : 0
         }
     }, () => {
@@ -5118,8 +5120,40 @@ function sendOzonUiRemoveResult(productId, result = {}) {
     }, 'OZON_PRODUCT');
 }
 
+
+function dispatchSoldOzonDelete(productId, barcodes, ozonSku, sellerId, operationId) {
+    const api = window?.[OZON_ISOLATED_API_KEY];
+    const reply = result => sendRuntimeMessage({
+        type: 'SOLD_OZON_DELETE_RESULT', operationId, productId,
+        ok: result?.ok === true, error: result?.error || null,
+        removedCount: Number(result?.removedCount) || 0,
+        verifiedCount: Number(result?.verifiedCount) || 0,
+        stillPresent: Array.isArray(result?.stillPresent) ? result.stillPresent : []
+    }, () => {}, 'OZON_PRODUCT');
+    if (typeof api?.removeConfirmedOzonBarcodes !== 'function') {
+        reply({ok:false,error:'Sold cleanup isolated bridge unavailable'});return;
+    }
+    Promise.resolve(api.removeConfirmedOzonBarcodes({productId,barcodes,ozonSku,sellerId,confirmedSoldInspection:true}))
+        .then(reply).catch(error => reply({ok:false,error:error?.message || 'Ozon deletion failed'}));
+}
+
+function dispatchSoldOzonInspect(productId, barcodes, ozonSku, sellerId, operationId) {
+    const isolatedApi = window?.[OZON_ISOLATED_API_KEY];
+    const reply = result => sendRuntimeMessage({
+        type: 'SOLD_OZON_INSPECT_RESULT', operationId, productId,
+        ok: result?.ok === true, error: result?.error || null,
+        present: Array.isArray(result?.present) ? result.present : [],
+        checkedCount: Number(result?.checkedCount) || 0
+    }, () => {}, 'OZON_PRODUCT');
+    if (typeof isolatedApi?.inspectSoldOzonBarcodes !== 'function') {
+        reply({ ok: false, error: 'Ozon read-only bridge unavailable' }); return;
+    }
+    Promise.resolve(isolatedApi.inspectSoldOzonBarcodes({ productId, barcodes, ozonSku, sellerId }))
+        .then(reply).catch(error => reply({ ok: false, error: error?.message || 'Ozon inspection failed' }));
+}
+
 function handleOzonRuntimeMessage(msg, _sender, sendResponse) {
-    if (msg?.type !== 'OZON_UI_APPLY_IN_WORKER' && msg?.type !== 'OZON_UI_REMOVE_IN_WORKER') {
+    if (msg?.type !== 'OZON_UI_APPLY_IN_WORKER' && msg?.type !== 'OZON_UI_REMOVE_IN_WORKER' && msg?.type !== 'SOLD_OZON_INSPECT_IN_WORKER' && msg?.type !== 'SOLD_OZON_DELETE_IN_WORKER') {
         return false;
     }
 
@@ -5138,6 +5172,30 @@ function handleOzonRuntimeMessage(msg, _sender, sendResponse) {
         return true;
     }
 
+    if (msg.type === 'SOLD_OZON_DELETE_IN_WORKER') {
+        const sellerId = normalizeWarehouseBridgeId(msg.sellerId);
+        const ozonSku = normalizeWarehouseBridgeId(msg.ozonSku);
+        const operationId = String(msg.operationId || '');
+        if (!operationId || !/^\d{3,}$/.test(sellerId) || !/^\d{6,}$/.test(ozonSku)
+            || (ozonResolvedSellerId && ozonResolvedSellerId !== sellerId)) {
+            sendResponse?.({ok:false,error:'Ozon deletion identity mismatch'});return true;
+        }
+        dispatchSoldOzonDelete(productId,barcodes,ozonSku,sellerId,operationId);
+        sendResponse?.({ok:true});return true;
+    }
+    if (msg.type === 'SOLD_OZON_INSPECT_IN_WORKER') {
+        const sellerId = normalizeWarehouseBridgeId(msg.sellerId);
+        const ozonSku = normalizeWarehouseBridgeId(msg.ozonSku);
+        const operationId = String(msg.operationId || '');
+        if (!operationId || !/^\d{3,}$/.test(sellerId) || !/^\d{6,}$/.test(ozonSku)
+            || (ozonResolvedSellerId && ozonResolvedSellerId !== sellerId)) {
+            sendResponse?.({ ok: false, error: 'Ozon inspection identity mismatch' });
+            return true;
+        }
+        dispatchSoldOzonInspect(productId, barcodes, ozonSku, sellerId, operationId);
+        sendResponse?.({ ok: true });
+        return true;
+    }
     if (msg.type === 'OZON_UI_REMOVE_IN_WORKER') {
         const sellerId = normalizeWarehouseBridgeId(msg.sellerId);
         const ozonSku = normalizeWarehouseBridgeId(msg.ozonSku);
@@ -5190,7 +5248,7 @@ function handleOzonProductBridgeResponse(event) {
     }
 
     if (!detail.ok || !detail.source) {
-        sendOzonProductResolveResult(productId, { ok: false, error: detail.error || 'ozonProductSourceMissing' });
+        sendOzonProductResolveResult(productId, { ok: false, error: detail.error || 'ozonProductSourceMissing', confirmedAbsent: detail.confirmedAbsent === true, catalogueDiagnostic: detail.catalogueDiagnostic || null });
         return false;
     }
 

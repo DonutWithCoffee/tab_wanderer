@@ -725,3 +725,173 @@ test('isolated removal rejects DOM SKU mismatch, missing resolved account and am
     }
     assert.equal(attempts.length,0);
 });
+
+test('Ozon page bridge records absent product only for exact successful ALL catalogue request', async () => {
+    const empty={products:[],unavailable_parts:[],cursor:'',total_items:0,provider_errors:[],total_count:'0'};
+    const makeResponse=(value)=>({status:200,headers:{get:()=> 'application/json'},clone:()=>({json:async()=>value})});
+    const body={company_id:'185464',filters:{search:'24260137',categories:[],price_color_indexes:[]},
+        visibility:'ALL',offset:0,return_total_items:true,use_new_search:true,limit:50};
+    const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',
+        fetch:async()=>makeResponse(empty)}});
+    const responses=[];
+    context.window.addEventListener('tab_wanderer:ozon-product-response',event=>responses.push(event.detail));
+    await context.window.fetch('/api/v1/products/list-by-filter',{method:'POST',body:JSON.stringify({...body,filters:{...body.filters,search:'WRONG'}})});
+    await flushAsyncWork(30);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.verifiedAbsentSearch,null);
+    await context.window.fetch('/api/v1/products/list-by-filter',{method:'POST',body:JSON.stringify(body)});
+    await flushAsyncWork(30);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.verifiedAbsentSearch.productId,'24260137');
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request',{detail:{productId:'24260137'}}));
+    await flushAsyncWork(100);
+    assert.equal(responses.at(-1)?.confirmedAbsent,true);
+    assert.equal(responses.at(-1)?.error,'ozon catalogue search confirmed empty');
+});
+
+test('Ozon page bridge recognizes real empty catalogue response without optional cursor and total_items', async () => {
+    const response={products:[],total_count:'0',provider_errors:[],unavailable_parts:[]};
+    const body={company_id:'185464',filters:{search:'24260137',categories:[],price_color_indexes:[]},
+        visibility:'ALL',offset:0,return_total_items:true,use_new_search:true,limit:50};
+    const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',
+        fetch:async()=>({status:200,headers:{get:()=> 'application/json'},clone:()=>({json:async()=>response})})}});
+    await context.window.fetch('/api/v1/products/list-by-filter',{method:'POST',body:JSON.stringify(body)});
+    await flushAsyncWork(30);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.verifiedAbsentSearch?.productId,'24260137');
+});
+
+test('Ozon page bridge refuses empty catalogue response with conflicting count', async () => {
+    const response={products:[],total_count:'1',provider_errors:[],unavailable_parts:[]};
+    const body={company_id:'185464',filters:{search:'24260137',categories:[],price_color_indexes:[]},
+        visibility:'ALL',offset:0,return_total_items:true,use_new_search:true,limit:50};
+    const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',
+        fetch:async()=>({status:200,headers:{get:()=> 'application/json'},clone:()=>({json:async()=>response})})}});
+    await context.window.fetch('/api/v1/products/list-by-filter',{method:'POST',body:JSON.stringify(body)});
+    await flushAsyncWork(30);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.verifiedAbsentSearch,null);
+});
+
+test('Ozon page bridge does not confirm absent on partial or errored catalogue results',async()=>{
+    const body={company_id:'185464',filters:{search:'24260137',categories:[],price_color_indexes:[]},
+        visibility:'ALL',offset:0,return_total_items:true,use_new_search:true,limit:50};
+    const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',
+        fetch:async()=>({status:200,headers:{get:()=> 'application/json'},clone:()=>({json:async()=>({
+            products:[],unavailable_parts:[],cursor:'',total_items:0,provider_errors:['partial'],total_count:'0'
+        })})})}});
+    await context.window.fetch('/api/v1/products/list-by-filter',{method:'POST',body:JSON.stringify(body)});
+    await flushAsyncWork(30);
+    assert.equal(context.window.__TAB_WANDERER_OZON_PRODUCT_BRIDGE_DEBUG__.verifiedAbsentSearch,null);
+});
+
+test('catalogue diagnostics explain seller mismatch without confirming absence', async () => {
+    const empty={products:[],unavailable_parts:[],cursor:'',total_items:0,provider_errors:[],total_count:'0'};
+    const body={company_id:'185464',filters:{search:'24260137',categories:[],price_color_indexes:[]},
+        visibility:'ALL',offset:0,return_total_items:true,use_new_search:true,limit:50};
+    const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'999999',
+        fetch:async(url, init)=>({status:init?.body?.includes('999999') ? 503 : 200,headers:{get:()=> 'application/json'},clone:()=>({json:async()=>empty}),json:async()=>empty})}});
+    const replies=[];
+    context.window.addEventListener('tab_wanderer:ozon-product-response',event=>replies.push(event.detail));
+    await context.window.fetch('/api/v1/products/list-by-filter',{method:'POST',body:JSON.stringify(body)});
+    await flushAsyncWork(30);
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request',{detail:{productId:'24260137'}}));
+    await flushAsyncWork(100);
+    const diagnostic=replies.at(-1)?.catalogueDiagnostic;
+    assert.equal(replies.at(-1)?.confirmedAbsent,false);
+    assert.equal(diagnostic?.reason,'http-status');
+    assert.equal(diagnostic?.detectedSellerId,'999999');
+    assert.equal(diagnostic?.requestSellerId,'999999');
+    assert.equal(diagnostic?.searchedProductId,'24260137');
+    assert.equal(diagnostic?.status,503);
+    assert.equal(JSON.stringify(diagnostic).includes('authorization'),false);
+});
+
+test('catalogue diagnostics distinguish missing interception from confirmed empty catalogue', async () => {
+    const noCapture=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464'}});
+    const replies=[];
+    noCapture.window.addEventListener('tab_wanderer:ozon-product-response',event=>replies.push(event.detail));
+    noCapture.window.dispatchEvent(new noCapture.CustomEvent('tab_wanderer:ozon-product-request',{detail:{productId:'24260137'}}));
+    await flushAsyncWork(100);
+    assert.equal(replies.at(-1)?.catalogueDiagnostic?.reason,'direct-fetch-unavailable');
+});
+
+
+test('headless Ozon bridge directly confirms absence via authenticated read-only catalogue POST', async () => {
+    const calls=[];
+    const empty={products:[],total_count:'0',total_items:0,cursor:'',provider_errors:[],unavailable_parts:[]};
+    const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',
+        fetch:async (url,init)=>{calls.push({url,init});return {ok:true,status:200,json:async()=>empty};}}});
+    const replies=[];
+    context.window.addEventListener('tab_wanderer:ozon-product-response',event=>replies.push(event.detail));
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request',{detail:{productId:'24260137'}}));
+    await flushAsyncWork(150);
+    const request=calls.find(c=>c.url==='/api/v1/products/list-by-filter');
+    assert.ok(request,'direct request should be issued without Ozon DOM');
+    assert.equal(request.init.method,'POST');
+    assert.equal(request.init.credentials,'include');
+    const payload=JSON.parse(request.init.body);
+    assert.equal(payload.filters.search,'24260137');
+    assert.equal(payload.company_id,'185464');
+    assert.equal(payload.visibility,'ALL');
+    assert.equal(payload.offset,0);
+    assert.equal(replies.at(-1)?.confirmedAbsent,true);
+    assert.equal(replies.at(-1)?.catalogueDiagnostic?.transport,'direct');
+});
+
+test('headless Ozon bridge never confirms absence on nonempty catalogue or API error', async () => {
+    for (const [status,body] of [
+        [200,{products:[{part_item:{offer_id:'OTHER'}}],total_count:'1',provider_errors:[],unavailable_parts:[]}],
+        [403,{products:[],total_count:'0',provider_errors:[],unavailable_parts:[]}],
+        [200,{products:[],total_count:'0',provider_errors:['partial'],unavailable_parts:[]}]
+    ]) {
+        const context=loadBridgeContext(createDocumentStub(),{window:{__TAB_WANDERER_OZON_SELLER_ID__:'185464',
+            fetch:async()=>({ok:status===200,status,json:async()=>body})}});
+        const replies=[];
+        context.window.addEventListener('tab_wanderer:ozon-product-response',event=>replies.push(event.detail));
+        context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request',{detail:{productId:'24260137'}}));
+        await flushAsyncWork(150);
+        assert.equal(replies.at(-1)?.confirmedAbsent,false);
+    }
+});
+
+
+test('sold cleanup uses existing inspection: exactly one write and one post-write read', async () => {
+    const requests=[];
+    let current=['2415152','2415154','7777777'];
+    const context=loadBridgeContext(createDocumentStub([]),{isolated:true,window:{
+        fetch:async(url,init={})=>{
+            requests.push({url,init});
+            if(url==='/api/barcode-delete'){
+                const body=JSON.parse(init.body);
+                assert.deepEqual(body,{seller_id:'185464',barcodes:[
+                    {barcode:'2415152',item_id:'3073595175'},
+                    {barcode:'2415154',item_id:'3073595175'}]});
+                current=current.filter(code=>!body.barcodes.some(row=>row.barcode===code));
+                return {ok:true,status:200,json:async()=>({errors:[]})};
+            }
+            if(url==='/api/sc/barcode-details-by-item-id')
+                return {ok:true,status:200,json:async()=>({barcodes:current.map(barcode=>({barcode,item_id:'3073595175'}))})};
+            throw Error(url);
+        }
+    }});
+    const result=await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.removeConfirmedOzonBarcodes({
+        productId:'42739090',ozonSku:'3073595175',sellerId:'185464',
+        barcodes:['2415152','2415154'],confirmedSoldInspection:true
+    });
+    assert.equal(result.ok,true,result.error);assert.equal(result.removedCount,2);
+    assert.deepEqual(current,['7777777']);
+    assert.deepEqual(requests.map(row=>row.url),['/api/barcode-delete','/api/sc/barcode-details-by-item-id']);
+});
+
+test('sold cleanup never repeats mutating request if post-write verification fails',async()=>{
+    const urls=[];
+    const context=loadBridgeContext(createDocumentStub([]),{isolated:true,window:{fetch:async(url)=>{
+        urls.push(url);
+        if(url==='/api/barcode-delete')return {ok:true,status:200,json:async()=>({errors:[]})};
+        if(url==='/api/sc/barcode-details-by-item-id')return {ok:true,status:200,json:async()=>({
+            barcodes:[{barcode:'2415152',item_id:'3073595175'}]})};
+        throw Error(url);
+    }}});
+    const result=await context.window.__TAB_WANDERER_OZON_ISOLATED_API__.removeConfirmedOzonBarcodes({
+        productId:'42739090',ozonSku:'3073595175',sellerId:'185464',barcodes:['2415152'],confirmedSoldInspection:true
+    });
+    assert.equal(result.ok,false);
+    assert.deepEqual(urls,['/api/barcode-delete','/api/sc/barcode-details-by-item-id']);
+});

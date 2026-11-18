@@ -28,6 +28,8 @@
         lastSourceType: '',
         lastItemCount: 0,
         lastProductsListResponse: null,
+        verifiedAbsentSearch: null,
+        lastCatalogueSearchDiagnostic: null,
         lastBarcodeDetailsResponse: null,
         lastSellerId: '',
         lastApiApply: null,
@@ -570,13 +572,31 @@
         }
 
         if (attempt >= MAX_ATTEMPTS) {
+            // API-first fallback: background Ozon tabs may never initialise the DOM
+            // or dispatch the catalogue request that our network hook observes.
+            if (debug.verifiedAbsentSearch?.productId !== normalizedProductId) {
+                const directSource = await readDirectCatalogueProduct(normalizedProductId);
+                if (directSource) {
+                    const enriched = await enrichProductSourceWithApiBarcodeDetails(directSource, normalizedProductId);
+                    dispatchResponse({ ok: true, productId: normalizedProductId,
+                        sellerId: getOzonSellerId(), sourceType: enriched.sourceType, source: enriched.source });
+                    return true;
+                }
+            }
+            const confirmedAbsent = debug.verifiedAbsentSearch?.productId === normalizedProductId
+                && debug.verifiedAbsentSearch?.sellerId === normalizeId(getOzonSellerId())
+                && Date.now() - debug.verifiedAbsentSearch.at < 60000;
             debug.lastResult = 'product source not found';
             debug.lastSourceType = fallbackProductSource?.sourceType || '';
             debug.lastItemCount = fallbackProductSource?.items?.length || 0;
             dispatchResponse({
                 ok: false,
                 productId: normalizedProductId,
-                error: 'ozon product source not found'
+                error: confirmedAbsent ? 'ozon catalogue search confirmed empty' : 'ozon product source not found',
+                confirmedAbsent,
+                sellerId: confirmedAbsent ? debug.verifiedAbsentSearch.sellerId : '',
+                catalogueDiagnostic: debug.lastCatalogueSearchDiagnostic || { reason: 'no-list-by-filter-captured',
+                    expectedProductId: normalizedProductId, detectedSellerId: normalizeId(getOzonSellerId()) }
             });
             return false;
         }
@@ -933,6 +953,124 @@
         }
     }
 
+    // Read-only, bounded diagnostics. Never include request headers, tokens, or raw responses.
+    function recordCatalogueSearchDiagnostic(reason, fields = {}) {
+        debug.lastCatalogueSearchDiagnostic = {
+            at: Date.now(),
+            reason,
+            expectedProductId: normalizeId(new URLSearchParams(window.location.search || '').get('search')),
+            detectedSellerId: normalizeId(getOzonSellerId()),
+            ...fields
+        };
+    }
+
+    // Only an exact, successful, complete catalogue search can confirm absence.
+    function captureAbsentProductSearch({url,method,requestBody,status,data,transport}) {
+        if (!String(url).includes('/api/v1/products/list-by-filter')) return;
+        const body = parseJsonSafely(requestBody);
+        const expectedId = normalizeId(new URLSearchParams(window.location.search || '').get('search'));
+        const seller = normalizeId(getOzonSellerId());
+        const requestSellerId = normalizeId(body?.company_id);
+        const searchedProductId = normalizeId(body?.filters?.search);
+        const fields = {
+            transport: transport === 'direct' ? 'direct' : transport === 'xhr' ? 'xhr' : 'fetch',
+            status: Number(status) || 0,
+            requestSellerId,
+            searchedProductId,
+            productCount: Array.isArray(data?.products) ? data.products.length : null,
+            totalCount: typeof data?.total_count === 'string' || typeof data?.total_count === 'number'
+                ? String(data.total_count).slice(0, 20) : null,
+            providerErrorCount: Array.isArray(data?.provider_errors) ? data.provider_errors.length : null,
+            unavailablePartCount: Array.isArray(data?.unavailable_parts) ? data.unavailable_parts.length : null
+        };
+        let reason = '';
+        if (String(method).toUpperCase() !== 'POST') reason = 'method-mismatch';
+        else if (status !== 200) reason = 'http-status';
+        else if (!/^\d+$/.test(expectedId)) reason = 'url-search-missing';
+        else if (!/^\d{3,}$/.test(seller)) reason = 'detected-seller-missing';
+        else if (!body || typeof body !== 'object') reason = 'request-body-unreadable';
+        else if (requestSellerId !== seller) reason = 'seller-mismatch';
+        else if (searchedProductId !== expectedId) reason = 'search-mismatch';
+        else if (body.visibility !== 'ALL' || body.offset !== 0 || body.return_total_items !== true ||
+                 body.use_new_search !== true || !Number.isInteger(body.limit) || body.limit < 1 ||
+                 (Array.isArray(body.filters?.categories) && body.filters.categories.length !== 0) ||
+                 (Array.isArray(body.filters?.price_color_indexes) && body.filters.price_color_indexes.length !== 0)) reason = 'request-scope-mismatch';
+        else if (!data || !Array.isArray(data.products)) reason = 'response-unreadable';
+        else if (data.products.length !== 0) reason = 'catalogue-not-empty';
+        else if (data.provider_errors != null && (!Array.isArray(data.provider_errors) || data.provider_errors.length !== 0)) reason = 'provider-errors';
+        else if (data.unavailable_parts != null && (!Array.isArray(data.unavailable_parts) || data.unavailable_parts.length !== 0)) reason = 'unavailable-parts';
+        else if ((data.total_items != null && Number(data.total_items) !== 0) || String(data.total_count) !== '0' ||
+                 (data.cursor != null && data.cursor !== '')) reason = 'response-count-mismatch';
+        else reason = 'catalogue-absent';
+        recordCatalogueSearchDiagnostic(reason, fields);
+        if (reason === 'catalogue-absent') {
+            debug.verifiedAbsentSearch = { productId: expectedId, sellerId: seller, at: Date.now() };
+        }
+    }
+
+    // Query the seller catalogue directly when a background worker never builds the
+    // Ozon product-list DOM. The browser's authenticated same-origin session is used;
+    // no credentials or raw API replies are persisted to diagnostics.
+    async function readDirectCatalogueProduct(productId) {
+        const expectedId = normalizeId(productId);
+        const seller = normalizeId(getOzonSellerId());
+        if (!/^\d+$/.test(expectedId) || !/^\d{3,}$/.test(seller)) {
+            recordCatalogueSearchDiagnostic('direct-seller-or-product-missing', {
+                transport: 'direct', searchedProductId: expectedId, requestSellerId: seller
+            });
+            return null;
+        }
+        if (typeof window.fetch !== 'function') {
+            recordCatalogueSearchDiagnostic('direct-fetch-unavailable', { transport: 'direct' });
+            return null;
+        }
+        const payload = {
+            aggregate: {
+                parts: ['PART_AMS_TAGS','PART_ATTRIBUTES','PART_ARCHIVE','PART_AVAILABILITY','PART_BARCODE',
+                    'PART_CATEGORY','PART_COPY','PART_DIMENSION','PART_DISCOUNT','PART_DISCOUNT_FBO',
+                    'PART_ERROR','PART_ITEM','PART_MARKETING_PRICE','PART_PRICE','PART_PRICE_INDEXES',
+                    'PART_RATING','PART_SOURCE','PART_STATUS','PART_STOCK','PART_TAGS','PART_SHOWCASES',
+                    'PART_SELLER_MODEL','PART_REPRICER','PART_MISMATCHES','PART_QUANT','PART_QUANT_IMAGES',
+                    'PART_PRICE_INDEXES_FULL'],
+                attribute_ids: ['4194','4195','8229','10098','85','31'], human_texts: true
+            },
+            filters: {price_color_indexes: [], search: expectedId, categories: []},
+            visibility: 'ALL', sort_by: 'SORT_BY_SCORE', sort_dir: 'SORT_DIRECTION_DESC',
+            use_new_search: true, company_id: seller, is_sell_services: false,
+            is_super_econom_enabled: true, is_global_seller: false,
+            return_total_items: true, offset: 0, limit: 50, cursor: ''
+        };
+        try {
+            const response = await withTimeout(window.fetch('/api/v1/products/list-by-filter', {
+                method: 'POST', credentials: 'include',
+                headers: { 'content-type': 'application/json', 'x-o3-company-id': seller, 'x-o3-seller-id': seller },
+                body: JSON.stringify(payload)
+            }), 8000, 'catalogue request timed out');
+            if (!isCaptureResponseSizeAllowed(response)) {
+                recordCatalogueSearchDiagnostic('direct-response-too-large', { transport: 'direct', status: Number(response?.status) || 0 });
+                return null;
+            }
+            const data = await withTimeout(response.json(), 8000, 'catalogue JSON timed out');
+            // Use exactly the same strict validation as captured UI requests.
+            captureAbsentProductSearch({ url: '/api/v1/products/list-by-filter', method: 'POST',
+                requestBody: JSON.stringify(payload), status: Number(response.status), data, transport: 'direct' });
+            if (debug.lastCatalogueSearchDiagnostic?.reason === 'catalogue-absent') return null;
+            // A returned product is not evidence of absence. Allow the ordinary resolver
+            // to consume only exact offer-id matches (never an unrelated SKU).
+            if (Number(response.status) === 200 && Array.isArray(data?.products)
+                && data.products.length && !safeArray(data?.provider_errors).length
+                && !safeArray(data?.unavailable_parts).length) {
+                const source = createSourceFromApiResponse(data);
+                if (source && hasMatchingProduct(source.items, expectedId)) return source;
+            }
+        } catch (error) {
+            recordCatalogueSearchDiagnostic('direct-api-error', { transport: 'direct',
+                searchedProductId: expectedId, requestSellerId: seller,
+                error: String(error?.message || 'request failed').slice(0, 100) });
+        }
+        return null;
+    }
+
     function installFetchCapture() {
         if (typeof window.fetch !== 'function' || window.fetch.__tabWandererOzonCapture === true) {
             return false;
@@ -952,18 +1090,21 @@
             if (shouldCaptureOzonResponse(url, method)) {
                 responsePromise.then(response => {
                     if (!isCaptureResponseSizeAllowed(response)) {
+                        if (url.includes('/api/v1/products/list-by-filter')) recordCatalogueSearchDiagnostic('response-too-large', { transport: 'fetch', status: Number(response.status) || 0 });
                         return;
                     }
 
                     try {
                         const contentType = String(response?.headers?.get?.('content-type') || '').toLowerCase();
                         if (contentType && !contentType.includes('json')) {
+                            if (url.includes('/api/v1/products/list-by-filter')) recordCatalogueSearchDiagnostic('content-type-not-json', { transport: 'fetch', status: Number(response.status) || 0 });
                             return;
                         }
 
                         response.clone().json().then(data => {
                             if (url.includes('/api/v1/products/list-by-filter')) {
                                 debug.lastProductsListResponse = data;
+                                captureAbsentProductSearch({url,method,requestBody,status:Number(response.status)||0,data,transport:'fetch'});
                             }
 
                             captureBarcodeDetailsResponse(data, {
@@ -975,7 +1116,9 @@
                                 source: 'fetch-barcode-details',
                                 startedAt
                             });
-                        }).catch(() => {});
+                        }).catch(() => {
+                            if (url.includes('/api/v1/products/list-by-filter')) recordCatalogueSearchDiagnostic('response-json-parse-failed', { transport: 'fetch', status: Number(response.status) || 0 });
+                        });
                     } catch {}
                 }).catch(() => {});
             }
@@ -1034,6 +1177,7 @@
                                     }
 
                                     const data = parseJsonSafely(rawResponse);
+                                    captureAbsentProductSearch({url:requestUrl,method:requestMethod,requestBody,status:Number(this.status)||0,data,transport:'xhr'});
                                     captureBarcodeDetailsResponse(data, {
                                         url: requestUrl,
                                         method: requestMethod,
@@ -3437,9 +3581,36 @@
         return enrichedUiResult;
     }
 
+    // Read-only sold barcode comparison. Never issues barcode writes.
+    async function inspectSoldOzonBarcodes({ productId, barcodes = [], sellerId = '', ozonSku = '' } = {}) {
+        const expectedId = normalizeId(productId);
+        const sku = normalizeId(ozonSku);
+        const seller = normalizeId(sellerId);
+        const targets = mergeUniqueBarcodes(safeArray(barcodes).map(normalizeBarcode).filter(Boolean));
+        if (!/^\d+$/.test(expectedId) || !/^\d{6,}$/.test(sku) || !/^\d{3,}$/.test(seller)
+            || !targets.length || targets.length > 500 || targets.some(code => !/^[a-zA-Z0-9_-]{5,80}$/.test(code))) {
+            return { ok: false, error: 'Invalid Ozon inspection identity or barcode list' };
+        }
+        const localSeller = normalizeId(getOzonSellerId());
+        if (localSeller && localSeller !== seller) return { ok: false, error: 'Ozon seller account mismatch' };
+        const domProduct = resolveProductFromDomRow(expectedId);
+        if (domProduct.ok && normalizeId(domProduct.product?.ozonSku || domProduct.product?.sku) !== sku) {
+            return { ok: false, error: 'Ozon SKU mismatch with visible product' };
+        }
+        if (domProduct.error === 'productRowAmbiguous') return { ok: false, error: 'Ozon product row ambiguous' };
+        const result = await readOzonBarcodeDetailsByItemId({ sellerId: seller, ozonSku: sku, allowEmptyResponse: true });
+        if (!result.ok || !Array.isArray(result.response?.barcodes)
+            || (result.snapshot?.itemIds || []).some(itemId => itemId !== sku)) {
+            return { ok: false, error: result.error || 'Unverified Ozon barcode list' };
+        }
+        const actual = new Set(result.existingBarcodes);
+        return { ok: true, productId: expectedId, present: targets.filter(code => actual.has(code)),
+            absentCount: targets.filter(code => !actual.has(code)).length, checkedCount: targets.length };
+    }
+
     // Deleting by SKU is intentionally confined to the isolated extension world.
     // Both preflight and post-write reads must identify the exact Ozon item.
-    async function removeConfirmedOzonBarcodes({ productId, barcodes = [], sellerId = '', ozonSku = '' } = {}) {
+    async function removeConfirmedOzonBarcodes({ productId, barcodes = [], sellerId = '', ozonSku = '', confirmedSoldInspection = false } = {}) {
         const expectedId = normalizeId(productId);
         const targets = mergeUniqueBarcodes(safeArray(barcodes).map(normalizeBarcode).filter(Boolean));
         if (!expectedId || !targets.length || targets.length > 500 || targets.some(code => !/^[a-zA-Z0-9_-]{5,80}$/.test(code))) {
@@ -3478,6 +3649,33 @@
             return result.existingBarcodes;
         };
         try {
+            // Sold-barcode cleanup was explicitly confirmed against a completed inspection.
+            // Do not repeat a preflight read. The disassembly removal path retains its old checks.
+            if (confirmedSoldInspection === true) {
+                const payload = {
+                    barcodes: targets.map(barcode => ({ barcode, item_id: sku })),
+                    seller_id: accountSellerId
+                };
+                const response = await withTimeout(window.fetch('/api/barcode-delete', {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'content-type': 'application/json', 'x-o3-company-id': accountSellerId,
+                        'x-o3-language': 'ru', 'x-o3-app-name': 'seller-ui', 'x-o3-page-type': 'products' },
+                    body: JSON.stringify(payload)
+                }), 10000, 'Ozon sold barcode-delete timeout');
+                const data = await withTimeout(response.json(), 6000, 'Ozon sold delete response timeout');
+                if (!response.ok || !Array.isArray(data?.errors) || data.errors.length) {
+                    return { ok: false, error: `Ozon barcode-delete rejected/ambiguous: HTTP ${response.status || 0}`,
+                        productId: expectedId, removedCount: 0 };
+                }
+                // Exactly one post-delete read; never retry the mutating request.
+                const after = await read();
+                const stillPresent = targets.filter(code => after.includes(code));
+                return stillPresent.length
+                    ? { ok: false, error: 'Deletion not fully verified; manual review required',
+                        productId: expectedId, removedCount: targets.length - stillPresent.length, stillPresent }
+                    : { ok: true, productId: expectedId, barcodes: targets, removedCount: targets.length,
+                        alreadyMissingCount: 0, verifiedCount: targets.length };
+            }
             const before = await read();
             const toDelete = targets.filter(barcode => before.includes(barcode));
             const untouched = before.filter(barcode => !targets.includes(barcode));
@@ -3537,7 +3735,8 @@
     if (isExtensionIsolatedWorld) {
         window[ISOLATED_API_KEY] = Object.freeze({
             applyOzonBarcodesWithFallback,
-            removeConfirmedOzonBarcodes
+            removeConfirmedOzonBarcodes,
+            inspectSoldOzonBarcodes
         });
     } else {
         installFetchCapture();

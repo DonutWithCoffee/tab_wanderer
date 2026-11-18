@@ -15,6 +15,10 @@ let ozonResolveTimeoutTimer = null;
 let ozonUiApplySession = null;
 let ozonUiApplyTimeoutTimer = null;
 let ozonUiRemoveSession = null;
+let soldOzonInspectSession = null;
+let soldOzonDeleteSession = null;
+let soldOzonDeleteTimer = null;
+let soldOzonInspectTimer = null;
 let ozonUiRemoveTimeoutTimer = null;
 let ozonActiveOperation = null;
 let ozonPendingApplyRequest = null;
@@ -560,6 +564,7 @@ function getExtensionUpdateBlockers() {
     if (ozonUiRemoveSession) {
         blockers.push('ozon-ui-remove');
     }
+    if (soldOzonDeleteSession) blockers.push('ozon-sold-delete');
 
     if (ozonResolveSession) {
         blockers.push('ozon-resolve');
@@ -2604,6 +2609,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
                 });
             } else if (activeOperation?.type === 'remove') {
                 await failOzonUiRemove('Ozon worker tab closed', { operationId: activeOperation.id });
+            } else if (activeOperation?.type === 'sold-inspect') {
+                await stopSoldInspection('Ozon worker tab closed', activeOperation.id);
+            } else if (activeOperation?.type === 'sold-delete') {
+                await finishSoldDelete('Ozon worker tab closed; deletion status unknown',activeOperation.id);
             } else if (activeOperation?.type === 'resolve') {
                 await failOzonResolvePreview('Ozon worker tab closed', {
                     operationId: activeOperation.id
@@ -3776,6 +3785,10 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, op
 }
 
 async function handleOzonProductResolveResult(senderTabId, msg = {}) {
+    if (isCurrentOzonOperation('sold-inspect')) {
+        return onSoldInspectResolved(senderTabId, msg);
+    }
+    if (isCurrentOzonOperation('sold-delete')) return onSoldDeleteResolved(senderTabId,msg);
     if (isCurrentOzonOperation('remove')) {
         return handleOzonRemoveProductResolveResult(senderTabId, msg);
     }
@@ -3809,6 +3822,316 @@ async function handleOzonProductResolveResult(senderTabId, msg = {}) {
     return createRuntimeOkResponse({ accepted: true, operationId });
 }
 
+
+// ---------- READ-ONLY SOLD OZONE BARCODE INSPECTION ----------
+function isTrustedSoldScannerPage(sender) {
+    const scannerUrl = chrome.runtime.getURL('sold-barcodes.html');
+    // Extension pages opened as normal browser tabs have sender.tab.
+    // Trust the browser-provided sender URL, not the absence of a tab.
+    return sender?.id === chrome.runtime.id
+        && sender?.url === scannerUrl
+        && (!sender.tab || sender.tab.url === scannerUrl);
+}
+async function soldInspectMessage(session, event, extra = {}) {
+    await chrome.runtime.sendMessage({ type: 'SOLD_OZON_INSPECT_PROGRESS', operationId: session.operationId,
+        event, done: session.index, total: session.products.length, ...extra }).catch(() => {});
+}
+async function stopSoldInspection(error = '', operationId = soldOzonInspectSession?.operationId || '') {
+    const session = soldOzonInspectSession;
+    if (!session || !isCurrentOzonOperation('sold-inspect', operationId)) return;
+    if (soldOzonInspectTimer) clearTimeout(soldOzonInspectTimer);
+    soldOzonInspectTimer = null;
+    soldOzonInspectSession = null;
+    const tabId = ozonWorkerTabId;
+    ozonWorkerTabId = null;
+    releaseOzonOperation(operationId);
+    const unresolved = (session.skipped || []).filter(row => row.confirmedAbsent !== true);
+    await soldInspectMessage(session, error ? 'failed' : 'complete', { error: error || (unresolved.length ? `Не удалось проверить ${unresolved.length} товар(ов); остальные проверены` : ''), skipped: session.skipped || [] });
+    if (tabId) { try { await chrome.tabs.remove(tabId); } catch {} }
+    await drainQueuedOzonResolveRequests();
+}
+async function openNextSoldInspectProduct() {
+    const session = soldOzonInspectSession;
+    if (!session || !isCurrentOzonOperation('sold-inspect', session.operationId)) return;
+    if (session.index >= session.products.length) return stopSoldInspection('', session.operationId);
+    const request = session.products[session.index];
+    session.status = 'resolving';
+    if (soldOzonInspectTimer) clearTimeout(soldOzonInspectTimer);
+    soldOzonInspectTimer = setTimeout(() => {
+        stopSoldInspection(`Ozon inspection timeout for product ${request.productId}`, session.operationId).catch(() => {});
+    }, 45000);
+    try {
+        const url = buildOzonUiApplyWorkerUrl(request.productId);
+        if (ozonWorkerTabId) await chrome.tabs.update(ozonWorkerTabId, { url, active: false });
+        else {
+            const tab = await chrome.tabs.create({ url, active: false, pinned: true });
+            if (!isCurrentOzonOperation('sold-inspect', session.operationId)) {
+                try { await chrome.tabs.remove(tab.id); } catch {}
+                return;
+            }
+            assignOzonWorkerToOperation(tab.id, session.operationId);
+        }
+    } catch (error) { await stopSoldInspection(error?.message || 'Cannot open Ozon worker', session.operationId); }
+}
+async function startSoldInspection(sender, msg) {
+    if (!isTrustedSoldScannerPage(sender)) return createRuntimeFailureResponse({error:'Untrusted inspection source'});
+    if (ozonActiveOperation || ozonPendingApplyRequest) return createRuntimeFailureResponse({error:'Ozon worker is busy',busy:true});
+    const rows = Array.isArray(msg.products) ? msg.products : [];
+    if (!rows.length || rows.length > 10000) return createRuntimeFailureResponse({error:'Invalid inspection product list'});
+    const seen = new Set();
+    const products=[];
+    for (const row of rows) {
+        const productId = normalizeOzonResolveId(row?.productId);
+        const barcodes = [...new Set((Array.isArray(row?.barcodes) ? row.barcodes : []).map(String))];
+        if (!/^\d+$/.test(productId) || seen.has(productId) || !barcodes.length || barcodes.length > 500
+            || barcodes.some(code => !/^[a-zA-Z0-9_-]{5,80}$/.test(code))) return createRuntimeFailureResponse({error:'Invalid/duplicate product or barcode'});
+        seen.add(productId); products.push({productId,barcodes});
+    }
+    if (ozonWorkerTabId) await closeOrphanOzonWorker();
+    if (ozonActiveOperation || ozonPendingApplyRequest) return createRuntimeFailureResponse({error:'Ozon worker became busy',busy:true});
+    const session = { products, index:0, status:'starting', skipped:[], catalogueRetryByProduct:{} };
+    const operationId = beginOzonOperation('sold-inspect',session);
+    if (!operationId) return createRuntimeFailureResponse({error:'Could not claim Ozon worker',busy:true});
+    soldOzonInspectSession = session;
+    await openNextSoldInspectProduct();
+    return createRuntimeOkResponse({started: true,operationId,total:products.length});
+}
+async function onSoldInspectResolved(senderTabId,msg) {
+    const session=soldOzonInspectSession;
+    if (!session || !isCurrentOzonOperation('sold-inspect',session.operationId)
+        || senderTabId!==ozonWorkerTabId || session.status!=='resolving') return createRuntimeIgnoredResponse();
+    const row=session.products[session.index];
+    if (normalizeOzonResolveId(msg.productId)!==row.productId) return createRuntimeIgnoredResponse();
+    const product=msg.result?.product;
+    const sellerId=normalizeOzonResolveId(msg.sellerId);
+    const sku=normalizeOzonResolveId(product?.ozonSku);
+    if (msg.result?.ok === false && msg.result?.confirmedAbsent === true
+        && msg.result?.error === 'ozon catalogue search confirmed empty'
+        && /^\d{3,}$/.test(sellerId)) {
+        const reason='catalogue-search-confirmed-empty';
+        session.skipped.push({productId:row.productId,reason,confirmedAbsent:true});
+        await soldInspectMessage(session,'absent',{productId:row.productId,reason});
+        session.index++;
+        await openNextSoldInspectProduct();
+        return createRuntimeOkResponse({accepted:true,absent:true});
+    }
+    if (msg.result?.ok!==true || normalizeOzonResolveId(product?.offerId)!==row.productId
+        || !/^\d{6,}$/.test(sku) || !/^\d{3,}$/.test(sellerId)) {
+        const reason = msg.result?.ok !== true ? `resolve: ${String(msg.result?.error || 'not ok').slice(0,120)}`
+            : normalizeOzonResolveId(product?.offerId) !== row.productId ? 'offerId mismatch'
+            : !/^\d{6,}$/.test(sku) ? 'Ozon SKU missing/invalid' : 'sellerId missing/invalid';
+        session.skipped.push({productId:row.productId,reason});
+        const rawDiagnostic = msg.result?.catalogueDiagnostic;
+        const diagnostic = rawDiagnostic && typeof rawDiagnostic === 'object' ? {
+            reason: String(rawDiagnostic.reason || '').slice(0, 48),
+            transport: String(rawDiagnostic.transport || '').slice(0, 8),
+            expectedProductId: normalizeOzonResolveId(rawDiagnostic.expectedProductId),
+            searchedProductId: normalizeOzonResolveId(rawDiagnostic.searchedProductId),
+            detectedSellerId: normalizeOzonResolveId(rawDiagnostic.detectedSellerId),
+            requestSellerId: normalizeOzonResolveId(rawDiagnostic.requestSellerId),
+            status: Number(rawDiagnostic.status) || 0,
+            productCount: Number.isInteger(rawDiagnostic.productCount) ? rawDiagnostic.productCount : null,
+            totalCount: rawDiagnostic.totalCount == null ? null : String(rawDiagnostic.totalCount).slice(0, 20),
+            providerErrorCount: Number.isInteger(rawDiagnostic.providerErrorCount) ? rawDiagnostic.providerErrorCount : null,
+            unavailablePartCount: Number.isInteger(rawDiagnostic.unavailablePartCount) ? rawDiagnostic.unavailablePartCount : null
+        } : { reason: 'diagnostic-not-received' };
+        await soldInspectMessage(session,'skipped',{productId:row.productId,reason,diagnostic,
+            catalogueRetryCount:session.catalogueRetryByProduct[row.productId] || 0});
+        session.index++;
+        await openNextSoldInspectProduct();
+        return createRuntimeOkResponse({accepted:true,skipped:true});
+    }
+    session.status='reading';
+    try {
+        const reply=await chrome.tabs.sendMessage(ozonWorkerTabId,{type:'SOLD_OZON_INSPECT_IN_WORKER',
+            productId:row.productId,barcodes:row.barcodes,sellerId,ozonSku:sku,operationId:session.operationId});
+        if (reply?.ok!==true) await stopSoldInspection(reply?.error||'Ozon inspection command rejected',session.operationId);
+    } catch (error) { await stopSoldInspection(error?.message||'Ozon inspection command failed',session.operationId); }
+    return createRuntimeOkResponse({accepted:true});
+}
+async function onSoldInspectResult(senderTabId,msg) {
+    const session=soldOzonInspectSession;
+    if (!session || !isCurrentOzonOperation('sold-inspect',session.operationId)
+        || senderTabId!==ozonWorkerTabId || session.status!=='reading'
+        || msg.operationId!==session.operationId) return createRuntimeIgnoredResponse();
+    const row=session.products[session.index];
+    if (normalizeOzonResolveId(msg.productId)!==row.productId) return createRuntimeIgnoredResponse();
+    const present=Array.isArray(msg.present)?msg.present:[];
+    const targets=new Set(row.barcodes);
+    if (msg.ok!==true || msg.checkedCount!==row.barcodes.length
+        || present.length!==new Set(present).size || present.some(code=>!targets.has(code))) {
+        await stopSoldInspection(msg.error||`Unverified Ozon barcode data for ${row.productId}`,session.operationId);
+        return createRuntimeOkResponse({accepted:true,stopped:true});
+    }
+    await soldInspectMessage(session,'product',{productId:row.productId,present});
+    session.index++;
+    await openNextSoldInspectProduct();
+    return createRuntimeOkResponse({accepted:true});
+}
+
+// ---------- SOLD OZON CLEANUP (EXPLICIT, NO SECOND PREFLIGHT READ) ----------
+async function soldDeleteProgress(session,event,extra={}) {
+    await chrome.runtime.sendMessage({type:'SOLD_OZON_DELETE_PROGRESS',operationId:session.operationId,
+        event,done:session.index,total:session.products.length,...extra}).catch(()=>{});
+}
+async function finishSoldDelete(error='',operationId=soldOzonDeleteSession?.operationId||'') {
+    const session=soldOzonDeleteSession;
+    if (!session || !isCurrentOzonOperation('sold-delete',operationId)) return;
+    if (soldOzonDeleteTimer) clearTimeout(soldOzonDeleteTimer);
+    soldOzonDeleteTimer=null;
+    soldOzonDeleteSession=null;
+    const tabId=ozonWorkerTabId;
+    ozonWorkerTabId=null;
+    releaseOzonOperation(operationId);
+    await soldDeleteProgress(session,error?'failed':'complete',{error:error||null});
+    if (tabId) {try{await chrome.tabs.remove(tabId);}catch{}}
+    await drainQueuedOzonResolveRequests();
+}
+async function openNextSoldDeleteProduct() {
+    const session=soldOzonDeleteSession;
+    if (!session || !isCurrentOzonOperation('sold-delete',session.operationId)) return;
+    if(session.index>=session.products.length) return finishSoldDelete('',session.operationId);
+    const request=session.products[session.index];
+    session.status='resolving';
+    if(soldOzonDeleteTimer)clearTimeout(soldOzonDeleteTimer);
+    soldOzonDeleteTimer=setTimeout(()=>finishSoldDelete(`Ozon cleanup timeout for ${request.productId}; status unknown`,session.operationId).catch(()=>{}),60000);
+    try {
+        const url=buildOzonUiApplyWorkerUrl(request.productId);
+        if(ozonWorkerTabId) await chrome.tabs.update(ozonWorkerTabId,{url,active:false});
+        else {
+            const tab=await chrome.tabs.create({url,active:false,pinned:true});
+            if(!isCurrentOzonOperation('sold-delete',session.operationId)) {try{await chrome.tabs.remove(tab.id);}catch{} return;}
+            assignOzonWorkerToOperation(tab.id,session.operationId);
+        }
+    } catch(error) {await finishSoldDelete(error?.message||'Cannot open Ozon worker',session.operationId);}
+}
+// Verify the selected deletion subset against persistent scan evidence in the extension origin.
+// This is IndexedDB only: no extra Ozon reads before deleting.
+async function confirmSoldCleanupEvidence(requested,snapshotId,inspectionSavedAt) {
+    if(!snapshotId||!inspectionSavedAt||typeof indexedDB==='undefined')
+        throw new Error('Saved inspection evidence unavailable');
+    const db=await new Promise((resolve,reject)=>{
+        const req=indexedDB.open('tw-sold-barcode-review-v1',1);
+        req.onsuccess=()=>resolve(req.result);
+        req.onerror=()=>reject(req.error||new Error('Cannot load cleanup evidence'));
+        req.onupgradeneeded=()=>req.transaction.abort();
+    });
+    let values;
+    try {
+        values=await new Promise((resolve,reject)=>{
+            const tx=db.transaction('data','readonly');
+            const keys=['completed','ozonCheck','excluded'];
+            const pending=keys.map(key=>tx.objectStore('data').get(key));
+            tx.oncomplete=()=>resolve(pending.map(req=>req.result));
+            tx.onerror=()=>reject(tx.error||new Error('Cleanup evidence transaction failed'));
+            tx.onabort=()=>reject(tx.error||new Error('Cleanup evidence transaction aborted'));
+        });
+    }finally{db.close();}
+    const [scan,inspection,excluded]=values;
+    if(scan?.complete!==true||scan.savedAt!==snapshotId||inspection?.complete!==true
+        ||inspection.snapshotId!==snapshotId||inspection.savedAt!==inspectionSavedAt
+        ||!Array.isArray(scan.confirmed)||!Array.isArray(inspection.products)
+        ||!inspection.results||!Array.isArray(inspection.skipped))
+        throw new Error('Saved scan or Ozon inspection changed');
+    const excludedKeys=new Set(Array.isArray(excluded)?excluded:[]);
+    const sales=new Set(scan.confirmed.map(row=>`${row.productId}:${row.barcode}`));
+    const inspectionRows=new Map();
+    for(const row of inspection.products){
+        if(inspectionRows.has(String(row.productId)))throw new Error('Duplicate inspected product');
+        inspectionRows.set(String(row.productId),row.barcodes);
+    }
+    // The entire selected inspection scope must still match the persisted choice.
+    const selectedFromScan=new Map();
+    for(const row of scan.confirmed){
+        const id=String(row.productId),code=String(row.barcode);
+        if(excludedKeys.has(`${id}:${code}`))continue;
+        if(!selectedFromScan.has(id))selectedFromScan.set(id,new Set());
+        selectedFromScan.get(id).add(code);
+    }
+    if(selectedFromScan.size!==inspectionRows.size)throw new Error('Selected articles changed since inspection');
+    for(const [id,codes] of selectedFromScan){
+        const inspected=inspectionRows.get(id);
+        if(!Array.isArray(inspected)||inspected.length!==codes.size||inspected.some(code=>!codes.has(code)))
+            throw new Error('Selected barcodes changed since inspection');
+    }
+    const skipped=new Set(inspection.skipped.map(row=>String(row.productId)));
+    for(const row of requested){
+        if(skipped.has(row.productId)||!inspectionRows.has(row.productId)
+            ||!Array.isArray(inspection.results[row.productId]))
+            throw new Error('Selected article was not verified in Ozon');
+        for(const code of row.barcodes){
+            if(!sales.has(`${row.productId}:${code}`)||excludedKeys.has(`${row.productId}:${code}`)
+                ||!inspection.results[row.productId].includes(code))
+                throw new Error('Barcode not confirmed as sold and present in Ozon');
+        }
+    }
+}
+async function startSoldDelete(sender,msg) {
+    if(!isTrustedSoldScannerPage(sender))return createRuntimeFailureResponse({error:'Untrusted sold cleanup source'});
+    if(ozonActiveOperation||ozonPendingApplyRequest)return createRuntimeFailureResponse({error:'Ozon worker busy',busy:true});
+    const rows=Array.isArray(msg.products)?msg.products:[];
+    if(!rows.length||rows.length>1000)return createRuntimeFailureResponse({error:'Invalid cleanup product count'});
+    const seen=new Set(),products=[];
+    for(const row of rows) {
+        const productId=normalizeOzonResolveId(row?.productId);
+        const barcodes=Array.isArray(row?.barcodes)?row.barcodes:[];
+        if(!/^\d+$/.test(productId)||seen.has(productId)||!barcodes.length||barcodes.length>500
+            ||new Set(barcodes).size!==barcodes.length||barcodes.some(code=>typeof code!=='string'||!/^\d{5,80}$/.test(code)))
+            return createRuntimeFailureResponse({error:'Invalid cleanup barcodes'});
+        seen.add(productId);products.push({productId,barcodes});
+    }
+    try {
+        await confirmSoldCleanupEvidence(products,msg.snapshotId,msg.inspectionSavedAt);
+    } catch(error) {
+        return createRuntimeFailureResponse({error:error?.message||'Saved inspection evidence not verified'});
+    }
+    if(ozonWorkerTabId) await closeOrphanOzonWorker();
+    if(ozonActiveOperation||ozonPendingApplyRequest)return createRuntimeFailureResponse({error:'Ozon worker became busy',busy:true});
+    const session={products,index:0,status:'starting'};
+    const operationId=beginOzonOperation('sold-delete',session);
+    if(!operationId)return createRuntimeFailureResponse({error:'Could not reserve Ozon worker',busy:true});
+    soldOzonDeleteSession=session;
+    await openNextSoldDeleteProduct();
+    return createRuntimeOkResponse({started:true,operationId,total:products.length});
+}
+async function onSoldDeleteResolved(senderTabId,msg) {
+    const session=soldOzonDeleteSession;
+    if(!session||!isCurrentOzonOperation('sold-delete',session.operationId)
+        ||senderTabId!==ozonWorkerTabId||session.status!=='resolving')return createRuntimeIgnoredResponse();
+    const row=session.products[session.index];
+    if(normalizeOzonResolveId(msg.productId)!==row.productId)return createRuntimeIgnoredResponse();
+    const product=msg.result?.product;
+    const sellerId=normalizeOzonResolveId(msg.sellerId),sku=normalizeOzonResolveId(product?.ozonSku);
+    if(msg.result?.ok!==true||normalizeOzonResolveId(product?.offerId)!==row.productId
+        || !/^\d{6,}$/.test(sku)||!/^\d{3,}$/.test(sellerId)) {
+        return finishSoldDelete(`Identity unresolved for ${row.productId}; no deletion requested for this item`,session.operationId);
+    }
+    session.status='deleting';
+    try {
+        const response=await chrome.tabs.sendMessage(ozonWorkerTabId,{type:'SOLD_OZON_DELETE_IN_WORKER',
+            productId:row.productId,barcodes:row.barcodes,sellerId,ozonSku:sku,operationId:session.operationId});
+        if(response?.ok!==true) await finishSoldDelete(response?.error||'Delete command rejected; status unknown',session.operationId);
+    }catch(error){await finishSoldDelete(error?.message||'Delete command not delivered; status unknown',session.operationId);}
+    return createRuntimeOkResponse({accepted:true});
+}
+async function onSoldDeleteResult(senderTabId,msg) {
+    const session=soldOzonDeleteSession;
+    if(!session||!isCurrentOzonOperation('sold-delete',session.operationId)
+        ||senderTabId!==ozonWorkerTabId||session.status!=='deleting'||msg.operationId!==session.operationId)
+        return createRuntimeIgnoredResponse();
+    const row=session.products[session.index];
+    if(normalizeOzonResolveId(msg.productId)!==row.productId)return createRuntimeIgnoredResponse();
+    if(msg.ok!==true||msg.verifiedCount!==row.barcodes.length||msg.removedCount!==row.barcodes.length) {
+        await soldDeleteProgress(session,'product-failed',{productId:row.productId,error:msg.error||'Verification mismatch',
+            removedCount:Number(msg.removedCount)||0});
+        await finishSoldDelete(`Deletion/verification failed for ${row.productId}; no automatic retries`,session.operationId);
+        return createRuntimeOkResponse({accepted:true,stopped:true});
+    }
+    await soldDeleteProgress(session,'product',{productId:row.productId,removedCount:row.barcodes.length,barcodes:row.barcodes});
+    session.index++;
+    await openNextSoldDeleteProduct();
+    return createRuntimeOkResponse({accepted:true});
+}
 
 // ---------- OZON UI BARCODE APPLY ----------
 function clearOzonUiApplyTimeout() {
@@ -4786,6 +5109,22 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+            if (msg.type === 'SOLD_OZON_DELETE_START') {send(await startSoldDelete(sender,msg));return;}
+            if (msg.type === 'SOLD_OZON_DELETE_RESULT') {send(await onSoldDeleteResult(senderTabId,msg));return;}
+            if (msg.type === 'SOLD_OZON_INSPECT_START') {
+                send(await startSoldInspection(sender, msg));
+                return;
+            }
+            if (msg.type === 'SOLD_OZON_INSPECT_STOP') {
+                if (!isTrustedSoldScannerPage(sender) || !soldOzonInspectSession || msg.operationId !== soldOzonInspectSession.operationId) {
+                    send(createRuntimeFailureResponse({error:'Invalid inspection stop request'})); return;
+                }
+                await stopSoldInspection('Stopped by user', msg.operationId);
+                send(createRuntimeOkResponse({stopped:true})); return;
+            }
+            if (msg.type === 'SOLD_OZON_INSPECT_RESULT') {
+                send(await onSoldInspectResult(senderTabId,msg)); return;
+            }
             if (msg.type === 'OZON_PRODUCT_RESOLVE_RESULT') {
                 send(await handleOzonProductResolveResult(senderTabId, msg));
                 return;

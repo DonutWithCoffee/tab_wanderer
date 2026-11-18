@@ -515,22 +515,20 @@
         </div>
     </div>
 
-    <div class="section">
-        <div class="section-heading">
-            <div>
-                <p class="section-title">Добавить в отслеживаемое</p>
+    <details class="support-details">
+        <summary>Добавить в отслеживаемое</summary>
+        <div class="support-body">
+            <button id="openWatchedOrders" type="button">Открыть список</button>
+            <div class="stack-form" style="margin-top: 10px;">
+                <div class="inline-form">
+                    <input id="popupWatchedOrderInput" name="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
+                    <button id="popupAddWatchedOrder" type="button">Добавить</button>
+                </div>
+                <input id="popupWatchedOrderNote" name="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий" autocomplete="off">
             </div>
-            <button id="openWatchedOrders">Открыть список</button>
+            <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа.</div>
         </div>
-        <div class="stack-form">
-            <div class="inline-form">
-                <input id="popupWatchedOrderInput" name="popupWatchedOrderInput" type="text" placeholder="1234-110626" autocomplete="off">
-                <button id="popupAddWatchedOrder" type="button">Добавить</button>
-            </div>
-            <input id="popupWatchedOrderNote" name="popupWatchedOrderNote" type="text" maxlength="300" placeholder="Комментарий" autocomplete="off">
-        </div>
-        <div id="popupWatchedOrderStatus" class="hint">Нужен полный номер заказа.</div>
-    </div>
+    </details>
 
     <details class="support-details quick-filter-details">
         <summary>Фильтры уведомлений</summary>
@@ -571,6 +569,10 @@
         </div>
     </details>
 
+
+    <div class="section">
+        <button id="openSoldBarcodes" type="button">Поиск проданных ШК Ozon</button>
+    </div>
 
     <details class="support-details">
         <summary>Диагностика</summary>

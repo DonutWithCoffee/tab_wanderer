@@ -3218,3 +3218,63 @@ test('pending automatic write claim blocks competing operations before intent pe
     assert.equal(state.ozonActiveOperation.type, 'apply');
     assert.equal(state.ozonQueuedResolveRequests.length, 1);
 });
+
+
+test('sold Ozon inspection trusts only the dedicated extension page, including a tab', () => {
+    const context = loadBackgroundContext();
+    context.chrome.runtime.id = 'extension-test-id';
+    context.chrome.runtime.getURL = path => `chrome-extension://extension-test-id/${path}`;
+    const url = context.chrome.runtime.getURL('sold-barcodes.html');
+    const trusted = sender => {
+        context.__scannerSender = sender;
+        const result = runExpression(context, 'isTrustedSoldScannerPage(__scannerSender)');
+        delete context.__scannerSender;
+        return result;
+    };
+    assert.equal(trusted({ id: 'extension-test-id', url }), true);
+    assert.equal(trusted({ id: 'extension-test-id', url, tab: { id: 11, url } }), true);
+    assert.equal(trusted({ id: 'other-extension', url, tab: { id: 11, url } }), false);
+    assert.equal(trusted({ id: 'extension-test-id', url: 'https://amperkot.ru/sold-barcodes.html', tab: { id: 12, url: 'https://amperkot.ru/sold-barcodes.html' } }), false);
+    assert.equal(trusted({ id: 'extension-test-id', url, tab: { id: 13, url: 'https://amperkot.ru/' } }), false);
+    assert.equal(trusted({ id: 'extension-test-id', url: context.chrome.runtime.getURL('popup.html') }), false);
+});
+
+test('sold Ozon catalogue API fallback does not navigate or reload the worker after unknown result', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+    const session = {operationId:'sold-direct-test', products:[{productId:'40066635',barcodes:['1234567890123']}],
+        index:0,status:'resolving',skipped:[],catalogueRetryByProduct:{}};
+    context.__soldRetrySession = session;
+    runExpression(context, `soldOzonInspectSession = __soldRetrySession;
+        ozonActiveOperation = {type:'sold-inspect',id:'sold-direct-test'};
+        ozonWorkerTabId = 123;`);
+    context.setTimeout = () => 12345;
+    context.clearTimeout = () => {};
+    context.chrome.runtime.sendMessage = async () => ({ok:true});
+    context.chrome.tabs.reload = async () => { throw Error('background reload not expected'); };
+    const reply = {productId:'40066635',result:{ok:false,error:'ozon product source not found',
+        catalogueDiagnostic:{reason:'direct-api-error',transport:'direct'}}};
+    context.__reply=reply;
+    const response = await runExpression(context, 'onSoldInspectResolved(123,__reply)');
+    assert.equal(response.skipped,true);
+    assert.equal(session.skipped.length,1);
+    assert.notEqual(session.skipped[0].confirmedAbsent,true);
+    assert.equal(session.catalogueRetryByProduct['40066635'],undefined);
+    assert.equal(context.__test.tabUpdates.length,0);
+});
+
+test('sold barcode deletion rejects non-scanner caller before any worker tab',async()=>{
+    const context=loadBackgroundContext();await settleBackgroundContext();
+    const result=await sendRuntimeMessage(context,{type:'SOLD_OZON_DELETE_START',products:[
+        {productId:'42739090',barcodes:['2415152']}],snapshotId:'scan',inspectionSavedAt:'check'},
+    {id:'another-extension',url:'https://example.test/'});
+    assert.equal(result.ok,false);
+    assert.equal(context.__test.createdTabs.length,0);
+});
+
+test('sold barcode cleanup blocks extension updates while active',async()=>{
+    const context=loadBackgroundContext();await settleBackgroundContext();
+    runExpression(context,"soldOzonDeleteSession = {operationId:'cleanup-op'}");
+    const blockers=runExpression(context,'getExtensionUpdateBlockers()');
+    assert.equal([...blockers].includes('ozon-sold-delete'),true);
+});

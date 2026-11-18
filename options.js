@@ -1479,3 +1479,4 @@ document.addEventListener('DOMContentLoaded', () => {
     loadMonitorDiagnostics();
     loadDiagnosticLog();
 });
+

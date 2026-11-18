@@ -965,6 +965,7 @@ function bindNavigationActions() {
     const toggleMonitorBtn = document.getElementById('toggleMonitor');
     const openOptionsBtn = document.getElementById('openOptions');
     const openWatchedOrdersBtn = document.getElementById('openWatchedOrders');
+    const openSoldBarcodesBtn = document.getElementById('openSoldBarcodes');
     const downloadDiagnosticLogBtn = document.getElementById('downloadDiagnosticLog');
     const popupIgnoreLegalEntityPayment = document.getElementById('popupIgnoreLegalEntityPayment');
     const popupNotifyLegalEntityPaymentOnly = document.getElementById('popupNotifyLegalEntityPaymentOnly');
@@ -991,6 +992,15 @@ function bindNavigationActions() {
         openWatchedOrdersBtn.addEventListener('click', () => {
             chrome.tabs.create({
                 url: chrome.runtime.getURL('watched-orders.html'),
+                active: true
+            });
+        });
+    }
+
+    if (openSoldBarcodesBtn) {
+        openSoldBarcodesBtn.addEventListener('click', () => {
+            chrome.tabs.create({
+                url: chrome.runtime.getURL('sold-barcodes.html'),
                 active: true
             });
         });

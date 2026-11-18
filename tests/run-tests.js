@@ -19,6 +19,14 @@ const testFiles = [
     'tests/ozon-barcode-binding.test.js',
     'tests/ozon-product-bridge.test.js',
     'tests/ozon-disassembly.test.js',
+    'tests/sold-barcode-scan.test.js',
+    'tests/sold-order-recovery.test.js',
+    'tests/sold-barcode-review.test.js',
+    'tests/sold-barcode-selection.test.js',
+    'tests/sold-ozon-exclusion.test.js',
+    'tests/sold-ozon-cleanup-preview.test.js',
+    'tests/sold-ozon-cleanup-execution.test.js',
+    'tests/sold-ozon-cleanup-evidence.test.js',
     'tests/warehouse-disassembly-panel.test.js',
     'tests/procurement-reserve-model.test.js'
 ];
