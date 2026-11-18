@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadBackgroundContext, settleBackgroundContext, sendRuntimeMessage, runExpression, getBackgroundState } = require('./helpers/load-extension-context');
+const { loadBackgroundContext, settleBackgroundContext, sendRuntimeMessage, runExpression, getBackgroundState, setBackgroundState } = require('./helpers/load-extension-context');
 
 
 
@@ -1902,6 +1902,19 @@ test('automatic page-open Ozon check requires confirmed Ozon kind but ignores au
     assert.equal(state.ozonResolveSession.documentInstanceId, 'warehouse-document-1');
 });
 
+test('page-open Ozon lookup includes order articles with no scanned barcodes; manual lookup stays barcode-scoped', () => {
+    const context = loadBackgroundContext();
+    const extraction = { productsById: {
+        24126456: { productId: '24126456', eligibleBarcodes: [], skippedBarcodes: [] }
+    }};
+    context.__inspectionExtraction = extraction;
+    const automatic = runExpression(context,
+        'getOzonResolveProductIds(__inspectionExtraction, {includeProductsWithoutBarcodes:true})');
+    const manual = runExpression(context, 'getOzonResolveProductIds(__inspectionExtraction)');
+    assert.deepEqual([...automatic], ['24126456']);
+    assert.deepEqual([...manual], []);
+});
+
 test('Ozon resolve preview skips warehouse products without eligible barcode candidates', async () => {
     const context = loadBackgroundContext({
         setTimeout: () => 1,
@@ -3277,4 +3290,225 @@ test('sold barcode cleanup blocks extension updates while active',async()=>{
     runExpression(context,"soldOzonDeleteSession = {operationId:'cleanup-op'}");
     const blockers=runExpression(context,'getExtensionUpdateBlockers()');
     assert.equal([...blockers].includes('ozon-sold-delete'),true);
+});
+
+
+test('assembly apply sends sold cleanup before addition only when explicitly enabled', async () => {
+    const ctx = loadBackgroundContext();
+    await settleBackgroundContext();
+    setBackgroundState(ctx, {
+        ozonWorkerTabId: 42,
+        ozonActiveOperation: {type:'apply',id:'apply-test'},
+        ozonUiApplySession: {
+            operationId:'apply-test',index:0,orderId:'1234-010626',
+            productRequests:[{productId:'42739090',barcodes:['7777777']}],
+            status:'opening',autoSoldCleanup:true,warehouseTabId:11,
+            autoSoldIdentity:{productId:'42739090',sellerId:'321',ozonSku:'123456'}
+        },
+        userConfig:{ozonAutoSoldCleanupEnabled:true,ozonAutoBarcodeApplyEnabled:true}
+    });
+    runExpression(ctx, "warehouseSoldPreviews.set(11,{orderId:'1234-010626',savedAt:Date.now(),products:[{productId:'42739090',sellerId:'321',ozonSku:'123456',barcodes:['2415152']}]})");
+    assert.equal(await ctx.sendOzonUiApplyCommandToWorker(), true);
+    assert.equal(ctx.__test.tabMessages.length,1);
+    assert.equal(ctx.__test.tabMessages[0].message.type,'OZON_UI_APPLY_WITH_SOLD_CLEANUP_IN_WORKER');
+    assert.deepEqual([...ctx.__test.tabMessages[0].message.soldBarcodes],['2415152']);
+    assert.equal(await ctx.sendOzonUiApplyCommandToWorker(),true);
+    assert.equal(ctx.__test.tabMessages.length,1);
+});
+
+test('turning off sold cleanup retains ordinary auto-add with zero sale lookup', async () => {
+    const ctx=loadBackgroundContext();
+    await settleBackgroundContext();
+    setBackgroundState(ctx, {
+        ozonWorkerTabId:42,ozonActiveOperation:{type:'apply',id:'apply-test'},
+        ozonUiApplySession:{operationId:'apply-test',index:0,orderId:'1234-010626',
+            productRequests:[{productId:'42739090',barcodes:['7777777']}],
+            status:'opening',autoSoldCleanup:true},
+        userConfig:{ozonAutoSoldCleanupEnabled:false,ozonAutoBarcodeApplyEnabled:true}
+    });
+    runExpression(ctx,"findAutoSoldBarcodes = async () => { throw Error('must not call'); }");
+    assert.equal(await ctx.sendOzonUiApplyCommandToWorker(),true);
+    assert.equal(ctx.__test.tabMessages[0].message.type,'OZON_UI_APPLY_IN_WORKER');
+});
+
+test('Ozon resolve identity is captured during automatic apply before sold cleanup', async () => {
+    const ctx=loadBackgroundContext();
+    await settleBackgroundContext();
+    setBackgroundState(ctx, {
+        ozonWorkerTabId:42,ozonActiveOperation:{type:'apply',id:'apply-test'},
+        ozonUiApplySession:{operationId:'apply-test',index:0,orderId:'1234-010626',
+            productRequests:[{productId:'42739090',barcodes:['7777777']}],
+            status:'opening',autoSoldCleanup:true,warehouseTabId:11},
+        userConfig:{ozonAutoSoldCleanupEnabled:true,ozonAutoBarcodeApplyEnabled:true}
+    });
+    const resolution=await ctx.handleOzonProductResolveResult(42,{
+        productId:'42739090',sellerId:'321',result:{ok:true,product:{offerId:'42739090',ozonSku:'123456'}}
+    });
+    assert.equal(resolution.ok,true);
+    runExpression(ctx,"warehouseSoldPreviews.set(11,{orderId:'1234-010626',savedAt:Date.now(),products:[{productId:'42739090',sellerId:'321',ozonSku:'123456',barcodes:['2415152']}]})");
+    assert.equal(await ctx.handleOzonProductWorkerReady(42,{productId:'42739090'}).then(row=>row.ok),true);
+    const message=ctx.__test.tabMessages[0]?.message;
+    assert.equal(message?.type,'OZON_UI_APPLY_WITH_SOLD_CLEANUP_IN_WORKER');
+    assert.equal(message.sellerId,'321');
+    assert.equal(message.ozonSku,'123456');
+});
+
+
+test('no on-open Ozon evidence means no sold delete attempt during auto addition', async () => {
+    const ctx=loadBackgroundContext();await settleBackgroundContext();
+    setBackgroundState(ctx,{
+        ozonWorkerTabId:42,ozonActiveOperation:{type:'apply',id:'apply-test'},
+        ozonUiApplySession:{operationId:'apply-test',index:0,orderId:'1234-010626',warehouseTabId:11,
+            productRequests:[{productId:'42739090',barcodes:['7777777']}],status:'opening',autoSoldCleanup:true,
+            autoSoldIdentity:{productId:'42739090',sellerId:'321',ozonSku:'123456'}},
+        userConfig:{ozonAutoSoldCleanupEnabled:true,ozonAutoBarcodeApplyEnabled:true}
+    });
+    runExpression(ctx,"findAutoSoldBarcodes = async () => {throw Error('unexpected order lookup');}");
+    assert.equal(await ctx.sendOzonUiApplyCommandToWorker(),true);
+    assert.equal(ctx.__test.tabMessages[0].message.type,'OZON_UI_APPLY_IN_WORKER');
+});
+
+test('expired or wrong-seller Ozon preview cannot trigger deletion before addition', async () => {
+    const ctx=loadBackgroundContext();await settleBackgroundContext();
+    setBackgroundState(ctx,{
+        ozonWorkerTabId:42,ozonActiveOperation:{type:'apply',id:'apply-test'},
+        ozonUiApplySession:{operationId:'apply-test',index:0,orderId:'1234-010626',warehouseTabId:11,
+            productRequests:[{productId:'42739090',barcodes:['7777777']}],status:'opening',autoSoldCleanup:true,
+            autoSoldIdentity:{productId:'42739090',sellerId:'321',ozonSku:'123456'}},
+        userConfig:{ozonAutoSoldCleanupEnabled:true,ozonAutoBarcodeApplyEnabled:true}
+    });
+    runExpression(ctx,"warehouseSoldPreviews.set(11,{orderId:'1234-010626',savedAt:Date.now(),products:[{productId:'42739090',sellerId:'999',ozonSku:'123456',barcodes:['2415152']}]})");
+    assert.equal(await ctx.sendOzonUiApplyCommandToWorker(),true);
+    assert.equal(ctx.__test.tabMessages[0].message.type,'OZON_UI_APPLY_IN_WORKER');
+});
+
+test('page-open sold cleanup is prepared from existing Ozon barcodes even with automation disabled', async () => {
+    const ctx=loadBackgroundContext();await settleBackgroundContext();
+    runExpression(ctx,"findAutoSoldBarcodes = async (_productId,_current,_orderId,ozonExisting) => ozonExisting.includes('2415152') ? {barcodes:['2415152'],evidence:[{barcode:'2415152',orderNumber:'6085-080926'}]} : {barcodes:[],evidence:[]}");
+    runExpression(ctx,"autoSoldCachePut = async () => {};");
+    const plan={productPlans:[{productId:'42739090',ozonSku:'123456',existingBarcodes:['2415152','7777777'],
+      toAdd:[{barcode:'7777777'}],alreadyExists:[]}]};
+    setBackgroundState(ctx,{ozonActiveOperation:{type:'resolve',id:'preview-test'}});
+    const session={warehouseTabId:11,orderId:'1234-010626',operationId:'preview-test',
+      sellerIdsByProductId:{'42739090':'321'},ozonProductsByProductId:{'42739090':{ok:true,product:{offerId:'42739090',ozonSku:'123456'}}}};
+    const enriched=await ctx.enrichResolvePlanWithSoldCleanup(plan,session);
+    assert.equal(enriched.soldCleanup.length,1);
+    assert.equal(enriched.soldCleanup[0].count,1);
+    assert.deepEqual(JSON.parse(JSON.stringify(enriched.soldCleanup[0].entries)),
+        [{barcode:'2415152',orderNumber:'6085-080926'}]);
+    const persisted=await ctx.getWarehouseSoldPreview(11,'1234-010626');
+    assert.deepEqual([...persisted.products[0].barcodes],['2415152']);
+    assert.equal(await ctx.getWarehouseSoldPreview(11,'9999-010626'),null);
+});
+
+test('warehouse sold barcode comparison log contains only matching order and rejects other origins', async () => {
+    const context = loadBackgroundContext();
+    await settleBackgroundContext();
+    context.traceWarehouseSoldComparison('inspection-start','4171-010726','42739090',{ozonBarcodes:12});
+    context.traceWarehouseSoldComparison('inspection-complete','4171-010726','42739090',{candidateBarcodes:2});
+    context.traceWarehouseSoldComparison('inspection-start','8288-300626','42739090',{ozonBarcodes:3});
+    const sender = {tab:{id:77,url:'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=4171-010726'}};
+    const response = await sendRuntimeMessage(context,{type:'GET_WAREHOUSE_SOLD_COMPARE_LOG',orderId:'4171-010726'},sender);
+    assert.equal(response.ok,true);
+    assert.deepEqual(Array.from(response.events,row=>row.message),['inspection-start','inspection-complete']);
+    assert.equal(response.events[0].details.ozonBarcodes,12);
+    const wrongOrder = await sendRuntimeMessage(context,{type:'GET_WAREHOUSE_SOLD_COMPARE_LOG',orderId:'8288-300626'},sender);
+    assert.equal(wrongOrder.ok,false);
+    const untrusted = await sendRuntimeMessage(context,{type:'GET_WAREHOUSE_SOLD_COMPARE_LOG',orderId:'4171-010726'},
+        {tab:{id:88,url:'https://attacker.example/web-apps/wh3/#/wh/shop-orders/assembly?order=4171-010726'}});
+    assert.equal(untrusted.ok,false);
+});
+
+test('page-open Ozon lookup logs actual failed API resolution before skipping warehouse scan', async () => {
+    const context = loadBackgroundContext({setTimeout: () => 1, clearTimeout: () => {}});
+    await settleBackgroundContext();
+    const orderId = '9874-181126';
+    await sendRuntimeMessage(context, {type:'REPORT_ORDER_KIND',orderId,evidence:{
+        pageComplete:true,source:'OZON',contractor:'OZON (ОЗОН)',
+        ozonShipActionUrl:`/admin/_api/shop-orders/${orderId}/ozon/123456/posting/fbs/ship`
+    }}, {tab:{id:77,url:`https://amperkot.ru/admin/orders/${orderId}/`}});
+    const result = await sendRuntimeMessage(context, {
+        type:'OZON_RESOLVE_PREVIEW_REQUEST',trigger:'automatic-on-open',
+        documentInstanceId:'diagnostic-test',orderId,
+        warehouseExtraction:{orderId,productsById:{40400440:{
+            productId:'40400440',eligibleBarcodes:[],skippedBarcodes:[]
+        }}}
+    }, {tab:{id:7,url:`https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}`}});
+    assert.equal(result.started,true);
+    await sendRuntimeMessage(context, {
+        type:'OZON_PRODUCT_RESOLVE_RESULT',productId:'40400440',sellerId:'',
+        result:{ok:false,error:'ozon product source not found',
+            catalogueDiagnostic:{reason:'direct-seller-or-product-missing',status:0}}
+    }, {tab:{id:1,url:'https://seller.ozon.ru/app/products?search=40400440#tab_wanderer_ozon_worker=1'}});
+    const event = getBackgroundState(context).diagnosticLog.find(row =>
+        row.scope==='OZON_SOLD_COMPARE' && row.message==='ozon-lookup-result' &&
+        row.details?.orderId===orderId);
+    assert.ok(event);
+    assert.equal(event.details.ok,false);
+    assert.equal(event.details.catalogueReason,'direct-seller-or-product-missing');
+    assert.equal(event.details.sellerAvailable,false);
+});
+
+
+test('sold check disabled blocks both sold deletion entrypoints before worker actions', async () => {
+    const ctx=loadBackgroundContext();await settleBackgroundContext();
+    setBackgroundState(ctx,{userConfig:{ozonAutoSoldCheckEnabled:false,ozonAutoSoldCleanupEnabled:false}});
+    const warehouse=await ctx.startWarehouseSoldDelete({id:77,url:'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly?order=1234-010626'},
+        {orderId:'1234-010626'});
+    assert.equal(warehouse.ok,false);
+    assert.match(warehouse.error,/отключена/);
+    const scanner=await ctx.startSoldDelete({tab:{id:80,url:'https://amperkot.ru/sold-barcodes.html'}},{products:[]});
+    assert.equal(scanner.ok,false);
+    assert.match(scanner.error,/отключена/);
+    assert.equal(ctx.__test.createdTabs.length,0);
+});
+
+test('disabling sold check keeps auto-add active but disables sold cleanup even with cached preview', async () => {
+    const ctx=loadBackgroundContext();await settleBackgroundContext();
+    setBackgroundState(ctx,{
+        ozonWorkerTabId:42,ozonActiveOperation:{type:'apply',id:'apply-test'},
+        ozonUiApplySession:{operationId:'apply-test',index:0,orderId:'1234-010626',
+            productRequests:[{productId:'42739090',barcodes:['7777777']}],
+            status:'opening',autoSoldCleanup:true,warehouseTabId:11,
+            autoSoldIdentity:{productId:'42739090',sellerId:'321',ozonSku:'123456'}},
+        userConfig:{ozonAutoSoldCheckEnabled:false,ozonAutoSoldCleanupEnabled:true,ozonAutoBarcodeApplyEnabled:true}
+    });
+    runExpression(ctx,"warehouseSoldPreviews.set(11,{orderId:'1234-010626',savedAt:Date.now(),products:[{productId:'42739090',sellerId:'321',ozonSku:'123456',barcodes:['2415152']}]})");
+    assert.equal(await ctx.sendOzonUiApplyCommandToWorker(),true);
+    assert.equal(ctx.__test.tabMessages[0].message.type,'OZON_UI_APPLY_IN_WORKER');
+});
+
+test('successful auto sold cleanup is reported to warehouse and invalidates manual preview', async () => {
+    const ctx = loadBackgroundContext();
+    await settleBackgroundContext();
+    setBackgroundState(ctx, {
+        ozonUiApplySession: {
+            orderId: '4877-181126', warehouseTabId: 7, trigger: 'automatic',
+            results: [{productId: '23864778', soldCleanup: {attempted:true, matched:1, removed:1, ok:true, error:''}}]
+        }
+    });
+    runExpression(ctx, "warehouseSoldPreviews.set(7,{orderId:'4877-181126',savedAt:Date.now(),products:[{productId:'23864778',barcodes:['2477479']}]})");
+    await ctx.sendOzonUiApplyResultToWarehouse({ok:true, addedCount:1});
+    const message = ctx.__test.tabMessages.at(-1)?.message;
+    assert.equal(message.type, 'OZON_UI_APPLY_RESULT');
+    assert.deepEqual(JSON.parse(JSON.stringify(message.soldCleanup)),
+        {attempted:true, matched:1, removed:1, ok:true, error:''});
+    assert.equal(runExpression(ctx, 'warehouseSoldPreviews.has(7)'), false);
+});
+
+test('unverified automatic sold cleanup never invalidates manual preview or reports success', async () => {
+    const ctx = loadBackgroundContext();
+    await settleBackgroundContext();
+    setBackgroundState(ctx, {
+        ozonUiApplySession: {
+            orderId:'4877-181126',warehouseTabId:7,trigger:'automatic',
+            results:[{productId:'23864778',soldCleanup:{attempted:true,matched:1,removed:0,ok:false,error:'verification failed'}}]
+        }
+    });
+    runExpression(ctx, "warehouseSoldPreviews.set(7,{orderId:'4877-181126',savedAt:Date.now(),products:[{productId:'23864778',barcodes:['2477479']}]})");
+    await ctx.sendOzonUiApplyResultToWarehouse({ok:true, addedCount:1});
+    const cleanup = ctx.__test.tabMessages.at(-1)?.message.soldCleanup;
+    assert.equal(cleanup.ok,false);
+    assert.equal(cleanup.error,'verification failed');
+    assert.equal(runExpression(ctx, 'warehouseSoldPreviews.has(7)'),true);
 });

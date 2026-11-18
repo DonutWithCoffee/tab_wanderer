@@ -548,6 +548,31 @@
             return true;
         }
 
+        // The hidden Ozon worker often has no rendered product list. Query the
+        // authenticated catalogue immediately rather than waiting for DOM retries.
+        // A failed/ambiguous read is never treated as proof of absence.
+        if (attempt === 1 && debug.verifiedAbsentSearch?.productId !== normalizedProductId) {
+            const directSource = await readDirectCatalogueProduct(normalizedProductId);
+            if (directSource && hasMatchingProduct(directSource.items, normalizedProductId)) {
+                const enriched = await enrichProductSourceWithApiBarcodeDetails(directSource, normalizedProductId);
+                debug.lastResult = 'direct catalogue product found';
+                debug.lastSourceType = enriched.sourceType;
+                debug.lastItemCount = enriched.items.length;
+                dispatchResponse({ ok: true, productId: normalizedProductId,
+                    sellerId: getOzonSellerId(), sourceType: enriched.sourceType, source: enriched.source });
+                return true;
+            }
+            // A confirmed absence is authoritative; do not wait for an empty DOM.
+            if (debug.verifiedAbsentSearch?.productId === normalizedProductId
+                && debug.verifiedAbsentSearch?.sellerId === normalizeId(getOzonSellerId())) {
+                dispatchResponse({ ok: false, productId: normalizedProductId,
+                    error: 'ozon catalogue search confirmed empty', confirmedAbsent: true,
+                    sellerId: debug.verifiedAbsentSearch.sellerId,
+                    catalogueDiagnostic: debug.lastCatalogueSearchDiagnostic || null });
+                return false;
+            }
+        }
+
         const fallbackProductSource = findProductSource(normalizedProductId, { includeDom: false });
 
         if (fallbackProductSource && hasMatchingProduct(fallbackProductSource.items, normalizedProductId)) {

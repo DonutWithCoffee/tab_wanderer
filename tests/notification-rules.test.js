@@ -494,6 +494,11 @@ test('automatic Ozon addition and removal default on independently and preserve 
     const defaults = ctx.getEffectiveConfig({});
     assert.equal(defaults.ozonAutoBarcodeApplyEnabled, true);
     assert.equal(defaults.ozonAutoBarcodeRemoveEnabled, true);
+    assert.equal(defaults.ozonAutoSoldCheckEnabled, true);
+    assert.equal(defaults.ozonAutoSoldCleanupEnabled, true);
+    assert.equal(ctx.getEffectiveConfig({ozonAutoSoldCheckEnabled:false,ozonAutoSoldCleanupEnabled:true}).ozonAutoSoldCleanupEnabled, false);
+    assert.equal(ctx.getEffectiveConfig({ozonAutoSoldCheckEnabled:false}).ozonAutoSoldCheckEnabled, false);
+    assert.equal(ctx.getEffectiveConfig({ozonAutoSoldCleanupEnabled:false}).ozonAutoSoldCleanupEnabled, false);
     assert.equal(ctx.getEffectiveConfig({ozonAutoBarcodeRemoveEnabled:false}).ozonAutoBarcodeRemoveEnabled, false);
     assert.equal(ctx.getEffectiveConfig({ozonAutoBarcodeApplyEnabled:false}).ozonAutoBarcodeRemoveEnabled, true);
 });

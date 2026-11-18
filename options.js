@@ -606,6 +606,10 @@ function renderSettings(config = {}) {
     setValue('optionsDeepSyncMaxPages', normalizeDeepSyncMaxPages(config.deepSyncMaxPages));
     setChecked('optionsOzonAutoBarcodeApplyEnabled', getOzonAutoBarcodeApplyEnabled(config));
     setChecked('optionsOzonAutoBarcodeRemoveEnabled', config?.ozonAutoBarcodeRemoveEnabled !== false);
+    const autoSoldCheckEnabled = config?.ozonAutoSoldCheckEnabled !== false;
+    setChecked('optionsOzonAutoSoldCheckEnabled', autoSoldCheckEnabled);
+    setChecked('optionsOzonAutoSoldCleanupEnabled', autoSoldCheckEnabled && config?.ozonAutoSoldCleanupEnabled !== false);
+    setDisabled('optionsOzonAutoSoldCleanupEnabled', !autoSoldCheckEnabled);
     renderScopeControls(config, currentDictionaries);
     renderWatchedOrders(config);
 
@@ -881,6 +885,26 @@ function saveOzonAutoBarcodeApplyFromUI() {
     );
 }
 
+function saveOzonAutoSoldCheckFromUI() {
+    const enabled = getChecked('optionsOzonAutoSoldCheckEnabled');
+    if (!enabled) {
+        setChecked('optionsOzonAutoSoldCleanupEnabled', false);
+        setDisabled('optionsOzonAutoSoldCleanupEnabled', true);
+    } else {
+        setDisabled('optionsOzonAutoSoldCleanupEnabled', false);
+    }
+    saveConfig({ ...currentConfig, ozonAutoSoldCheckEnabled: enabled,
+        ozonAutoSoldCleanupEnabled: enabled && getChecked('optionsOzonAutoSoldCleanupEnabled') },
+        enabled ? 'Автопроверка проданных ШК включена. Автоудаление остаётся выключенным до включения вручную.'
+                : 'Автопроверка выключена; удаление проданных ШК заблокировано.');
+}
+
+function saveOzonAutoSoldCleanupFromUI() {
+    const enabled = getChecked('optionsOzonAutoSoldCheckEnabled') && getChecked('optionsOzonAutoSoldCleanupEnabled');
+    saveConfig({ ...currentConfig, ozonAutoSoldCleanupEnabled: enabled },
+        enabled ? 'Очистка проданных ШК включена.' : 'Очистка проданных ШК выключена.');
+}
+
 function saveOzonAutoBarcodeRemoveFromUI() {
     const enabled = getChecked('optionsOzonAutoBarcodeRemoveEnabled');
     saveConfig({ ...currentConfig, ozonAutoBarcodeRemoveEnabled: enabled },
@@ -954,6 +978,16 @@ function bindSettingsAutosave() {
         ozonAutoApplyControl.addEventListener('change', () => {
             saveOzonAutoBarcodeApplyFromUI();
         });
+    }
+
+    const ozonSoldCheckControl = document.getElementById('optionsOzonAutoSoldCheckEnabled');
+    if (ozonSoldCheckControl) {
+        ozonSoldCheckControl.addEventListener('change', saveOzonAutoSoldCheckFromUI);
+    }
+
+    const ozonSoldCleanupControl = document.getElementById('optionsOzonAutoSoldCleanupEnabled');
+    if (ozonSoldCleanupControl) {
+        ozonSoldCleanupControl.addEventListener('change', saveOzonAutoSoldCleanupFromUI);
     }
 
     const ozonAutoRemoveControl = document.getElementById('optionsOzonAutoBarcodeRemoveEnabled');

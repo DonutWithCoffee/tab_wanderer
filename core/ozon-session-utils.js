@@ -33,9 +33,10 @@ function getOzonResolveProductGroups(warehouseExtraction = {}) {
         .filter(group => group && group.productId && group.productId !== '__unknown__');
 }
 
-function getOzonResolveProductIds(warehouseExtraction = {}) {
+function getOzonResolveProductIds(warehouseExtraction = {}, options = {}) {
     return getOzonResolveProductGroups(warehouseExtraction)
-        .filter(group => Array.isArray(group.eligibleBarcodes) && group.eligibleBarcodes.length > 0)
+        .filter(group => options.includeProductsWithoutBarcodes === true
+            || (Array.isArray(group.eligibleBarcodes) && group.eligibleBarcodes.length > 0))
         .map(group => normalizeOzonResolveId(group.productId))
         .filter(Boolean);
 }

@@ -351,6 +351,30 @@
             background: var(--surface);
         }
 
+        .sold-settings-group {
+            margin-top: 8px;
+            padding: 14px;
+            border: 1px solid var(--border-strong);
+            border-radius: 12px;
+            background: var(--surface-accent);
+        }
+
+        .sold-settings-group h3 {
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .sold-settings-group .checkbox-list {
+            margin: 10px 0 0;
+        }
+
+        .sold-settings-group .checkbox-row {
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface);
+        }
+
         .checkbox-row input {
             margin-top: 2px;
         }
@@ -532,7 +556,7 @@
 
         <section class="card">
             <details id="optionsOzonAutomationDetails" class="card-details" open>
-                <summary>Ozon и Склад 3 <span class="summary-helper">— автоматический перенос ШК</span></summary>
+                <summary>Ozon и Склад 3 <span class="summary-helper">— автоматическая работа с ШК</span></summary>
                 <div class="setting-panel">
                     <div class="checkbox-list">
                         <label class="checkbox-row">
@@ -549,6 +573,25 @@
                                 <span class="checkbox-note">После подтверждённой разборки в Складе 3 удалить только разобранные единичные ШК. По умолчанию включено; при ошибке сверки удаление останавливается.</span>
                             </span>
                         </label>
+                        <div class="sold-settings-group" role="group" aria-labelledby="optionsSoldSettingsHeading">
+                            <h3 id="optionsSoldSettingsHeading">Очистка проданных ШК Ozon</h3>
+                            <div class="checkbox-list">
+                                <label class="checkbox-row">
+                                    <input type="checkbox" id="optionsOzonAutoSoldCheckEnabled" name="optionsOzonAutoSoldCheckEnabled" autocomplete="off">
+                                    <span class="checkbox-copy">
+                                        <span class="checkbox-title">Автоматически проверять проданные ШК при сборке</span>
+                                        <span class="checkbox-note">При открытии сборки сверять ШК Ozon со складской историей. Если выключено, удаление проданных ШК заблокировано, в том числе вручную из панели.</span>
+                                    </span>
+                                </label>
+                                <label class="checkbox-row">
+                                    <input type="checkbox" id="optionsOzonAutoSoldCleanupEnabled" name="optionsOzonAutoSoldCleanupEnabled" autocomplete="off">
+                                    <span class="checkbox-copy">
+                                        <span class="checkbox-title">Автоматически удалять проданные ШК перед добавлением новых</span>
+                                        <span class="checkbox-note">Работает только при включённой автопроверке. Если проверку отключить, автоудаление выключится автоматически.</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </details>

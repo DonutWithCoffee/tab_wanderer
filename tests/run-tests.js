@@ -20,6 +20,7 @@ const testFiles = [
     'tests/ozon-product-bridge.test.js',
     'tests/ozon-disassembly.test.js',
     'tests/sold-barcode-scan.test.js',
+    'tests/sold-auto-cleanup.test.js',
     'tests/sold-order-recovery.test.js',
     'tests/sold-barcode-review.test.js',
     'tests/sold-barcode-selection.test.js',

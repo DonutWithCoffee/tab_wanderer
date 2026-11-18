@@ -104,6 +104,8 @@ function createOptionsDom() {
         'optionsMonitorModeSelect',
         'optionsDeepSyncMaxPages',
         'optionsOzonAutoBarcodeApplyEnabled',
+        'optionsOzonAutoSoldCheckEnabled',
+        'optionsOzonAutoSoldCleanupEnabled',
         'optionsNotifyNewOrders',
         'optionsNotifyChangedOrders',
         'optionsNotifyFieldStatus',
@@ -519,6 +521,7 @@ test('options page loads current config and diagnostics without updating config'
     assert.equal(document.getElementById('optionsMonitorModeSelect').value, 'windowed');
     assert.equal(document.getElementById('optionsDeepSyncMaxPages').value, '50');
     assert.equal(document.getElementById('optionsOzonAutoBarcodeApplyEnabled').checked, true);
+    assert.equal(document.getElementById('optionsOzonAutoSoldCleanupEnabled').checked, true);
     assert.equal(document.getElementById('optionsNotifyNewOrders').checked, true);
     assert.equal(document.getElementById('optionsNotifyFieldStatus').checked, true);
     assert.equal(document.getElementById('optionsSuppressLegalEntityPayment').checked, false);
@@ -627,6 +630,41 @@ test('options page autosaves Ozon automatic barcode setting', () => {
     assert.equal(updateMessages.length, 1);
     assert.equal(updateMessages[0].userConfig.ozonAutoBarcodeApplyEnabled, false);
     assert.equal(document.getElementById('optionsSettingsSaveStatus').innerText, 'Автодобавление штрихкодов Ozon выключено.');
+});
+
+test('Ozon sold cleanup setting is enabled by default and saves its own switch', () => {
+    const context = loadOptionsContext();
+    const toggle = context.__test.document.getElementById('optionsOzonAutoSoldCleanupEnabled');
+    assert.equal(toggle.checked, true);
+    toggle.checked = false;
+    toggle.dispatchEvent({ type: 'change', target: toggle });
+    const requests = getSentMessagesByType(context, 'UPDATE_CONFIG');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].userConfig.ozonAutoSoldCleanupEnabled, false);
+    assert.equal(requests[0].userConfig.ozonAutoBarcodeApplyEnabled, true);
+});
+
+test('disabling Ozon sold auto-check disables deletion; re-enabling does not restore deletion', () => {
+    const context = loadOptionsContext();
+    const doc = context.__test.document;
+    const check = doc.getElementById('optionsOzonAutoSoldCheckEnabled');
+    const remove = doc.getElementById('optionsOzonAutoSoldCleanupEnabled');
+    assert.equal(check.checked, true);
+    assert.equal(remove.checked, true);
+    check.checked = false;
+    check.dispatchEvent({ type:'change', target:check });
+    let requests = getSentMessagesByType(context,'UPDATE_CONFIG');
+    assert.equal(requests.at(-1).userConfig.ozonAutoSoldCheckEnabled,false);
+    assert.equal(requests.at(-1).userConfig.ozonAutoSoldCleanupEnabled,false);
+    assert.equal(remove.checked,false);
+    assert.equal(remove.disabled,true);
+    check.checked = true;
+    check.dispatchEvent({type:'change',target:check});
+    requests = getSentMessagesByType(context,'UPDATE_CONFIG');
+    assert.equal(requests.at(-1).userConfig.ozonAutoSoldCheckEnabled,true);
+    assert.equal(requests.at(-1).userConfig.ozonAutoSoldCleanupEnabled,false);
+    assert.equal(remove.disabled,false);
+    assert.equal(remove.checked,false);
 });
 
 test('options page autosaves notification trigger settings', () => {
@@ -852,4 +890,19 @@ test('options separates hidden notification filters from legal-only mode', () =>
     assert.doesNotMatch(hideGroup, /optionsNotifyLegalEntityPaymentOnly/);
     assert.match(onlyGroup, /Уведомлять только/);
     assert.match(onlyGroup, /optionsNotifyLegalEntityPaymentOnly/);
+});
+
+
+test('Ozon sold check and cleanup are grouped together after independent barcode controls', () => {
+    const html = readOptionsHtml();
+    const apply = html.indexOf('id="optionsOzonAutoBarcodeApplyEnabled"');
+    const remove = html.indexOf('id="optionsOzonAutoBarcodeRemoveEnabled"');
+    const group = html.indexOf('class="sold-settings-group"');
+    const check = html.indexOf('id="optionsOzonAutoSoldCheckEnabled"');
+    const cleanup = html.indexOf('id="optionsOzonAutoSoldCleanupEnabled"');
+    const endGroup = html.indexOf('</div>', html.indexOf('</label>', cleanup));
+
+    assert.ok(apply < remove && remove < group && group < check && check < cleanup);
+    assert.ok(cleanup < endGroup);
+    assert.match(html.slice(group, endGroup), /Очистка проданных ШК Ozon/);
 });

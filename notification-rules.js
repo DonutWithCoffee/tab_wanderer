@@ -15,6 +15,8 @@ const DEFAULT_CONFIG = {
     watchedOrderFollowUpIntervalMinutes: DEFAULT_WATCHED_ORDER_FOLLOW_UP_INTERVAL_MINUTES,
     ozonAutoBarcodeApplyEnabled: true,
     ozonAutoBarcodeRemoveEnabled: true,
+    ozonAutoSoldCheckEnabled: true,
+    ozonAutoSoldCleanupEnabled: true,
     warehouseStockBranch: DEFAULT_WAREHOUSE_STOCK_BRANCH,
     notificationTriggers: {
         newOrders: true,
@@ -127,6 +129,18 @@ function normalizeOzonAutoBarcodeRemoveEnabled(value) {
 
 self.normalizeOzonAutoBarcodeRemoveEnabled = normalizeOzonAutoBarcodeRemoveEnabled;
 
+function normalizeOzonAutoSoldCheckEnabled(value) {
+    return value === undefined ? true : Boolean(value);
+}
+
+self.normalizeOzonAutoSoldCheckEnabled = normalizeOzonAutoSoldCheckEnabled;
+
+function normalizeOzonAutoSoldCleanupEnabled(value) {
+    return value === undefined ? true : Boolean(value);
+}
+
+self.normalizeOzonAutoSoldCleanupEnabled = normalizeOzonAutoSoldCleanupEnabled;
+
 function normalizeMonitorScope(scope = {}) {
     const safeScope = scope || {};
     return {
@@ -210,6 +224,9 @@ function getEffectiveConfig(config = {}) {
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safeConfig.watchedOrderFollowUpIntervalMinutes),
         ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safeConfig.ozonAutoBarcodeApplyEnabled),
         ozonAutoBarcodeRemoveEnabled: normalizeOzonAutoBarcodeRemoveEnabled(safeConfig.ozonAutoBarcodeRemoveEnabled),
+        ozonAutoSoldCheckEnabled: normalizeOzonAutoSoldCheckEnabled(safeConfig.ozonAutoSoldCheckEnabled),
+        ozonAutoSoldCleanupEnabled: normalizeOzonAutoSoldCheckEnabled(safeConfig.ozonAutoSoldCheckEnabled)
+            && normalizeOzonAutoSoldCleanupEnabled(safeConfig.ozonAutoSoldCleanupEnabled),
         notificationTriggers: normalizeNotificationTriggers(safeConfig.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safeConfig.notificationSuppressors),
         monitorScope: normalizeMonitorScope(safeConfig.monitorScope),

@@ -1,4 +1,4 @@
-importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js', 'core/ozon-disassembly.js', 'core/warehouse-stock-view-model.js');
+importScripts('version.js', 'core/order-kind.js', 'core/watched-orders.js', 'core/direct-follow-up.js', 'notification-rules.js', 'core/order-model.js', 'core/collection-model.js', 'core/sync-model.js', 'core/event-journal.js', 'core/monitor-status.js', 'core/diagnostic-log.js', 'core/notification-message.js', 'core/order-lookup.js', 'core/runtime-api.js', 'core/ozon-product-search.js', 'core/warehouse-barcode-extractor.js', 'core/ozon-barcode-binding.js', 'core/ozon-ui-apply-result.js', 'core/ozon-session-utils.js', 'core/ozon-session-messaging.js', 'core/ozon-disassembly.js', 'core/warehouse-stock-view-model.js', 'core/sold-barcode-scan.js', 'core/sold-auto-cleanup.js');
 
 let knownOrdersDB = {};
 let knownOrdersHashDB = {};
@@ -77,6 +77,7 @@ const OZON_WORKER_MARK = '#tab_wanderer_ozon_worker=1';
 const OZON_PRODUCTS_URL = 'https://seller.ozon.ru/app/products';
 const OZON_RESOLVE_TIMEOUT_MS = 30000;
 const OZON_UI_APPLY_TIMEOUT_MS = 60000;
+const OZON_UI_AUTO_SOLD_TIMEOUT_MS = 120000;
 const OZON_KEEP_UI_APPLY_WORKER_OPEN_AFTER_RESULT = false;
 const MAX_QUEUED_OZON_RESOLVE_REQUESTS = 12;
 const OZON_QUEUED_RESOLVE_TTL_MS = 2 * 60 * 1000;
@@ -1746,6 +1747,9 @@ function getEffectiveUserConfig(storedConfig) {
         watchedOrderFollowUpIntervalMinutes: normalizeWatchedOrderFollowUpIntervalMinutes(safe.watchedOrderFollowUpIntervalMinutes),
         ozonAutoBarcodeApplyEnabled: normalizeOzonAutoBarcodeApplyEnabled(safe.ozonAutoBarcodeApplyEnabled),
         ozonAutoBarcodeRemoveEnabled: normalizeOzonAutoBarcodeRemoveEnabled(safe.ozonAutoBarcodeRemoveEnabled),
+        ozonAutoSoldCheckEnabled: normalizeOzonAutoSoldCheckEnabled(safe.ozonAutoSoldCheckEnabled),
+        ozonAutoSoldCleanupEnabled: normalizeOzonAutoSoldCheckEnabled(safe.ozonAutoSoldCheckEnabled)
+            && normalizeOzonAutoSoldCleanupEnabled(safe.ozonAutoSoldCleanupEnabled),
         warehouseStockBranch: normalizeWarehouseStockBranch(safe.warehouseStockBranch),
         notificationTriggers: normalizeNotificationTriggers(safe.notificationTriggers),
         notificationSuppressors: normalizeNotificationSuppressors(safe.notificationSuppressors),
@@ -3582,7 +3586,8 @@ async function sendOzonResolvePreviewToWarehouse(payload = {}, session = ozonRes
 function createOzonResolvePreviewPlanForSession(session = ozonResolveSession) {
     return createOzonBarcodeBindingPreviewPlan({
         warehouseExtraction: session?.warehouseExtraction || {},
-        ozonProductsByProductId: session?.ozonProductsByProductId || {}
+        ozonProductsByProductId: session?.ozonProductsByProductId || {},
+        allowEmptyWarehouseBarcodes: session?.trigger === 'automatic-on-open'
     });
 }
 
@@ -3593,6 +3598,16 @@ async function finishOzonResolvePreview(operationId = ozonResolveSession?.operat
     }
 
     const plan = createOzonResolvePreviewPlanForSession(session);
+    if (userConfig?.ozonAutoSoldCheckEnabled !== false) {
+        await enrichResolvePlanWithSoldCleanup(plan, session);
+    } else {
+        plan.soldCleanup = [];
+        plan.soldCleanupFailedProducts = 0;
+        warehouseSoldPreviews.delete(session.warehouseTabId);
+    }
+    // A confirmed assembly may preempt an on-open read. Its late result must
+    // never reauthorize cleanup or overwrite the newer warehouse state.
+    if (!isCurrentOzonOperation('resolve', operationId)) return false;
 
     log('INFO', 'OZON_RESOLVE', 'preview ready', {
         ...plan.summary,
@@ -3743,7 +3758,9 @@ async function startOzonResolvePreview(senderTabId, warehouseExtraction = {}, op
     const safeWarehouseExtraction = typeof revalidateWarehouseBarcodeExtraction === 'function'
         ? revalidateWarehouseBarcodeExtraction(warehouseExtraction)
         : warehouseExtraction;
-    const productIds = getOzonResolveProductIds(safeWarehouseExtraction);
+    const productIds = getOzonResolveProductIds(safeWarehouseExtraction, {
+        includeProductsWithoutBarcodes: options.trigger === 'automatic-on-open'
+    });
     const session = createOzonResolveSessionState({
         warehouseTabId: senderTabId,
         orderId: options.orderId,
@@ -3792,6 +3809,21 @@ async function handleOzonProductResolveResult(senderTabId, msg = {}) {
     if (isCurrentOzonOperation('remove')) {
         return handleOzonRemoveProductResolveResult(senderTabId, msg);
     }
+    // The apply worker resolves seller and SKU independently before it may perform sold cleanup.
+    if (isCurrentOzonOperation('apply') && senderTabId === ozonWorkerTabId) {
+        const session = ozonUiApplySession;
+        const row = getCurrentOzonUiApplyProductRequest(session);
+        const id = normalizeOzonResolveId(msg.productId);
+        if (session?.autoSoldCleanup === true && row?.productId === id
+            && msg.result?.ok === true && normalizeOzonResolveId(msg.result?.product?.offerId) === id) {
+            const sellerId = normalizeOzonResolveId(msg.sellerId);
+            const ozonSku = normalizeOzonResolveId(msg.result?.product?.ozonSku);
+            if (/^\d{3,}$/.test(sellerId) && /^\d{6,}$/.test(ozonSku)) {
+                session.autoSoldIdentity = { productId: id, sellerId, ozonSku };
+            }
+        }
+        return createRuntimeOkResponse({accepted:true});
+    }
     const session = ozonResolveSession;
     const operationId = session?.operationId || '';
     if (!session
@@ -3808,6 +3840,24 @@ async function handleOzonProductResolveResult(senderTabId, msg = {}) {
     }
 
     clearOzonResolveTimeout();
+    // Capture the real reason the on-open lookup failed, rather than reporting
+    // only a missing SKU after the preview has discarded the failed result.
+    if (session.trigger === 'automatic-on-open') {
+        const product = msg.result?.product;
+        const diag = msg.result?.catalogueDiagnostic;
+        traceWarehouseSoldComparison('ozon-lookup-result', session.orderId, productId, {
+            ok: msg.result?.ok === true,
+            sellerAvailable: /^\d{3,}$/.test(normalizeOzonResolveId(msg.sellerId)),
+            skuAvailable: /^\d+$/.test(normalizeOzonResolveId(product?.ozonSku)),
+            existingBarcodes: Array.isArray(product?.existingBarcodes) ? product.existingBarcodes.length : 0,
+            error: String(msg.result?.error || '').slice(0, 140),
+            confirmedAbsent: msg.result?.confirmedAbsent === true,
+            catalogueReason: String(diag?.reason || '').slice(0, 80),
+            catalogueStatus: Number(diag?.status) || 0
+        }, msg.result?.ok === true ? 'INFO' : 'WARN');
+    }
+    session.sellerIdsByProductId ||= {};
+    session.sellerIdsByProductId[productId] = normalizeOzonResolveId(msg.sellerId);
     session.ozonProductsByProductId[productId] = msg.result && typeof msg.result === 'object'
         ? msg.result
         : { ok: false, error: 'ozon product result missing', product: null };
@@ -3984,6 +4034,18 @@ async function finishSoldDelete(error='',operationId=soldOzonDeleteSession?.oper
     ozonWorkerTabId=null;
     releaseOzonOperation(operationId);
     await soldDeleteProgress(session,error?'failed':'complete',{error:error||null});
+    if (session.warehouseTabId) {
+        if (!error) {
+            warehouseSoldPreviews.delete(session.warehouseTabId);
+            try { await autoSoldCachePut('orders',
+                `warehouse-sold-preview:${session.warehouseTabId}:${session.orderId}`,
+                {orderId:session.orderId,savedAt:Date.now(),products:[]}); } catch {}
+        }
+        try { await chrome.tabs.sendMessage(session.warehouseTabId, {
+            type:'OZON_WAREHOUSE_SOLD_DELETE_RESULT',orderId:session.orderId,
+            ok:!error,removed:session.removed||0,error:error||''
+        }); } catch {}
+    }
     if (tabId) {try{await chrome.tabs.remove(tabId);}catch{}}
     await drainQueuedOzonResolveRequests();
 }
@@ -4066,7 +4128,34 @@ async function confirmSoldCleanupEvidence(requested,snapshotId,inspectionSavedAt
         }
     }
 }
+async function startWarehouseSoldDelete(senderTab, msg) {
+    if (userConfig?.ozonAutoSoldCheckEnabled !== true)
+        return createRuntimeFailureResponse({error:'Проверка проданных ШК отключена в настройках; удаление запрещено'});
+    const orderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+    if (!senderTab?.id || !isWarehouseOzonResolveSender(senderTab)
+        || getOrderKindRecord(orderId).kind !== ORDER_KIND_OZON
+        || !orderId || orderId !== normalizeOzonSessionOrderId(msg.orderId))
+        return createRuntimeFailureResponse({error:'Untrusted warehouse order'});
+    const preview = await getWarehouseSoldPreview(senderTab.id, orderId);
+    if (!preview || !preview.products.length)
+        return createRuntimeFailureResponse({error:'No confirmed sold Ozon barcodes for this order'});
+    if (ozonActiveOperation || ozonPendingApplyRequest)
+        return createRuntimeFailureResponse({error:'Ozon worker busy',busy:true});
+    const products = preview.products.map(row => ({productId:row.productId,barcodes:row.barcodes}));
+    if (ozonWorkerTabId) await closeOrphanOzonWorker();
+    if (ozonActiveOperation || ozonPendingApplyRequest)
+        return createRuntimeFailureResponse({error:'Ozon worker became busy',busy:true});
+    const session = {products,index:0,status:'starting',warehouseTabId:senderTab.id,
+        orderId, removed:0,expectedIdentity:new Map(preview.products.map(row => [row.productId,row]))};
+    const operationId = beginOzonOperation('sold-delete',session);
+    if (!operationId) return createRuntimeFailureResponse({error:'Ozon worker busy',busy:true});
+    soldOzonDeleteSession = session;
+    await openNextSoldDeleteProduct();
+    return createRuntimeOkResponse({started:true,operationId,total:products.length});
+}
 async function startSoldDelete(sender,msg) {
+    if (userConfig?.ozonAutoSoldCheckEnabled !== true)
+        return createRuntimeFailureResponse({error:'Проверка проданных ШК отключена в настройках; удаление запрещено'});
     if(!isTrustedSoldScannerPage(sender))return createRuntimeFailureResponse({error:'Untrusted sold cleanup source'});
     if(ozonActiveOperation||ozonPendingApplyRequest)return createRuntimeFailureResponse({error:'Ozon worker busy',busy:true});
     const rows=Array.isArray(msg.products)?msg.products:[];
@@ -4102,10 +4191,15 @@ async function onSoldDeleteResolved(senderTabId,msg) {
     if(normalizeOzonResolveId(msg.productId)!==row.productId)return createRuntimeIgnoredResponse();
     const product=msg.result?.product;
     const sellerId=normalizeOzonResolveId(msg.sellerId),sku=normalizeOzonResolveId(product?.ozonSku);
+    const expected = session.expectedIdentity?.get(row.productId);
+    if (expected && (expected.sellerId !== sellerId || expected.ozonSku !== sku))
+        return finishSoldDelete('Seller or Ozon SKU changed after preview',session.operationId);
     if(msg.result?.ok!==true||normalizeOzonResolveId(product?.offerId)!==row.productId
         || !/^\d{6,}$/.test(sku)||!/^\d{3,}$/.test(sellerId)) {
         return finishSoldDelete(`Identity unresolved for ${row.productId}; no deletion requested for this item`,session.operationId);
     }
+    if (userConfig?.ozonAutoSoldCheckEnabled !== true)
+        return finishSoldDelete('Проверка проданных ШК отключена; удаление отменено',session.operationId);
     session.status='deleting';
     try {
         const response=await chrome.tabs.sendMessage(ozonWorkerTabId,{type:'SOLD_OZON_DELETE_IN_WORKER',
@@ -4127,10 +4221,275 @@ async function onSoldDeleteResult(senderTabId,msg) {
         await finishSoldDelete(`Deletion/verification failed for ${row.productId}; no automatic retries`,session.operationId);
         return createRuntimeOkResponse({accepted:true,stopped:true});
     }
+    session.removed = (session.removed || 0) + row.barcodes.length;
     await soldDeleteProgress(session,'product',{productId:row.productId,removedCount:row.barcodes.length,barcodes:row.barcodes});
     session.index++;
     await openNextSoldDeleteProduct();
     return createRuntimeOkResponse({accepted:true});
+}
+
+// Addressed warehouse-history lookup for the article being assembled.
+// This reuses the verified read-only scanner model and its IndexedDB cache;
+// the completed-Ozon order must still be verified separately for every sale.
+const AUTO_SOLD_CUTOFF_DAYS = 365;
+const AUTO_SOLD_MAX_ORDER_DETAILS = 150;
+const AUTO_SOLD_MAX_SCAN_MS = 45000;
+const AUTO_SOLD_MAX_HISTORY_REQUESTS = 120;
+const AUTO_SOLD_FETCH_TIMEOUT_MS = 15000;
+let autoSoldScanDbPromise = null;
+function autoSoldScanDb() {
+    if (!autoSoldScanDbPromise) autoSoldScanDbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open('tw-sold-barcode-scan-v3', 2);
+        request.onupgradeneeded = () => {
+            for (const name of ['orders', 'histories', 'productItems']) {
+                if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name);
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+    return autoSoldScanDbPromise;
+}
+async function autoSoldCacheGet(store, key) {
+    const db = await autoSoldScanDb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(store, 'readonly');
+        const request = tx.objectStore(store).get(key);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+async function autoSoldCachePut(store, key, value) {
+    const db = await autoSoldScanDb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(store, 'readwrite');
+        tx.objectStore(store).put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+async function autoSoldFetch(url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AUTO_SOLD_FETCH_TIMEOUT_MS);
+    try {
+        const response = await fetch(url, { credentials: 'include', cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error(`Amperkot HTTP ${response.status}`);
+        const payload = await response.json();
+        if (!payload || typeof payload !== 'object') throw new Error('Invalid Amperkot response');
+        return payload;
+    } finally { clearTimeout(timer); }
+}
+// Temporary read-only diagnostics for the Warehouse Ozon-first comparison.
+// Entries reuse the bounded, persistent diagnostic journal; never log auth/API payloads.
+function traceWarehouseSoldComparison(stage, orderId, productId, details = {}, level = 'INFO') {
+    log(level, 'OZON_SOLD_COMPARE', stage, {
+        orderId: String(orderId || '').slice(0, 32),
+        productId: String(productId || '').slice(0, 32),
+        ...details
+    });
+}
+async function findAutoSoldBarcodes(productId, newBarcodes, currentOrderId, ozonExistingBarcodes = null) {
+    const id = normalizeOzonResolveId(productId);
+    if (!/^\d+$/.test(id) || !Array.isArray(newBarcodes)) {
+        throw new Error('Invalid product/barcode exclusion list for sold cleanup');
+    }
+    traceWarehouseSoldComparison('product-start', currentOrderId, id, {
+        ozonBarcodes: Array.isArray(ozonExistingBarcodes) ? ozonExistingBarcodes.length : null,
+        currentBarcodes: newBarcodes.length, periodDays: AUTO_SOLD_CUTOFF_DAYS
+    });
+    const deadline = Date.now() + AUTO_SOLD_MAX_SCAN_MS;
+    let historyRequests = 0;
+    const model = TWSoldBarcodeScan;
+    const cutoff = new Date(Date.now() - AUTO_SOLD_CUTOFF_DAYS * 86400000).toISOString();
+    // Always fetch warehouse history from Amperkot for this inspection.
+    // The cached preview is retained only to bridge page-open inspection and
+    // the later confirmed assembly; it must not replace live sale history.
+    const result = await model.collectProductHistorySince(
+        page => {
+            if (++historyRequests > AUTO_SOLD_MAX_HISTORY_REQUESTS || Date.now() >= deadline)
+                throw new Error('Automatic Ozon sale scan budget exhausted');
+            return autoSoldFetch(model.historyUrl(id, page));
+        }, cutoff, null, async () => {}
+    );
+    const recent = result.history.filter(event => Number.isFinite(Date.parse(event.created_at))
+        && Date.parse(event.created_at) >= Date.parse(cutoff));
+    // Ozon-first: filter warehouse sales by the existing Ozon catalogue before
+    // requesting any order details. Unknown/non-unit barcodes are not deletable.
+    const ozonCodes = Array.isArray(ozonExistingBarcodes)
+        ? new Set(ozonExistingBarcodes.map(TWSoldAutoCleanup.normalizeBarcode).filter(Boolean)) : null;
+    const relevantHistory = ozonCodes
+        ? TWSoldAutoCleanup.saleHistoryMatchingOzonBarcodes(recent, id, [...ozonCodes], newBarcodes)
+        : recent;
+    traceWarehouseSoldComparison('warehouse-history-filter-diagnostic', currentOrderId, id,
+        TWSoldAutoCleanup.diagnoseHistoryIntersection(recent, id,
+            Array.isArray(ozonExistingBarcodes) ? ozonExistingBarcodes : [], newBarcodes));
+    traceWarehouseSoldComparison('warehouse-history-compared', currentOrderId, id, {
+        historyEvents: recent.length,
+        historyRequests: result.requests,
+        matchedSaleEvents: relevantHistory.length,
+        cachedHistory: false,
+        matchingBarcodes: [...new Set(relevantHistory.map(row => row?.productItem?.barcode).filter(Boolean))].length
+    });
+    const numbers = TWSoldAutoCleanup.eligibleSaleOrderNumbers(relevantHistory, id, newBarcodes)
+        .filter(number => number !== currentOrderId);
+    // A busy article may have thousands of sales. Rotate a bounded window
+    // across assemblies instead of permanently skipping that article.
+    const rotationKey = `auto-sold-cursor:${id}`;
+    const cursor = await autoSoldCacheGet('orders', rotationKey);
+    const offset = numbers.length && Number.isSafeInteger(cursor?.offset)
+        ? cursor.offset % numbers.length : 0;
+    const selectedNumbers = numbers.length <= AUTO_SOLD_MAX_ORDER_DETAILS
+        ? numbers
+        : [...numbers.slice(offset, offset + AUTO_SOLD_MAX_ORDER_DETAILS),
+           ...numbers.slice(0, Math.max(0, offset + AUTO_SOLD_MAX_ORDER_DETAILS - numbers.length))];
+    const allowedOrders = new Set(selectedNumbers);
+    const scopedHistory = relevantHistory.filter(event => allowedOrders.has(String(event?.attributes?.shop_order?.number || '')));
+    const sold = await TWSoldAutoCleanup.collectConfirmedSold(id, scopedHistory,
+        number => {
+            if (Date.now() >= deadline) throw new Error('Automatic sale scan timed out');
+            return autoSoldFetch(model.detailsUrl(number));
+        },
+        itemId => {
+            if (Date.now() >= deadline) throw new Error('Automatic sale item scan timed out');
+            return autoSoldFetch(model.productItemUrl(itemId));
+        }, newBarcodes, currentOrderId);
+    traceWarehouseSoldComparison('orders-verified', currentOrderId, id, {
+        relatedOrders: numbers.length, checkedOrders: sold.completedOrders,
+        failedOrders: sold.failedOrders, excludedMulti: sold.excludedMulti,
+        unknownType: sold.unknownType, confirmedSold: sold.barcodes.length,
+        selectedWindow: selectedNumbers.length,
+        uncheckedOrders: Math.max(0, numbers.length - selectedNumbers.length)
+    }, sold.failedOrders ? 'WARN' : 'INFO');
+    if (Date.now() >= deadline) throw new Error('Automatic sale verification timed out');
+    if (numbers.length > AUTO_SOLD_MAX_ORDER_DETAILS) {
+        await autoSoldCachePut('orders', rotationKey, {
+            offset: (offset + AUTO_SOLD_MAX_ORDER_DETAILS) % numbers.length
+        });
+    }
+    log('INFO', 'OZON_AUTO_SOLD', 'addressed sale scan completed', {
+        productId: id, orderId: currentOrderId,
+        historyRequests: result.requests, checkedOrders: sold.completedOrders,
+        salesInWindow: numbers.length, windowOffset: offset, failedOrders: sold.failedOrders,
+        candidates: sold.barcodes.length, excludedMulti: sold.excludedMulti,
+        unknownType: sold.unknownType
+    });
+    // Only confirmed barcodes are reported. This evidence is observational
+    // and does not authorize deletion beyond the existing verified list.
+    const confirmed = ozonCodes ? sold.barcodes.filter(code => ozonCodes.has(code)) : sold.barcodes;
+    // The persistent journal sanitizes arrays above 20 entries. Chunk the
+    // evidence so every confirmed barcode and order survives JSON export.
+    const evidence = sold.evidence.filter(row => confirmed.includes(row.barcode));
+    const chunkSize = 15;
+    for (let offset = 0; offset < evidence.length; offset += chunkSize) {
+        traceWarehouseSoldComparison('confirmed-barcode-evidence', currentOrderId, id, {
+            total: evidence.length, chunk: Math.floor(offset / chunkSize) + 1,
+            chunks: Math.ceil(evidence.length / chunkSize),
+            entries: evidence.slice(offset, offset + chunkSize)
+        });
+    }
+    for (let offset = 0; offset < sold.failedOrderNumbers.length; offset += chunkSize) {
+        traceWarehouseSoldComparison('unverified-order-evidence', currentOrderId, id, {
+            total: sold.failedOrderNumbers.length,
+            chunk: Math.floor(offset / chunkSize) + 1,
+            chunks: Math.ceil(sold.failedOrderNumbers.length / chunkSize),
+            numbers: sold.failedOrderNumbers.slice(offset, offset + chunkSize)
+        }, 'WARN');
+    }
+    return {
+        barcodes: confirmed,
+        evidence: evidence.map(row => ({barcode:row.barcode, orderNumber:row.orderNumber}))
+    };
+}
+
+// Only read-only Ozon previews can authorize warehouse manual cleanup or
+// post-assembly automatic cleanup. Never accept barcode lists from page events.
+const warehouseSoldPreviews = new Map();
+const WAREHOUSE_SOLD_PREVIEW_TTL_MS = 30 * 60 * 1000;
+async function getWarehouseSoldPreview(tabId, orderId) {
+    let row = warehouseSoldPreviews.get(tabId);
+    if (!row) {
+        try { row = await autoSoldCacheGet('orders', `warehouse-sold-preview:${tabId}:${orderId}`); }
+        catch (error) {
+            log('WARN','OZON_AUTO_SOLD','Cannot restore saved preview',String(error?.message||error));
+            return null;
+        }
+    }
+    if (!row || row.orderId !== orderId || Date.now() - row.savedAt > WAREHOUSE_SOLD_PREVIEW_TTL_MS) {
+        warehouseSoldPreviews.delete(tabId);
+        return null;
+    }
+    warehouseSoldPreviews.set(tabId,row);
+    return row;
+}
+async function enrichResolvePlanWithSoldCleanup(plan, session) {
+    const result = [];
+    const errors = [];
+    traceWarehouseSoldComparison('inspection-start', session.orderId, '', {
+        products: Array.isArray(plan.productPlans) ? plan.productPlans.length : 0,
+        trigger: session.trigger || 'manual'
+    });
+    for (const item of plan.productPlans || []) {
+        if (!isCurrentOzonOperation('resolve', session.operationId)) return plan;
+        const existing = Array.isArray(item.existingBarcodes) ? item.existingBarcodes : [];
+        if (!/^\d+$/.test(String(item.productId)) || !item.ozonSku || !existing.length) {
+            traceWarehouseSoldComparison('product-skipped', session.orderId, item.productId, {
+                reason: !item.ozonSku ? 'ozon-product-not-resolved' : !existing.length ? 'ozon-barcodes-empty' : 'invalid-product-id',
+                lookupError: String(session.ozonProductsByProductId?.[item.productId]?.error || '').slice(0, 120)
+            });
+            continue;
+        }
+        // Resolve account identity before any potentially expensive warehouse history requests.
+        const resolved = session.ozonProductsByProductId?.[item.productId];
+        const sellerId = normalizeOzonResolveId(resolved?.sellerId || session.sellerIdsByProductId?.[item.productId]);
+        if (!/^\d{3,}$/.test(sellerId)) {
+            errors.push(item.productId);
+            log('WARN','OZON_AUTO_SOLD','preview seller unavailable',{productId:item.productId});
+            continue;
+        }
+        // Collect candidate current-order barcodes from the same verified extraction.
+        const current = [...(item.toAdd || []), ...(item.alreadyExists || [])]
+            .map(row => row.barcode).filter(Boolean);
+        try {
+            const confirmed = await findAutoSoldBarcodes(item.productId, current, session.orderId, existing);
+            const barcodes = confirmed.barcodes;
+            traceWarehouseSoldComparison('product-result', session.orderId, item.productId, {
+                ozonBarcodes: existing.length, confirmedMatches: barcodes.length,
+                // Full confirmed barcode/order evidence is emitted as
+                // separately numbered chunks before this summary.
+                evidenceChunks: Math.ceil(barcodes.length / 15)
+            });
+            if (!barcodes.length) continue;
+            result.push({productId:item.productId, ozonSku:item.ozonSku, sellerId, barcodes,
+                evidence:confirmed.evidence});
+        } catch (error) {
+            traceWarehouseSoldComparison('product-error', session.orderId, item.productId, {
+                error: String(error?.message || error).slice(0, 160)
+            }, 'WARN');
+            errors.push(item.productId);
+            log('WARN','OZON_AUTO_SOLD','Ozon-first scan skipped product',
+                {productId:item.productId,error:String(error?.message || error).slice(0,160)});
+        }
+    }
+    if (!isCurrentOzonOperation('resolve', session.operationId)) return plan;
+    traceWarehouseSoldComparison('inspection-complete', session.orderId, '', {
+        candidateProducts: result.length, candidateBarcodes: result.reduce((n,row) => n + row.barcodes.length, 0),
+        failedProducts: errors.length
+    }, errors.length ? 'WARN' : 'INFO');
+    // Read-only display evidence; the separate trusted preview controls deletion.
+    // Do not expose seller credentials or use this display list as write authority.
+    plan.soldCleanup = result.map(row => ({
+        productId:row.productId, count:row.barcodes.length,
+        entries:row.evidence.map(item => ({barcode:item.barcode, orderNumber:item.orderNumber}))
+    }));
+    plan.soldCleanupFailedProducts = errors.length;
+    const preview = { orderId:session.orderId, savedAt:Date.now(), products:result };
+    warehouseSoldPreviews.set(session.warehouseTabId, preview);
+    try {
+        await autoSoldCachePut('orders',`warehouse-sold-preview:${session.warehouseTabId}:${session.orderId}`,preview);
+    } catch (error) {
+        log('WARN','OZON_AUTO_SOLD','Cannot persist preview',String(error?.message||error));
+    }
+    return plan;
 }
 
 // ---------- OZON UI BARCODE APPLY ----------
@@ -4168,11 +4527,36 @@ async function cleanupOzonUiApply({ closeTab = false, operationId = ozonUiApplyS
 }
 
 async function sendOzonUiApplyResultToWarehouse(payload = {}, session = ozonUiApplySession) {
+    // Automatic sold deletion and barcode addition share one worker session, but
+    // the warehouse UI needs a separate, verified deletion result to retire its
+    // pending manual-delete button. Never infer cleanup success from add success.
+    const cleanupResults = (session?.results || [])
+        .map(row => row.soldCleanup).filter(row => row?.attempted === true);
+    const soldCleanup = cleanupResults.length ? {
+        attempted: true,
+        matched: cleanupResults.reduce((sum, row) => sum + row.matched, 0),
+        removed: cleanupResults.reduce((sum, row) => sum + row.removed, 0),
+        ok: cleanupResults.every(row => row.ok === true),
+        error: cleanupResults.filter(row => !row.ok).map(row => row.error).filter(Boolean).join('; ')
+    } : null;
+    if (soldCleanup?.ok && session?.warehouseTabId && session?.orderId) {
+        // Invalidate the trusted on-open snapshot as soon as its barcodes were
+        // deleted. A delayed/stale manual request must not reuse those entries.
+        warehouseSoldPreviews.delete(session.warehouseTabId);
+        try {
+            await autoSoldCachePut('orders',
+                `warehouse-sold-preview:${session.warehouseTabId}:${session.orderId}`,
+                {orderId:session.orderId,savedAt:Date.now(),products:[]});
+        } catch (error) {
+            log('WARN', 'OZON_AUTO_SOLD', 'Cannot persist cleared sold preview', String(error?.message || error));
+        }
+    }
     return sendOzonWarehouseMessage({
         session,
         type: 'OZON_UI_APPLY_RESULT',
         payload: {
             ...payload,
+            soldCleanup,
             orderId: session?.orderId || '',
             trigger: session?.trigger || 'manual',
             actionId: session?.actionId || ''
@@ -4210,7 +4594,8 @@ function scheduleOzonUiApplyTimeout(operationId = ozonUiApplySession?.operationI
         failOzonUiApply('Ozon UI apply timeout', { operationId }).catch((err) => {
             log('ERROR', 'OZON_UI_APPLY', 'timeout cleanup failed', err?.message || err);
         });
-    }, OZON_UI_APPLY_TIMEOUT_MS);
+    }, ozonUiApplySession?.autoSoldCleanup === true
+        ? OZON_UI_AUTO_SOLD_TIMEOUT_MS : OZON_UI_APPLY_TIMEOUT_MS);
 
     return true;
 }
@@ -4233,13 +4618,39 @@ async function sendOzonUiApplyCommandToWorker() {
     const { productId, barcodes } = currentProduct;
 
     try {
+        if (session.status === 'preparing-sold' || session.status === 'command-sent') return true;
+        session.status = 'preparing-sold';
+        const savedPreview = session.autoSoldCleanup === true
+            && userConfig?.ozonAutoSoldCheckEnabled !== false
+            && userConfig?.ozonAutoSoldCleanupEnabled === true
+            ? await getWarehouseSoldPreview(session.warehouseTabId, session.orderId) : null;
+        const prepared = savedPreview?.products?.find(row => row.productId === productId);
+        const soldBarcodes = prepared?.barcodes?.filter(code => !barcodes.includes(code)) || [];
+        if (!isCurrentOzonOperation('apply', operationId)
+            || getCurrentOzonUiApplyProductRequest(session)?.productId !== productId) return false;
+        // Product resolution messages can arrive after WORKER_READY; allow a brief bounded wait.
+        for (let attempt = 0; soldBarcodes.length && !session.autoSoldIdentity && attempt < 10; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        const identity = session.autoSoldIdentity;
+        const withCleanup = userConfig?.ozonAutoSoldCheckEnabled !== false
+            && userConfig?.ozonAutoSoldCleanupEnabled === true
+            && soldBarcodes.length > 0 && soldBarcodes.length <= 2000
+            && identity?.productId === productId
+            && identity.sellerId === prepared?.sellerId
+            && identity.ozonSku === prepared?.ozonSku
+            && /^\d{3,}$/.test(identity.sellerId) && /^\d{6,}$/.test(identity.ozonSku);
+        if (soldBarcodes.length && !withCleanup) {
+            log('WARN', 'OZON_AUTO_SOLD', 'Ozon identity missing or too many sold barcodes; skipping cleanup', { productId, count:soldBarcodes.length });
+        }
         session.status = 'command-sent';
-        await chrome.tabs.sendMessage(ozonWorkerTabId, {
-            type: 'OZON_UI_APPLY_IN_WORKER',
-            productId,
-            barcodes
-        });
+        const reply = await chrome.tabs.sendMessage(ozonWorkerTabId, withCleanup ? {
+            type: 'OZON_UI_APPLY_WITH_SOLD_CLEANUP_IN_WORKER', productId, barcodes,
+            soldBarcodes, sellerId: identity.sellerId, ozonSku: identity.ozonSku, preverified:true
+        } : { type: 'OZON_UI_APPLY_IN_WORKER', productId, barcodes });
+        if (reply?.ok !== true) throw new Error(reply?.error || 'Ozon apply command rejected');
         log('INFO', 'OZON_UI_APPLY', 'apply command sent', {
+            soldCleanupCandidates: withCleanup ? soldBarcodes.length : 0,
             productId,
             barcodeCount: barcodes.length,
             index: session.index + 1,
@@ -4260,6 +4671,7 @@ async function openCurrentOzonUiApplyProduct() {
     }
 
     const currentProduct = getCurrentOzonUiApplyProductRequest(session);
+    session.autoSoldIdentity = null;
 
     if (!currentProduct) {
         const payload = createOzonUiApplyFinalPayload(session);
@@ -4406,6 +4818,9 @@ async function startOzonUiApply(senderTabId, warehouseExtraction = {}, options =
         return createRuntimeFailureResponse({ error: 'failed to claim Ozon write operation' });
     }
 
+    session.autoSoldCleanup = options.trigger === 'automatic'
+        && userConfig?.ozonAutoSoldCheckEnabled !== false
+        && userConfig?.ozonAutoSoldCleanupEnabled === true;
     ozonUiApplySession = session;
     await openCurrentOzonUiApplyProduct();
 
@@ -4462,7 +4877,24 @@ async function handleOzonUiApplyResult(senderTabId, msg = {}) {
 
     clearOzonUiApplyTimeout();
 
+    if (session.autoSoldCleanup && msg.soldCleanup) {
+        log(msg.soldCleanup.error ? 'WARN' : 'INFO', 'OZON_AUTO_SOLD', 'cleanup before addition', {
+            productId, matched: Number(msg.soldCleanup.matched) || 0,
+            removed: Number(msg.soldCleanup.removed) || 0,
+            error: String(msg.soldCleanup.error || '').slice(0, 180)
+        });
+    }
     const productResult = buildOzonUiApplyProductResult(currentProduct, msg);
+    if (session.autoSoldCleanup && msg.soldCleanup && typeof msg.soldCleanup === 'object') {
+        const matched = Math.max(0, Number(msg.soldCleanup.matched) || 0);
+        const removed = Math.max(0, Number(msg.soldCleanup.removed) || 0);
+        const error = String(msg.soldCleanup.error || '');
+        productResult.soldCleanup = {
+            attempted: true, matched, removed,
+            ok: !error && matched > 0 && removed === matched,
+            error: error || (removed !== matched ? 'Sold cleanup removal not fully verified' : '')
+        };
+    }
     session.results.push(productResult);
     session.index += 1;
 
@@ -5035,6 +5467,12 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
+                if (trigger === 'automatic-on-open' && userConfig?.ozonAutoSoldCheckEnabled === false) {
+                    send(createRuntimeOkResponse({skipped:true,reason:'auto-sold-check-disabled',
+                        orderId:requestedOrderId,trigger}));
+                    return;
+                }
+
                 if (trigger === 'automatic-on-open'
                     && getOrderKindRecord(requestedOrderId).kind !== ORDER_KIND_OZON) {
                     send(createRuntimeFailureResponse({
@@ -5044,6 +5482,13 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                     return;
                 }
 
+                if (trigger === 'automatic-on-open') {
+                    traceWarehouseSoldComparison('on-open-request', requestedOrderId, '', {
+                        products: Object.keys(msg.warehouseExtraction?.productsById || {}).length,
+                        warehouseBarcodes: Array.isArray(msg.warehouseExtraction?.eligibleBarcodes)
+                            ? msg.warehouseExtraction.eligibleBarcodes.length : 0
+                    });
+                }
                 const extractionBounds = validateWarehouseOzonExtractionPayload(msg.warehouseExtraction || {});
                 if (!extractionBounds.ok) {
                     send(createRuntimeFailureResponse({
@@ -5109,6 +5554,22 @@ chrome.runtime.onMessage.addListener((msg, sender, send) => {
                 return;
             }
 
+            if (msg.type === 'GET_WAREHOUSE_SOLD_COMPARE_LOG') {
+                const orderId = getWarehouseOrderIdFromTabUrl(senderTab?.url);
+                if (!isWarehouseOzonResolveSender(senderTab)
+                    || !orderId || orderId !== normalizeOrderKindOrderId(msg.orderId)) {
+                    send(createRuntimeFailureResponse({error:'Untrusted warehouse diagnostic request'}));
+                    return;
+                }
+                const entries = diagnosticLog.filter(row => row?.scope === 'OZON_SOLD_COMPARE'
+                    && row?.details?.orderId === orderId);
+                send(createRuntimeOkResponse({
+                    version: 1, orderId, exportedAt: new Date().toISOString(),
+                    events: entries, retainedLogTruncated: diagnosticLogDroppedEntries > 0
+                }));
+                return;
+            }
+            if (msg.type === 'OZON_WAREHOUSE_SOLD_DELETE_REQUEST') {send(await startWarehouseSoldDelete(senderTab,msg));return;}
             if (msg.type === 'SOLD_OZON_DELETE_START') {send(await startSoldDelete(sender,msg));return;}
             if (msg.type === 'SOLD_OZON_DELETE_RESULT') {send(await onSoldDeleteResult(senderTabId,msg));return;}
             if (msg.type === 'SOLD_OZON_INSPECT_START') {
@@ -5477,6 +5938,11 @@ if (msg.type === 'UPDATE_CONFIG') {
         ...incomingConfig,
         warehouseStockBranch: userConfig?.warehouseStockBranch
     });
+    if (userConfig.ozonAutoSoldCheckEnabled !== true) {
+        warehouseSoldPreviews.clear();
+        ozonQueuedResolveRequests.splice(0, ozonQueuedResolveRequests.length,
+            ...ozonQueuedResolveRequests.filter(request => request.trigger !== 'automatic-on-open'));
+    }
     const addedWatchedOrderIds = getAddedWatchedOrderIds(prevConfig?.watchedOrders, userConfig?.watchedOrders);
 
     const prevScope = JSON.stringify(prevConfig?.monitorScope || {});

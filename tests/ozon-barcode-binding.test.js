@@ -248,3 +248,38 @@ test('createOzonBarcodeBindingPreviewPlan compares warehouse barcodes with resol
     assert.equal(plan.productPlans[0].toAdd[0].barcode, '2486857');
     assert.equal(plan.productPlans[0].alreadyExists[0].barcode, '2486885');
 });
+
+
+test('on-open preview retains resolved Ozon SKU and barcodes before warehouse scanning', () => {
+    const context = loadOzonBarcodeBindingContext();
+    const input = {
+        warehouseExtraction: { orderId: '4841-181126', productsById: {
+            40624838: {productId: '40624838', productTitle: 'Test product', eligibleBarcodes: [], skippedBarcodes: []}
+        }},
+        ozonProductsByProductId: {
+            40624838: { ok: true, product: { offerId: '40624838', ozonSku: '1675596792', existingBarcodes: ['2415152'] } }
+        }
+    };
+    const before = context.createOzonBarcodeBindingPreviewPlan(input);
+    assert.equal(before.productPlans[0].ozonSku, '');
+    assert.equal(before.productPlans[0].existingBarcodes.length, 0);
+
+    const after = context.createOzonBarcodeBindingPreviewPlan({...input, allowEmptyWarehouseBarcodes: true});
+    assert.equal(after.productPlans[0].ozonSku, '1675596792');
+    assert.deepEqual([...after.productPlans[0].existingBarcodes], ['2415152']);
+    assert.equal(after.productPlans[0].toAdd.length, 0);
+    assert.equal(after.productPlans[0].status, 'skipped');
+});
+
+test('on-open preview does not invent Ozon identity when lookup failed', () => {
+    const context = loadOzonBarcodeBindingContext();
+    const after = context.createOzonBarcodeBindingPreviewPlan({
+        warehouseExtraction: {productsById: {
+            40624838: {productId: '40624838', eligibleBarcodes: [], skippedBarcodes: []}
+        }},
+        ozonProductsByProductId: {40624838:{ok:false,error:'lookup-failed'}},
+        allowEmptyWarehouseBarcodes: true
+    });
+    assert.equal(after.productPlans[0].status, 'error');
+    assert.equal(after.productPlans[0].ozonSku, '');
+});

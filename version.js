@@ -1,8 +1,8 @@
 const VERSION = {
-    version: '1.0.5.1',
-    build: '1.0.5.1',
-    stage: 'Warehouse Ozon assembly panel first-open hotfix',
-    date: '2026-11-13'
+    version: '1.0.6',
+    build: '1.0.6',
+    stage: 'Ozon sold barcode audit and cleanup',
+    date: '2026-11-18'
 };
 
 const CHANGELOG = {
@@ -25,5 +25,6 @@ const CHANGELOG = {
     '1.0.4.2': 'Ozon stability patch: automatic read-only checks for assembled orders, serialized operations and corrected unit barcode classification',
     '1.0.4.3': 'Warehouse stock/city and worker lifecycle stability improvements',
     '1.0.5': 'Procurement-to-order reserve, bidirectional Ozon barcode synchronization, disassembly controls and reliable partial reassembly',
-    '1.0.5.1': 'Restore Ozon assembly barcode information panel on first open and after confirmed assembly'
+    '1.0.5.1': 'Restore Ozon assembly barcode information panel on first open and after confirmed assembly',
+    '1.0.6': 'Ozon sold barcode audit, confirmed cleanup before add, independent safety switches and expanded diagnostics'
 };

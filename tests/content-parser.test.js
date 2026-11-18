@@ -2662,7 +2662,7 @@ test('warehouse automatically checks existing Ozon barcodes once even when autom
     assert.equal(sentMessages.filter(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST').length, 1);
 });
 
-test('warehouse automatic Ozon check waits for confirmed order kind and skips multi-only snapshots', () => {
+test('warehouse automatic Ozon check waits for confirmed kind and checks multi-only article read-only', () => {
     const orderId = '7002-010126';
     const sentMessages = [];
     const timers = createControlledTimeouts();
@@ -2716,8 +2716,49 @@ test('warehouse automatic Ozon check waits for confirmed order kind and skips mu
         detail: { ok: true, source: 'warehouse-api-response', shopOrder: multiOrder }
     });
 
-    assert.equal(timers.size, 0);
-    assert.equal(sentMessages.some(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST'), false);
+    assert.equal(timers.size, 1);
+    assert.equal(timers.runNext(), true);
+    const checks = sentMessages.filter(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST');
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].warehouseExtraction.summary.eligibleCount, 0);
+    assert.equal(checks[0].warehouseExtraction.summary.productCount, 1);
+    assert.equal(sentMessages.some(message => message.type === 'OZON_UI_APPLY_REQUEST'), false);
+});
+
+test('newly opened Ozon assembly inspects order articles before any barcode was scanned', () => {
+    const orderId = '7008-010126';
+    const sentMessages = [];
+    const timers = createControlledTimeouts();
+    const context = loadContentContext(createWarehousePreviewPanelDocumentStub(), {
+        windowLocation: { origin: 'https://amperkot.ru',
+            href: `https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=${orderId}` },
+        window: { dispatchEvent: () => {}, addEventListener: () => {} },
+        setTimeout: callback => timers.setTimeout(callback),
+        clearTimeout: id => timers.clearTimeout(id),
+        runtime: { lastError: null, getURL: path => `chrome-extension://test/${path}`,
+            onMessage: {addListener: () => {}},
+            sendMessage(payload, callback) {
+                sentMessages.push(payload);
+                if (payload.type === 'GET_ORDER_KIND')
+                    return callback?.({ok:true,orderKind:{orderId,kind:'ozon',reason:'source-action'}});
+                if (payload.type === 'GET_WAREHOUSE_AUTO_APPLY')
+                    return callback?.({ok:true,enabled:true,intent:null});
+                callback?.({ok:true,started:true,orderId:payload.orderId||''});
+            }
+        }
+    });
+    sentMessages.length = 0;
+    context.handleWarehouseShopOrderBridgeResponse({detail: {ok:true,source:'warehouse-api-response',
+        shopOrder: {number:orderId,id:'4336',items:[
+            {id:'7',item_id:'24126456',title:'DC-DC MT3608',quantity:1,assembled_quantity:0}
+        ],assembly:[]}}});
+    assert.equal(context.getWarehouseAutoResolveCheckState().status,'scheduled');
+    assert.equal(timers.runNext(),true);
+    const requests=sentMessages.filter(row=>row.type==='OZON_RESOLVE_PREVIEW_REQUEST');
+    assert.equal(requests.length,1);
+    assert.equal(requests[0].warehouseExtraction.summary.eligibleCount,0);
+    assert.deepEqual(Object.keys(requests[0].warehouseExtraction.productsById),['24126456']);
+    assert.equal(sentMessages.some(row=>row.type==='OZON_UI_APPLY_REQUEST'),false);
 });
 
 test('warehouse pending automatic write suppresses the page-open read check', () => {
@@ -3375,4 +3416,109 @@ test('queued automatic Ozon check retries its request without starting a second 
         sentMessages.filter(message => message.type === 'OZON_RESOLVE_PREVIEW_REQUEST').length,
         2
     );
+});
+
+test('automatic Ozon sold cleanup inspects, deletes, then adds new assembly barcode', async () => {
+    const sent = [], calls = [];
+    const ctx = loadContentContext(createDocumentStub({ headers: [] }), {
+        windowLocation: { origin:'https://seller.ozon.ru',href:'https://seller.ozon.ru/app/products?search=42739090' },
+        runtime: {lastError:null,sendMessage(message,callback){sent.push(message);callback?.({ok:true});}}
+    });
+    ctx.window.__TAB_WANDERER_OZON_ISOLATED_API__ = {
+        inspectSoldOzonBarcodes: async ({barcodes}) => {calls.push(['inspect', [...barcodes]]);return {ok:true,checkedCount:barcodes.length,present:['2415152']};},
+        removeConfirmedOzonBarcodes: async ({barcodes,confirmedSoldInspection}) => {calls.push(['delete',[...barcodes],confirmedSoldInspection]);return {ok:true,removedCount:1,verifiedCount:1};},
+        applyOzonBarcodesWithFallback: async ({barcodes}) => {calls.push(['add',[...barcodes]]);return {ok:true,addedCount:1,verifiedCount:1,barcodes};}
+    };
+    ctx.dispatchOzonApplyWithSoldCleanup('42739090',['7777777'],['2415152','7777777'],'123456','321');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls.map(row=>row[0]),['inspect','delete','add']);
+    assert.deepEqual(calls[0][1],['2415152']);
+    assert.equal(calls[1][2], true);
+    const applied = sent.filter(row=>row.type==='OZON_UI_APPLY_RESULT').at(-1);
+    assert.equal(applied?.soldCleanup?.removed,1);
+    assert.equal(applied?.ok,true);
+});
+
+test('failed sold cleanup never repeats deletion and still adds the new barcode', async () => {
+    const sent=[],calls=[];
+    const ctx=loadContentContext(createDocumentStub({headers:[]}),{
+        windowLocation:{origin:'https://seller.ozon.ru',href:'https://seller.ozon.ru/app/products?search=42739090'},
+        runtime:{lastError:null,sendMessage(message,cb){sent.push(message);cb?.({ok:true});}}
+    });
+    ctx.window.__TAB_WANDERER_OZON_ISOLATED_API__={
+        inspectSoldOzonBarcodes:async ()=>({ok:true,checkedCount:1,present:['2415152']}),
+        removeConfirmedOzonBarcodes:async ()=>{calls.push('delete');return {ok:false,error:'verification failed'};},
+        applyOzonBarcodesWithFallback:async ()=>{calls.push('add');return {ok:true,addedCount:1,verifiedCount:1,barcodes:['7777777']};}
+    };
+    ctx.dispatchOzonApplyWithSoldCleanup('42739090',['7777777'],['2415152'],'123456','321');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(calls,['delete','add']);
+    const applied=sent.filter(row=>row.type==='OZON_UI_APPLY_RESULT').at(-1);
+    assert.equal(applied.ok,true);
+    assert.match(applied.soldCleanup.error,/verification failed/);
+});
+
+test('more than 500 sold codes are inspected in chunks but deleted in one batch', async () => {
+    const calls=[];
+    const ctx=loadContentContext(createDocumentStub({headers:[]}),{
+        windowLocation:{origin:'https://seller.ozon.ru',href:'https://seller.ozon.ru/app/products?search=42739090'},
+        runtime:{lastError:null,sendMessage(_message,cb){cb?.({ok:true});}}
+    });
+    const sold=Array.from({length:501},(_,i)=>String(1000000+i));
+    ctx.window.__TAB_WANDERER_OZON_ISOLATED_API__={
+        inspectSoldOzonBarcodes:async ({barcodes})=>{
+            calls.push(['inspect',barcodes.length]);
+            return {ok:true,checkedCount:barcodes.length,present:barcodes.length===500?[barcodes[0]]:[barcodes[0]]};
+        },
+        removeConfirmedOzonBarcodes:async ({barcodes})=>{
+            calls.push(['delete',[...barcodes]]);return {ok:true,removedCount:2,verifiedCount:2};
+        },
+        applyOzonBarcodesWithFallback:async ()=>{calls.push(['add']);return {ok:true,addedCount:1,verifiedCount:1};}
+    };
+    ctx.dispatchOzonApplyWithSoldCleanup('42739090',['7777777'],sold,'123456','321');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(calls.map(x=>x[0]),['inspect','inspect','delete','add']);
+    assert.deepEqual(calls.slice(0,2).map(x=>x[1]),[500,1]);
+    assert.equal(calls[2][1].length,2);
+});
+
+test('on-open Ozon proof skips second catalogue read and deletes before adding', async () => {
+    const sent=[],calls=[];
+    const ctx=loadContentContext(createDocumentStub({headers:[]}),{
+        windowLocation:{origin:'https://seller.ozon.ru',href:'https://seller.ozon.ru/app/products?search=42739090'},
+        runtime:{lastError:null,sendMessage(message,cb){sent.push(message);cb?.({ok:true});}}
+    });
+    ctx.window.__TAB_WANDERER_OZON_ISOLATED_API__={
+        inspectSoldOzonBarcodes:async()=>{throw Error('second catalogue read forbidden');},
+        removeConfirmedOzonBarcodes:async({barcodes})=>{calls.push(['delete',barcodes]);return {ok:true,removedCount:1,verifiedCount:1};},
+        applyOzonBarcodesWithFallback:async({barcodes})=>{calls.push(['add',barcodes]);return {ok:true,addedCount:1,verifiedCount:1,barcodes};}
+    };
+    ctx.dispatchOzonApplyWithSoldCleanup('42739090',['7777777'],['2415152'],'123456','321',true);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(calls.map(row=>row[0]),['delete','add']);
+    assert.equal(sent.find(row=>row.type==='OZON_UI_APPLY_RESULT')?.soldCleanup?.removed,1);
+});
+
+test('warehouse auto cleanup success clears pending manual deletion and announces removed count', () => {
+    const context = loadContentContext(createWarehousePreviewPanelDocumentStub(), {
+        windowLocation:{origin:'https://amperkot.ru',href:'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=4877-181126'},
+        window:{dispatchEvent:()=>{},addEventListener:()=>{}}
+    });
+    vm.runInContext("warehouseSoldCleanupState='ready'; warehouseSoldCleanupPreview=[{productId:'23864778',count:1,entries:[{barcode:'2477479'}]}]", context);
+    context.handleWarehouseRuntimeMessage({type:'OZON_UI_APPLY_RESULT',orderId:'4877-181126',ok:true,
+        soldCleanup:{attempted:true,ok:true,matched:1,removed:1,error:''}},null,()=>{});
+    assert.equal(vm.runInContext('warehouseSoldCleanupState',context),'removed');
+    assert.equal(vm.runInContext('warehouseSoldCleanupRemovedCount',context),1);
+    assert.equal(vm.runInContext('warehouseSoldCleanupPreview.length',context),0);
+});
+
+test('warehouse auto cleanup uncertainty disables manual delete even if Ozon add succeeded', () => {
+    const context = loadContentContext(createWarehousePreviewPanelDocumentStub(), {
+        windowLocation:{origin:'https://amperkot.ru',href:'https://amperkot.ru/web-apps/wh3/#/wh/shop-orders/assembly/4336?order=4877-181126'},
+        window:{dispatchEvent:()=>{},addEventListener:()=>{}}
+    });
+    vm.runInContext("warehouseSoldCleanupState='ready'; warehouseSoldCleanupPreview=[{productId:'23864778',count:1,entries:[{barcode:'2477479'}]}]", context);
+    context.handleWarehouseRuntimeMessage({type:'OZON_UI_APPLY_RESULT',orderId:'4877-181126',ok:true,
+        soldCleanup:{attempted:true,ok:false,matched:1,removed:0,error:'Ozon verification failed'}},null,()=>{});
+    assert.equal(vm.runInContext('warehouseSoldCleanupState',context),'error');
 });

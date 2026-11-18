@@ -218,12 +218,12 @@ function createOzonBindingProductPlan(productGroup, ozonProduct, options = {}) {
 
 
 
-function createOzonBarcodeBindingPreviewProductPlan(productGroup, ozonProductResult = {}) {
+function createOzonBarcodeBindingPreviewProductPlan(productGroup, ozonProductResult = {}, options = {}) {
     const productId = normalizeOzonBindingId(productGroup?.productId);
     const eligibleBarcodeEntries = Array.isArray(productGroup?.eligibleBarcodes) ? productGroup.eligibleBarcodes : [];
     const skippedWarehouseBarcodes = Array.isArray(productGroup?.skippedBarcodes) ? productGroup.skippedBarcodes : [];
 
-    if (eligibleBarcodeEntries.length === 0) {
+    if (eligibleBarcodeEntries.length === 0 && options.allowEmptyWarehouseBarcodes !== true) {
         return {
             status: OZON_BARCODE_BINDING_STATUS.SKIPPED,
             reason: OZON_BARCODE_BINDING_REASONS.NO_ELIGIBLE_BARCODES,
@@ -290,10 +290,11 @@ function createOzonBarcodeBindingPreviewProductPlan(productGroup, ozonProductRes
     };
 }
 
-function createOzonBarcodeBindingPreviewPlan({ warehouseExtraction = {}, ozonProductsByProductId = {} } = {}) {
+function createOzonBarcodeBindingPreviewPlan({ warehouseExtraction = {}, ozonProductsByProductId = {}, allowEmptyWarehouseBarcodes = false } = {}) {
     const productPlans = getOzonBindingProductGroups(warehouseExtraction).map(productGroup => createOzonBarcodeBindingPreviewProductPlan(
         productGroup,
-        ozonProductsByProductId[normalizeOzonBindingId(productGroup.productId)]
+        ozonProductsByProductId[normalizeOzonBindingId(productGroup.productId)],
+        { allowEmptyWarehouseBarcodes }
     ));
 
     return {

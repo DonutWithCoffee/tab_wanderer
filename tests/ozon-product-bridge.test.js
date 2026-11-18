@@ -895,3 +895,30 @@ test('sold cleanup never repeats mutating request if post-write verification fai
     assert.equal(result.ok,false);
     assert.deepEqual(urls,['/api/barcode-delete','/api/sc/barcode-details-by-item-id']);
 });
+
+test('on-open worker uses authenticated catalogue immediately without rendered product DOM', async () => {
+    const calls = [];
+    const context = loadBridgeContext(createDocumentStub(), { window: {
+        __TAB_WANDERER_OZON_SELLER_ID__: '185464',
+        fetch: async (url, init) => {
+            calls.push(url);
+            if (url === '/api/v1/products/list-by-filter') return {
+                ok: true, status: 200, json: async () => ({
+                    products: [{ part_item: { offer_id: '24260137', sku: '1237406094' },
+                        part_barcodes: { barcodes: ['2433878'] } }],
+                    total_count: '1', provider_errors: [], unavailable_parts: []
+                })
+            };
+            return { ok: false, status: 404, json: async () => ({}) };
+        }
+    }});
+    const replies = [];
+    context.window.addEventListener('tab_wanderer:ozon-product-response', event => replies.push(event.detail));
+    context.window.dispatchEvent(new context.CustomEvent('tab_wanderer:ozon-product-request', {
+        detail: { productId: '24260137' }
+    }));
+    await flushAsyncWork(30);
+    assert.equal(calls[0], '/api/v1/products/list-by-filter');
+    assert.equal(replies[0]?.ok, true);
+    assert.equal(replies[0]?.productId, '24260137');
+});
